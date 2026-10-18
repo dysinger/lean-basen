@@ -11,11 +11,6 @@
     # The `codec` dependency, injected as a flake input (its source dir) so the
     # sandboxed `lake build` never `git clone`s it (the `require codec from
     # "<path>"` rewrite in default.nix resolves the dependency locally).
-    #
-    # `dysinger/lean-codec` is currently PRIVATE, so fetching the `github:` input
-    # needs a credential: set `access-tokens = github.com=<token>` in `nix.conf`
-    # (e.g. `gh auth token`) — no `--impure` required. Once public, the
-    # credential is unnecessary.
     codec.url = "github:dysinger/lean-codec";
   };
 
