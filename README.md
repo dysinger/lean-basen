@@ -1,137 +1,63 @@
-# demo — minimal verified Lean 4 project template
+# basen — verified base-N encodings
 
 Copyright 2026 Department of Code LLC.
 SPDX-License-Identifier: AGPL-3.0-or-later
 
-A minimal, self-contained [Lean 4](https://lean-lang.org/) library that
-demonstrates the full verified-to-runnable pipeline: a proved byte-counting
-library (one `lean_lib`) is checked with `lake build` (zero `sorry`) and run
-through a packaged `cli` executable — all driven by
-[Nix flakes](https://nixos.wiki/wiki/Flakes).
+A verified [Lean 4](https://lean-lang.org/) library of base-`N` byte encodings:
+base **2, 4, 8, 10, 16, 32, 64**, each with a `List UInt8 → List UInt8` encoder,
+a `List UInt8 → Option (List UInt8)` decoder, and a proved roundtrip law
+`decode (encode bs) = some bs` — every law `[propext, Quot.sound]`-only, zero
+`sorry`.
 
-This is the Lean counterpart of the `fstar-nix-flake-template`: the same
-`native` / `check` / `cli` target split and the same dependency-injection
-convention (a package is a flake whose _consumers_ pull its source + pre-verified
-artifacts as inputs), adapted to Lake. Start every `lean-*` package from this
-skeleton.
+This is the second leaf off the `codec` core in the Lean ecosystem ordering
+(`codec` → `basen`), porting the four RFC 4648 encodings from `fstar-basen`
+and adding Base2/4/10.
 
-## Getting started
+## Status
 
-```bash
-# 1. Initialize a new Lean project (copies the template into the current dir).
-nix flake init -t github:dysinger/lean-nix-flake-template
+| Base   | RFC     | Alph. / padding                    | Status         |
+| ------ | ------- | ---------------------------------- | -------------- |
+| Base2  | —       | `0`/`1`, 8 chars/byte, MSB-first   | ✅ proven      |
+| Base4  | —       | `0-3`, 4 chars/byte                | ✅ proven      |
+| Base8  | —       | `0-7`, 3 digits/byte               | ✅ proven      |
+| Base10 | —       | `0-9`, 3 digits/byte, no sign      | ✅ proven      |
+| Base16 | 4648 §8 | `0-9A-F` (case-insensitive decode) | ✅ proven      |
+| Base32 | 4648 §6 | `A-Z2-7`, `=` padding              | ⏳ in progress |
+| Base64 | 4648 §4 | `A-Za-z0-9+/`, `=` padding         | ⏳ in progress |
 
-# 2. Rename it (see "Renaming" below): rename the module files, their
-#    `module X` / `namespace X` headers, and the `pname` in default.nix.
+The `BaseN` facade re-exports the per-base modules and dispatches a single
+`BaseN.roundtrip` over an inductive `Base`. Base32/Base64 are in progress;
+see `openspec/changes/lean-basen/tasks.md` (tasks 2.3/2.4).
 
-# 3. Build everything.
-nix build .#native .#cli
-
-# 4. Run the CLI.
-nix run .#cli    # prints `countAcc 0 [0, 1, 0, 2, 0, 1, 0] = 4`; exits 0
-
-# 5. Drop into the dev loop (lean + lake + elan + clang on PATH).
-nix develop
-lake build
-```
-
-## The three build layers
-
-| File            | Responsibility                          | Works without flakes?        |
-| --------------- | --------------------------------------- | ---------------------------- |
-| `flake.nix`     | inputs/outputs + `devShell` only        | no (needs flakes)            |
-| `default.nix`   | builds every target                     | yes (`nix-build` / `import`) |
-| `lakefile.lean` | the Lake build (module roots + targets) | yes (plain `lake` on PATH)   |
-
-`flake.nix` pins nixpkgs and passes plain nixpkgs `lean4` to `default.nix` by
-named argument. `default.nix` runs `lake build` for each target; `lakefile.lean`
-owns the module roots and the `cli` executable. The editor LSP
-(`lean --server`) is a dev-loop aid only — `nix build .#native` is the
-verification gate (a build that encounters a `sorry` fails).
-
-## What the template demonstrates
-
-The example is a **byte-count** library — count the occurrences of a byte value
-in a byte string — split into the same three layers as the F* template, minus
-the Pulse leaf (Pulse is an F*-specific mutable-heap construct with no Lean
-counterpart; in Lean the extractable leaf is the `cli` executable's
-C-extraction seam):
-
-| Module               | Layer          | Purpose                                             |
-| -------------------- | -------------- | --------------------------------------------------- |
-| `Example.Count.Types`| pure spec      | `count` over `UInt8` + `lemma_count_empty`          |
-| `Example.Count`      | pure algorithm | tail-recursive `countAcc` + `countAcc_eq_count`     |
-| `Example.Count.CLI`  | CLI entry      | `main` over a fixed byte string, returns exit status|
-
-- `Example.Count.Types` defines `count b xs` (the number of `b` occurrences)
-  over `UInt8` — the `codec` substrate's element type — and proves the empty
-  base case.
-- `Example.Count` implements a tail-recursive accumulator scan `countAcc` and
-  **proves** `countAcc b xs 0 = count b xs` (the accumulator equals the spec),
-  by induction.
-- `Example.Count.CLI` runs the scan over a fixed
-  `[0, 1, 0, 2, 0, 1, 0]` string (expecting `4` zeros) and exits `0` on a
-  match, `1` otherwise. It is the `cli` executable's `main`.
-
-The example is deliberately small so the *correctness theorem is actually
-proved*, not stated as prose: unlike the F* template's Boyer–Moore example
-(whose deep invariant is left unproved), `countAcc_eq_count` is a short
-induction.
-
-### The omitted Pulse layer
-
-The F* template has a fourth module, `Example.Majority.Pulse`, that re-implements
-the scan over a mutable `Pulse.Lib.Array` and extracts to C via Custard. Lean
-has no Pulse/`#lang-pulse` construct, so this module is intentionally absent;
-its role (the extractable, heap-level leaf) is played by the `cli` executable's
-C-extraction seam. A real `lean-*` package that needs a mutable-array leaf adds
-it back as an `@[extern]` C seam, not as a Pulse module.
-
-- `Example.Count.Types` is the _thing you rename out_. It exists only so a
-  fresh project starts with a compiling, proof-gated library rather than an empty
-  shell.
-
-## Renaming
-
-The template ships with Lean package name `demo` (git repo
-`lean-nix-flake-template`). The placeholder is `demo` rather than `example`
-because `example` is a reserved word in Lean and cannot be a `package` /
-`lean_lib` name. To start a real package, e.g. `vbin` (git repo
-`lean-vbin`):
-
-1. Rename `Example.lean` → `Vbin.lean` and `Example/Count/*.lean` →
-   `Vbin/Count/*.lean` (or your real module names), updating each `module X`
-   / `namespace X` header accordingly.
-2. Edit `lakefile.lean`: `package demo` → `package vbin`, and the
-   `lean_lib demo` `roots := #[`Example]`→`roots := #[`Vbin]`.
-3. Edit `default.nix` and `flake.nix`: `pname = "demo"` → `pname = "vbin"`
-   and the `description`/`name`/`echo` strings.
-4. `git init` and push to the new repo.
-
-## Depending on another `lean-*` package
-
-The stack convention (see the sibling `lean-codec`, `fstar-codec`,
-`fstar-basen`, …) is **dependency injection via flake inputs**: a package pulls
-its dependencies' _source_ and _pre-built library_ as flake inputs, then hands
-them to its own `default.nix`.
-
-In `flake.nix`:
-
-```nix
-inputs = {
-  # … nixpkgs / flake-utils / treefmt-nix …
-  lean-codec.url = "github:dysinger/lean-codec";
-};
-
-# in outputs …:
-codec-src = lean-codec;
-codec-lib = lean-codec.packages.${system}.native;
-```
-
-For the dev loop (no flakes), Lake resolves deps via `require … from git`:
+## Usage
 
 ```lean
-require codec from git "https://github.com/dysinger/lean-codec.git" @ "main"
+import BaseN
+
+#eval BaseN.Base16.encode [0x66, 0x6f, 0x6f]  -- [54,54,54,70,54,70] = "666F6F"
+#eval BaseN.Base16.decode [54,54,54,70,54,70]  -- some [0x66, 0x6f, 0x6f]
+```
+
+## The substrate and proof discipline
+
+Every codec is a pure function over `List UInt8` (the `codec` `Bytes n` element
+type) — no `String`, no opaque buffer, no `@[extern]` C seam. Each `BaseN.BaseX`
+proves `roundtrip : decode (encode bs) = some bs` (the `Option` is the only
+partiality — malformed input returns `none`), and `#print axioms` reports only
+`[propext, Quot.sound]`.
+
+The digit math is done in `Nat` (`UInt8.toNat`) with a thin `UInt8` surface; the
+alphabet is ASCII (48-122, all `< 256`), so `UInt8.ofNat`/`.toNat` are
+transparent. See `AGENTS.md`/`PAPER.md` in the sibling `lean-codec` for the
+two-layer trust-seam posture this package inherits (pure-Lean spec, no Layer-2 C
+here).
+
+## Build
+
+```bash
+nix develop            # lean + lake + elan + clang on PATH
+lake build             # the proof gate: zero `sorry`, zero warnings
+nix build .#native     # the Nix verification gate
 ```
 
 ## License

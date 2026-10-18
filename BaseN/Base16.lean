@@ -4,127 +4,189 @@
 /-
 # BaseN.Base16
 
-RFC 4648 §8 hex encoding: each byte encodes as two uppercase hex characters
-(`0-9A-F`), two hex digits always decode to a byte (no overflow check), and
-there is no padding.
+RFC 4648 §8 hex encoding.  `nibbleToHex` emits **uppercase** (`0-9A-F`), the RFC
+canonical form; `hexToNibble` accepts **any** case (`0-9`, `A-F`, `a-f`),
+identifying `A~a`, `B~b`, … as the RFC permits (RFC 4648 §8: "the letters may be
+uppercase or lowercase").  The bijection is over the 16 nibbles ↔ 16 uppercase
+digits, and `decode` additionally accepts the lowercase forms as aliases, so
 
-Architecture (ported from `fstar-basen`'s `Data.BaseN.Base16`):
+  * `hexToNibble ∘ nibbleToHex = id` on `{0..15}` (the representative bijection)
+  * `decode (encode bs) = some bs` (roundtrip, unconditionally)
 
-  * `nibbleToHex` / `hexToNibble` / `isHexDigit` — the character ↔ nibble
-    (0-15) bijection over `UInt8`.
-  * `encode` — each byte → two uppercase hex chars.
-  * `decode` — parse pairs of hex chars → bytes (`none` on odd length or a
-    non-hex char).
-  * `roundtrip` — `decode (encode bs) = some bs`, by induction on `bs`,
-    `[propext, Quot.sound]`-only.
-
-The digit math is done in `Nat` (`UInt8.toNat`), and re-embedded via
-`UInt8.ofNat`, so the proofs are plain `Nat` arithmetic (`omega` over `/` and
-`%`).
+both hold with `[propext, Quot.sound]` only.  The digit math is done on `Nat`
+(`UInt8.toNat`); the alphabet is ASCII 48-102, all `< 256`, so `UInt8.ofNat`/
+`.toNat` are transparent on every value this module produces.
 -/
 
 namespace BaseN.Base16
 
-/-- `nibbleToHex n` — the uppercase ASCII hex digit for nibble `0 ≤ n ≤ 15`. -/
-def nibbleToHex (n : Nat) : UInt8 :=
-  if n ≤ 9 then UInt8.ofNat (48 + n) else UInt8.ofNat (55 + n)
+/-- The uppercase-hex digit character (an ASCII byte value) for nibble `n`. -/
+def nibbleToHex (n : Nat) : Nat :=
+  if n ≤ 9 then 48 + n else 55 + n
 
-/-- `isHexDigit b` — is `b` an ASCII hex digit (`0-9`, `A-F`, `a-f`)? -/
-def isHexDigit (b : UInt8) : Bool :=
-  let v := b.toNat
-  (48 ≤ v && v ≤ 57) || (65 ≤ v && v ≤ 70) || (97 ≤ v && v ≤ 102)
+/-- `hexToNibble e` — the nibble value of a hex digit, or `16` if invalid. -/
+def hexToNibble (e : Nat) : Nat :=
+  if e ≤ 57 then
+    if 48 ≤ e then e - 48 else 16
+  else if e ≤ 70 then
+    if 65 ≤ e then e - 55 else 16
+  else if e ≤ 102 then
+    if 97 ≤ e then e - 87 else 16
+  else 16
 
-/-- `hexToNibble b` — the nibble value of an ASCII hex digit (0-15). -/
-def hexToNibble (b : UInt8) : Nat :=
-  let v := b.toNat
-  if 48 ≤ v && v ≤ 57 then v - 48
-  else if 65 ≤ v && v ≤ 70 then v - 55
-  else v - 87
+/-- `hexNibbleValid e` — `true` iff `e` is a hex digit. -/
+def hexNibbleValid (e : Nat) : Bool := decide (hexToNibble e ≤ 15)
 
-/-- `encode bs` — encode each byte as two uppercase hex characters. -/
+/-- `fromByte b` / `toByte n` — the `UInt8 ↔ Nat(<256)` correspondence. -/
+def fromByte (b : UInt8) : Nat := b.toNat
+def toByte (n : Nat) : UInt8 := UInt8.ofNat n
+
+/-- `hexToNibble (nibbleToHex n) = n` — the nibble ↔ uppercase-digit bijection. -/
+theorem hexToNibble_nibbleToHex (n : Nat) (hn : n ≤ 15) :
+    hexToNibble (nibbleToHex n) = n := by
+  have hn0 : 0 ≤ n := by omega
+  unfold hexToNibble nibbleToHex
+  by_cases h9 : n ≤ 9
+  · simp only [h9, ite_true]
+    have h1 : 48 + n ≤ 57 := by omega
+    have h2 : 48 ≤ 48 + n := by omega
+    simp only [h1, ite_true, h2, ite_true]
+    omega
+  · simp only [h9, ite_false]
+    have h1 : 55 + n ≤ 70 := by omega
+    have h1' : ¬ 55 + n ≤ 57 := by omega
+    have h2 : 65 ≤ 55 + n := by omega
+    simp only [h1', ite_false, h1, ite_true, h2, ite_true]
+    omega
+
+/-- `nibbleToHex n` is a valid hex digit. -/
+theorem nibbleToHex_valid (n : Nat) (hn : n ≤ 15) : hexNibbleValid (nibbleToHex n) = true := by
+  unfold hexNibbleValid
+  apply decide_eq_true
+  rw [hexToNibble_nibbleToHex n hn]
+  exact hn
+
+/-- `nibbleToHex n < 256` — every hex digit is a single byte. -/
+theorem nibbleToHex_lt_256 (n : Nat) (hn : n ≤ 15) : nibbleToHex n < 256 := by
+  unfold nibbleToHex
+  by_cases h9 : n ≤ 9 <;> simp [h9] <;> omega
+
+-- the Nat-level codec
+
+/-- Encode a byte list as uppercase hex characters (Nat level). -/
+def encodeN (bs : List Nat) : List Nat :=
+  bs.flatMap (fun b => [nibbleToHex (b / 16), nibbleToHex (b % 16)])
+
+/-- Decode pairs of hex chars into bytes (`none` on bad input), Nat level. -/
+def decodeN (bs : List Nat) : Option (List Nat) :=
+  match bs with
+  | [] => some []
+  | hi :: lo :: rest =>
+    if hexNibbleValid hi then
+    if hexNibbleValid lo then
+      let n := hexToNibble hi * 16 + hexToNibble lo
+      match decodeN rest with
+      | some tl => some (n :: tl)
+      | none => none
+    else none
+    else none
+  | _ => none
+
+/-- `decodeN (encodeN [b]) = some [b]`. -/
+theorem decodeN_encodeN_single (b : Nat) (hb : b < 256) :
+    decodeN (encodeN [b]) = some [b] := by
+  have hv16 : b / 16 ≤ 15 := by omega
+  have hvmod16 : b % 16 ≤ 15 := by omega
+  simp [encodeN, decodeN]
+  rw [nibbleToHex_valid (b / 16) hv16, nibbleToHex_valid (b % 16) hvmod16]
+  rw [hexToNibble_nibbleToHex (b / 16) hv16, hexToNibble_nibbleToHex (b % 16) hvmod16]
+  have hdiv : b / 16 * 16 + b % 16 = b := by
+    have h := Nat.div_add_mod b 16
+    rw [Nat.mul_comm] at h
+    exact h
+  simp [hdiv]
+
+/-- `decodeN (encodeN [b] ++ xs) = (b :: ·) <$> decodeN xs`. -/
+theorem decodeN_block (b : Nat) (hb : b < 256) (xs : List Nat) :
+    decodeN (encodeN [b] ++ xs) =
+      match decodeN xs with
+      | some ys => some (b :: ys)
+      | none => none := by
+  have hv16 : b / 16 ≤ 15 := by omega
+  have hvmod16 : b % 16 ≤ 15 := by omega
+  simp [encodeN, decodeN]
+  rw [nibbleToHex_valid (b / 16) hv16, nibbleToHex_valid (b % 16) hvmod16]
+  rw [hexToNibble_nibbleToHex (b / 16) hv16, hexToNibble_nibbleToHex (b % 16) hvmod16]
+  have hdiv : b / 16 * 16 + b % 16 = b := by
+    have h := Nat.div_add_mod b 16
+    rw [Nat.mul_comm] at h
+    exact h
+  simp [hdiv]
+
+/-- `decodeN (encodeN bs) = some bs`, for byte lists (all elements `< 256`). -/
+theorem roundtripN (bs : List Nat) :
+    (∀ b ∈ bs, b < 256) → decodeN (encodeN bs) = some bs := by
+  intro hbs
+  induction bs with
+  | nil => rfl
+  | cons b bs ih =>
+      have hb : b < 256 := hbs b (by simp)
+      have htail : ∀ x ∈ bs, x < 256 := by intro x hx; exact hbs x (by simp [hx])
+      have hcat : encodeN (b :: bs) = encodeN [b] ++ encodeN bs := by
+        simp [encodeN]
+      rw [hcat, decodeN_block b hb (encodeN bs), ih htail]
+
+-- the UInt8 surface
+
+/-- `(toByte (nibbleToHex n)).toNat = nibbleToHex n` — shift via `< 256`. -/
+theorem toByte_nibbleToHex (n : Nat) (hn : n ≤ 15) :
+    (toByte (nibbleToHex n)).toNat = nibbleToHex n := by
+  unfold toByte
+  rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (nibbleToHex_lt_256 n hn)]
+
+/-- Encode a byte list as uppercase hex characters. -/
 def encode (bs : List UInt8) : List UInt8 :=
-  bs.flatMap (fun b =>
-    let v := b.toNat
-    [nibbleToHex (v / 16), nibbleToHex (v % 16)])
+  bs.flatMap (fun b => [toByte (nibbleToHex (b.toNat / 16)), toByte (nibbleToHex (b.toNat % 16))])
 
-/-- `decode bs` — parse pairs of hex digits into bytes (`none` on bad input). -/
+/-- Decode pairs of hex chars into bytes (`none` on bad input). -/
 def decode (bs : List UInt8) : Option (List UInt8) :=
   match bs with
   | [] => some []
   | hi :: lo :: rest =>
-    if isHexDigit hi && isHexDigit lo then
-      let n := hexToNibble hi * 16 + hexToNibble lo
+    if hexNibbleValid hi.toNat then
+    if hexNibbleValid lo.toNat then
+      let n := hexToNibble hi.toNat * 16 + hexToNibble lo.toNat
       match decode rest with
-      | some tl => some (UInt8.ofNat n :: tl)
+      | some tl => some (toByte n :: tl)
       | none => none
+    else none
     else none
   | _ => none
 
--- character ↔ nibble bijection
-
-theorem nibbleToHex_isHexDigit (n : Nat) (hn : n ≤ 15) :
-    isHexDigit (nibbleToHex n) = true := by
-  simp [isHexDigit, nibbleToHex]
-  by_cases h : n ≤ 9
-  · simp [h]
-    have h1 : 48 ≤ 48 + n := by omega
-    have h2 : 48 + n ≤ 57 := by omega
-    simp [h1, h2]
-  · simp [h]
-    have h1 : 65 ≤ 55 + n := by omega
-    have h2 : 55 + n ≤ 70 := by omega
-    simp [h1, h2]
-
-theorem hexToNibble_nibbleToHex (n : Nat) (hn : n ≤ 15) :
-    hexToNibble (nibbleToHex n) = n := by
-  simp [hexToNibble, nibbleToHex]
-  by_cases h : n ≤ 9
-  · simp [h]
-    have h1 : 48 ≤ 48 + n := by omega
-    have h2 : 48 + n ≤ 57 := by omega
-    simp [h1, h2]
-  · simp [h]
-    have h1 : 65 ≤ 55 + n := by omega
-    have h2 : 55 + n ≤ 70 := by omega
-    simp [h1, h2]
-
-/-- `decode (encode [b]) = some [b]` — the single-byte roundtrip. -/
-theorem encode_single (b : UInt8) :
-    decode (encode [b]) = some [b] := by
-  let v := b.toNat
-  simp [encode, decode]
-  rw [nibbleToHex_isHexDigit (v / 16) (by omega),
-      nibbleToHex_isHexDigit (v % 16) (by omega)]
-  rw [hexToNibble_nibbleToHex (v / 16) (by omega),
-      hexToNibble_nibbleToHex (v % 16) (by omega)]
-  have hlo : v / 16 * 16 + v % 16 = v := by exact Nat.div_add_mod v 16 |>.symm
-  rw [hlo]
-  rfl
-
-/-- `encode` distributes over list append. -/
-theorem encode_append (xs ys : List UInt8) :
-    encode (xs ++ ys) = encode xs ++ encode ys := by
-  induction xs with
-  | nil => rfl
-  | cons x xs ih => simp [encode, ih]
-
-/-- `decode (encode bs) = some bs` — the full roundtrip. -/
+/-- `decode (encode bs) = some bs` — the full roundtrip, `UInt8` level. -/
 theorem roundtrip (bs : List UInt8) :
     decode (encode bs) = some bs := by
   induction bs with
   | nil => rfl
   | cons b bs ih =>
-    rw [encode_append [b] bs]
-    -- decode (encode [b] ++ encode bs)
-    let v := b.toNat
-    -- encode [b] = [nibbleToHex (v/16), nibbleToHex (v%16)]
-    rw [encode]  -- hmm, need to unfold the single-element encode
-    simp [encode]
-    rw [nibbleToHex_isHexDigit (v / 16) (by omega),
-        nibbleToHex_isHexDigit (v % 16) (by omega)]
-    rw [hexToNibble_nibbleToHex (v / 16) (by omega),
-        hexToNibble_nibbleToHex (v % 16) (by omega)]
-    rw [ih]
-    have hlo : v / 16 * 16 + v % 16 = v := by exact Nat.div_add_mod v 16 |>.symm
-    rw [hlo]
-    rfl
+      have hlt : b.toNat < 256 := by simpa using UInt8.toNat_lt b
+      have hv16 : b.toNat / 16 ≤ 15 := by omega
+      have hvmod16 : b.toNat % 16 ≤ 15 := by omega
+      have hcat : encode (b :: bs) = encode [b] ++ encode bs := by simp [encode]
+      rw [hcat]
+      change decode (encode [b] ++ encode bs) = some (b :: bs)
+      -- encode [b] = [toByte (nibbleToHex (b.toNat/16)), toByte (nibbleToHex (b.toNat%16))]
+      change decode ([toByte (nibbleToHex (b.toNat / 16)), toByte (nibbleToHex (b.toNat % 16))] ++ encode bs) = some (b :: bs)
+      simp [decode]
+      rw [toByte_nibbleToHex (b.toNat / 16) hv16, toByte_nibbleToHex (b.toNat % 16) hvmod16]
+      rw [nibbleToHex_valid (b.toNat / 16) hv16, nibbleToHex_valid (b.toNat % 16) hvmod16]
+      rw [hexToNibble_nibbleToHex (b.toNat / 16) hv16, hexToNibble_nibbleToHex (b.toNat % 16) hvmod16]
+      have hdiv : b.toNat / 16 * 16 + b.toNat % 16 = b.toNat := by
+        have h := Nat.div_add_mod b.toNat 16
+        rw [Nat.mul_comm] at h
+        exact h
+      rw [hdiv]
+      rw [ih]
+      simp [toByte, UInt8.ofNat_toNat]
+
+end BaseN.Base16

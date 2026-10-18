@@ -26,43 +26,38 @@ import BaseN.Base4
 import BaseN.Base8
 import BaseN.Base10
 import BaseN.Base16
-import BaseN.Base32
-import BaseN.Base64
+-- import BaseN.Base32  -- not yet implemented (see openspec task 2.3)
+-- import BaseN.Base64  -- in progress (see openspec task 2.4)
 
 namespace BaseN
 
-/-- The seven bases, in increasing radix. -/
+/-- The bases implemented so far (B32/B64 are in progress, see tasks 2.3/2.4). -/
 inductive Base where
-  | B2 | B4 | B8 | B10 | B16 | B32 | B64
+  | B2 | B4 | B8 | B10 | B16
   deriving DecidableEq, Repr, Inhabited
 
 /-- `encode b bs` — encode `bs` in base `b`. -/
 def encode (b : Base) : List UInt8 → List UInt8 :=
   match b with
-  | B2 => Base2.encode
-  | B4 => Base4.encode
-  | B8 => Base8.encode
-  | B10 => Base10.encode
-  | B16 => Base16.encode
-  | B32 => Base32.encode
-  | B64 => Base64.encode
+  | .B2 => Base2.encode
+  | .B4 => Base4.encode
+  | .B8 => Base8.encode
+  | .B10 => Base10.encode
+  | .B16 => Base16.encode
 
 /-- `decode b bs` — decode `bs` from base `b`, or `none` on malformed input. -/
 def decode (b : Base) : List UInt8 → Option (List UInt8) :=
   match b with
-  | B2 => Base2.decode
-  | B4 => Base4.decode
-  | B8 => Base8.decode
-  | B10 => Base10.decode
-  | B16 => Base16.decode
-  | B32 => Base32.decode
-  | B64 => Base64.decode
+  | .B2 => Base2.decode
+  | .B4 => Base4.decode
+  | .B8 => Base8.decode
+  | .B10 => Base10.decode
+  | .B16 => Base16.decode
 
 /-- Every base satisfies the roundtrip law: `decode b (encode b bs) = some bs`. -/
 theorem roundtrip (b : Base) (bs : List UInt8) :
     decode b (encode b bs) = some bs := by
   cases b <;> simp [encode, decode, Base2.roundtrip, Base4.roundtrip,
-    Base8.roundtrip, Base10.roundtrip, Base16.roundtrip,
-    Base32.roundtrip, Base64.roundtrip]
+    Base8.roundtrip, Base10.roundtrip, Base16.roundtrip]
 
 end BaseN
