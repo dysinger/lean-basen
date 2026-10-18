@@ -174,18 +174,22 @@ def decodeN (bs : List Nat) : Option (List Nat) :=
       let v1 := b64ToVal c1
       let b0 := v0 * 4 + v1 / 16
       if c2 = 61 && c3 = 61 then
-        match decodeN rest with
-        | some tl => some (b0 :: tl)
-        | none => none
+        if rest = [] then
+          match decodeN rest with
+          | some tl => some (b0 :: tl)
+          | none => none
+        else none
       else if c2 = 61 then none
       else if ¬ b64Valid c2 then none
       else
         let v2 := b64ToVal c2
         let b1 := (v1 % 16) * 16 + v2 / 4
         if c3 = 61 then
-          match decodeN rest with
-          | some tl => some (b0 :: b1 :: tl)
-          | none => none
+          if rest = [] then
+            match decodeN rest with
+            | some tl => some (b0 :: b1 :: tl)
+            | none => none
+          else none
         else if ¬ b64Valid c3 then none
         else
           let v3 := b64ToVal c3
@@ -205,18 +209,22 @@ theorem decodeN_cons4 (c0 c1 c2 c3 : Nat) (rest : List Nat) :
         let v1 := b64ToVal c1
         let b0 := v0 * 4 + v1 / 16
         if c2 = 61 && c3 = 61 then
-          match decodeN rest with
-          | some tl => some (b0 :: tl)
-          | none => none
+          if rest = [] then
+            match decodeN rest with
+            | some tl => some (b0 :: tl)
+            | none => none
+          else none
         else if c2 = 61 then none
         else if ¬ b64Valid c2 then none
         else
           let v2 := b64ToVal c2
           let b1 := (v1 % 16) * 16 + v2 / 4
           if c3 = 61 then
-            match decodeN rest with
-            | some tl => some (b0 :: b1 :: tl)
-            | none => none
+            if rest = [] then
+              match decodeN rest with
+              | some tl => some (b0 :: b1 :: tl)
+              | none => none
+            else none
           else if ¬ b64Valid c3 then none
           else
             let v3 := b64ToVal c3
@@ -428,18 +436,22 @@ def decode (bs : List UInt8) : Option (List UInt8) :=
       let v1 := b64ToVal c1.toNat
       let b0 := v0 * 4 + v1 / 16
       if c2.toNat = 61 && c3.toNat = 61 then
-        match decode rest with
-        | some tl => some (toByte b0 :: tl)
-        | none => none
+        if rest = [] then
+          match decode rest with
+          | some tl => some (toByte b0 :: tl)
+          | none => none
+        else none
       else if c2.toNat = 61 then none
       else if ¬ b64Valid c2.toNat then none
       else
         let v2 := b64ToVal c2.toNat
         let b1 := (v1 % 16) * 16 + v2 / 4
         if c3.toNat = 61 then
-          match decode rest with
-          | some tl => some (toByte b0 :: toByte b1 :: tl)
-          | none => none
+          if rest = [] then
+            match decode rest with
+            | some tl => some (toByte b0 :: toByte b1 :: tl)
+            | none => none
+          else none
         else if ¬ b64Valid c3.toNat then none
         else
           let v3 := b64ToVal c3.toNat
@@ -459,18 +471,22 @@ theorem decode_cons4 (c0 c1 c2 c3 : UInt8) (rest : List UInt8) :
         let v1 := b64ToVal c1.toNat
         let b0 := v0 * 4 + v1 / 16
         if c2.toNat = 61 && c3.toNat = 61 then
-          match decode rest with
-          | some tl => some (toByte b0 :: tl)
-          | none => none
+          if rest = [] then
+            match decode rest with
+            | some tl => some (toByte b0 :: tl)
+            | none => none
+          else none
         else if c2.toNat = 61 then none
         else if ¬ b64Valid c2.toNat then none
         else
           let v2 := b64ToVal c2.toNat
           let b1 := (v1 % 16) * 16 + v2 / 4
           if c3.toNat = 61 then
-            match decode rest with
-            | some tl => some (toByte b0 :: toByte b1 :: tl)
-            | none => none
+            if rest = [] then
+              match decode rest with
+              | some tl => some (toByte b0 :: toByte b1 :: tl)
+              | none => none
+            else none
           else if ¬ b64Valid c3.toNat then none
           else
             let v3 := b64ToVal c3.toNat
