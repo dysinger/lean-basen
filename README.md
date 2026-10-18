@@ -15,19 +15,21 @@ and adding Base2/4/10.
 
 ## Status
 
-| Base   | RFC     | Alph. / padding                    | Status         |
-| ------ | ------- | ---------------------------------- | -------------- |
-| Base2  | —       | `0`/`1`, 8 chars/byte, MSB-first   | ✅ proven      |
-| Base4  | —       | `0-3`, 4 chars/byte                | ✅ proven      |
-| Base8  | —       | `0-7`, 3 digits/byte               | ✅ proven      |
-| Base10 | —       | `0-9`, 3 digits/byte, no sign      | ✅ proven      |
-| Base16 | 4648 §8 | `0-9A-F` (case-insensitive decode) | ✅ proven      |
-| Base32 | 4648 §6 | `A-Z2-7`, `=` padding              | ⏳ in progress |
-| Base64 | 4648 §4 | `A-Za-z0-9+/`, `=` padding         | ⏳ in progress |
+| Base   | RFC     | Alph. / padding                    | Status    |
+| ------ | ------- | ---------------------------------- | --------- |
+| Base2  | —       | `0`/`1`, 8 chars/byte, MSB-first   | ✅ proven |
+| Base4  | —       | `0-3`, 4 chars/byte                | ✅ proven |
+| Base8  | —       | `0-7`, 3 digits/byte               | ✅ proven |
+| Base10 | —       | `0-9`, 3 digits/byte, no sign      | ✅ proven |
+| Base16 | 4648 §8 | `0-9A-F` (case-insensitive decode) | ✅ proven |
+| Base32 | 4648 §6 | `A-Z2-7`, `=` padding              | ✅ proven |
+| Base64 | 4648 §4 | `A-Za-z0-9+/`, `=` padding         | ✅ proven |
 
 The `BaseN` facade re-exports the per-base modules and dispatches a single
-`BaseN.roundtrip` over an inductive `Base`. Base32/Base64 are in progress;
-see `openspec/changes/lean-basen/tasks.md` (tasks 2.3/2.4).
+`BaseN.roundtrip` over an inductive `Base` covering all seven bases.
+`Bench.lean` (the `bench` executable) value-checks each base byte-for-byte
+against RFC 4648 §10 (16/32/64) and hand vectors (2/4/8/10), plus the
+roundtrip laws.
 
 ## Usage
 
