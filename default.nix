@@ -20,6 +20,7 @@
   lean4,
   lib,
   stdenv,
+  codecSrc ? null,
 }:
 
 let
@@ -62,6 +63,21 @@ let
         };
       buildPhase = ''
         runHook preBuild
+        # Inject the `codec` dependency as a local path dependency when a
+        # flake input provides its source (the no-flakes `import ./default.nix`
+        # loop leaves `require codec from git` untouched). The path form makes
+        # Lake resolve the package directly, so the sandbox needs no `git` or
+        # network (see flake.nix / the `ecosystem` dependency-injection spec).
+        # The injected source is a read-only store path, so copy it into the
+        # (writable) build sandbox for Lake to build its `.lake` into.
+        ${lib.optionalString (codecSrc != null) ''
+          cp -r "${codecSrc}" ./codec-src
+          chmod -R u+w ./codec-src
+          substituteInPlace lakefile.lean \
+            --replace-quiet \
+              'require codec from git "https://github.com/dysinger/lean-codec.git" @ "master"' \
+              'require codec from "./codec-src"'
+        ''}
         lake build ${targets}
         runHook postBuild
       '';
