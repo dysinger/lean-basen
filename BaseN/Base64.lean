@@ -15,7 +15,12 @@ All digit math is `Nat`-level; the alphabet is ASCII, every produced byte is
 `< 256`.  `[propext, Quot.sound]`-only, zero `sorry`.
 -/
 
+import BaseN.Common
+
 namespace BaseN.Base64
+
+open Codec
+open BaseN.Common
 
 /-- `valToB64 i` — the base64 alphabet character for `i ∈ {0..63}`. -/
 def valToB64 (i : Nat) : Nat :=
@@ -149,468 +154,390 @@ theorem byte2 (v1 v2 : Nat) (_hv1 : v1 < 256) (hv2 : v2 < 256) :
     have h := Nat.div_add_mod v2 64
     simpa [Nat.mul_comm] using h
   omega
+-- character reconstruction
 
--- Nat-level codec
+/-- `b64Valid e = true` implies `b64ToVal e ≤ 63`. -/
+theorem b64Valid_of_decide (e : Nat) (h : b64Valid e = true) : b64ToVal e ≤ 63 :=
+  of_decide_eq_true (by simpa [b64Valid] using h)
 
-/-- Encode a byte list as base64 (Nat level), RFC 4648 §4 with `=` padding. -/
-def encodeN (bs : List Nat) : List Nat :=
-  match bs with
-  | [] => []
-  | b0 :: b1 :: b2 :: rest =>
-    [valToB64 (b0 / 4), valToB64 ((b0 % 4) * 16 + b1 / 16),
-     valToB64 ((b1 % 16) * 4 + b2 / 64), valToB64 (b2 % 64)] ++ encodeN rest
-  | [b0] => [valToB64 (b0 / 4), valToB64 ((b0 % 4) * 16), 61, 61]
-  | [b0, b1] => [valToB64 (b0 / 4), valToB64 ((b0 % 4) * 16 + b1 / 16), valToB64 ((b1 % 16) * 4), 61]
-
-/-- Decode 4-char groups of base64 into bytes (`none` on bad input), Nat level. -/
-def decodeN (bs : List Nat) : Option (List Nat) :=
-  match bs with
-  | [] => some []
-  | c0 :: c1 :: c2 :: c3 :: rest =>
-    if c0 = 61 || c1 = 61 then none
-    else if ¬ b64Valid c0 || ¬ b64Valid c1 then none
-    else
-      let v0 := b64ToVal c0
-      let v1 := b64ToVal c1
-      let b0 := v0 * 4 + v1 / 16
-      if c2 = 61 && c3 = 61 then
-        if rest = [] then
-          match decodeN rest with
-          | some tl => some (b0 :: tl)
-          | none => none
-        else none
-      else if c2 = 61 then none
-      else if ¬ b64Valid c2 then none
-      else
-        let v2 := b64ToVal c2
-        let b1 := (v1 % 16) * 16 + v2 / 4
-        if c3 = 61 then
-          if rest = [] then
-            match decodeN rest with
-            | some tl => some (b0 :: b1 :: tl)
-            | none => none
-          else none
-        else if ¬ b64Valid c3 then none
-        else
-          let v3 := b64ToVal c3
-          let b2 := (v2 % 4) * 64 + v3
-          match decodeN rest with
-          | some tl => some (b0 :: b1 :: b2 :: tl)
-          | none => none
-  | _ => none
-
-/-- `decodeN (c0::c1::c2::c3::rest)` — the 4-char group case, stated equationally. -/
-theorem decodeN_cons4 (c0 c1 c2 c3 : Nat) (rest : List Nat) :
-    decodeN (c0 :: c1 :: c2 :: c3 :: rest) =
-      if c0 = 61 || c1 = 61 then none
-      else if ¬ b64Valid c0 || ¬ b64Valid c1 then none
-      else
-        let v0 := b64ToVal c0
-        let v1 := b64ToVal c1
-        let b0 := v0 * 4 + v1 / 16
-        if c2 = 61 && c3 = 61 then
-          if rest = [] then
-            match decodeN rest with
-            | some tl => some (b0 :: tl)
-            | none => none
-          else none
-        else if c2 = 61 then none
-        else if ¬ b64Valid c2 then none
-        else
-          let v2 := b64ToVal c2
-          let b1 := (v1 % 16) * 16 + v2 / 4
-          if c3 = 61 then
-            if rest = [] then
-              match decodeN rest with
-              | some tl => some (b0 :: b1 :: tl)
-              | none => none
-            else none
-          else if ¬ b64Valid c3 then none
-          else
-            let v3 := b64ToVal c3
-            let b2 := (v2 % 4) * 64 + v3
-            match decodeN rest with
-            | some tl => some (b0 :: b1 :: b2 :: tl)
-            | none => none :=
-  rfl
-
-/-- `decodeN (encodeN [b0]) = some [b0]` (1-byte tail, two pads). -/
-theorem decodeN_encodeN_single (b0 : Nat) (hb0 : b0 < 256) :
-    decodeN (encodeN [b0]) = some [b0] := by
-  have h0 : b0 / 4 ≤ 63 := by omega
-  have h1 : (b0 % 4) * 16 ≤ 63 := by omega
-  have hnp0 : valToB64 (b0 / 4) ≠ 61 := valToB64_not_pad (b0 / 4) h0
-  have hnp1 : valToB64 ((b0 % 4) * 16) ≠ 61 := valToB64_not_pad ((b0 % 4) * 16) h1
-  have hvalid0 : b64Valid (valToB64 (b0 / 4)) = true := valToB64_valid (b0 / 4) h0
-  have hvalid1 : b64Valid (valToB64 ((b0 % 4) * 16)) = true := valToB64_valid ((b0 % 4) * 16) h1
-  have hsum : (b0 / 4) * 4 + (((b0 % 4) * 16) / 16) = b0 := by
-    have hbd : ((b0 % 4) * 16) / 16 = b0 % 4 := Nat.mul_div_left (b0 % 4) (by decide : 0 < 16)
-    have hdiv := Nat.div_add_mod b0 4
-    omega
-  unfold encodeN decodeN
-  rw [hvalid0, hvalid1]
-  rw [b64ToVal_valToB64 (b0 / 4) h0, b64ToVal_valToB64 ((b0 % 4) * 16) h1]
-  simp only [hnp0, hnp1]
-  rw [hsum]
-  simp [decodeN]
-
-/-- `decodeN (encodeN [b0; b1]) = some [b0; b1]` (2-byte tail, one pad). -/
-theorem decodeN_encodeN_pair (b0 b1 : Nat) (hb0 : b0 < 256) (hb1 : b1 < 256) :
-    decodeN (encodeN [b0, b1]) = some [b0, b1] := by
-  have h0 : b0 / 4 ≤ 63 := by omega
-  have h1 : (b0 % 4) * 16 + b1 / 16 ≤ 63 := by omega
-  have h2 : (b1 % 16) * 4 ≤ 63 := by omega
-  have hnp0 : valToB64 (b0 / 4) ≠ 61 := valToB64_not_pad (b0 / 4) h0
-  have hnp1 : valToB64 ((b0 % 4) * 16 + b1 / 16) ≠ 61 := valToB64_not_pad _ h1
-  have hnp2 : valToB64 ((b1 % 16) * 4) ≠ 61 := valToB64_not_pad _ h2
-  have hvalid0 : b64Valid (valToB64 (b0 / 4)) = true := valToB64_valid (b0 / 4) h0
-  have hvalid1 : b64Valid (valToB64 ((b0 % 4) * 16 + b1 / 16)) = true := valToB64_valid _ h1
-  have hvalid2 : b64Valid (valToB64 ((b1 % 16) * 4)) = true := valToB64_valid _ h2
-  have hb0v : (b0 / 4) * 4 + (((b0 % 4) * 16 + b1 / 16) / 16) = b0 := byte0 b0 b1 hb0 hb1
-  have hb1v : (((b0 % 4) * 16 + b1 / 16) % 16) * 16 + (((b1 % 16) * 4) / 4) = b1 := byte1 b0 b1 hb0 hb1
-  unfold encodeN decodeN
-  rw [hvalid0, hvalid1]
-  rw [b64ToVal_valToB64 (b0 / 4) h0, b64ToVal_valToB64 ((b0 % 4) * 16 + b1 / 16) h1]
-  simp only [hnp0, hnp1]
-  rw [hb0v]
-  rw [hvalid2]
-  rw [b64ToVal_valToB64 ((b1 % 16) * 4) h2]
-  simp only [hnp2]
-  rw [hb1v]
-  simp [decodeN]
-
-/-- `decodeN (encodeN [b0; b1; b2]) = some [b0; b1; b2]` (3-byte block). -/
-theorem decodeN_encodeN_triple (b0 b1 b2 : Nat) (hb0 : b0 < 256) (hb1 : b1 < 256) (hb2 : b2 < 256) :
-    decodeN (encodeN [b0, b1, b2]) = some [b0, b1, b2] := by
-  have h0 : b0 / 4 ≤ 63 := by omega
-  have h1 : (b0 % 4) * 16 + b1 / 16 ≤ 63 := by omega
-  have h2 : (b1 % 16) * 4 + b2 / 64 ≤ 63 := by omega
-  have h3 : b2 % 64 ≤ 63 := by omega
-  have hnp0 : valToB64 (b0 / 4) ≠ 61 := valToB64_not_pad (b0 / 4) h0
-  have hnp1 : valToB64 ((b0 % 4) * 16 + b1 / 16) ≠ 61 := valToB64_not_pad _ h1
-  have hnp2 : valToB64 ((b1 % 16) * 4 + b2 / 64) ≠ 61 := valToB64_not_pad _ h2
-  have hnp3 : valToB64 (b2 % 64) ≠ 61 := valToB64_not_pad (b2 % 64) h3
-  have hvalid0 : b64Valid (valToB64 (b0 / 4)) = true := valToB64_valid (b0 / 4) h0
-  have hvalid1 : b64Valid (valToB64 ((b0 % 4) * 16 + b1 / 16)) = true := valToB64_valid _ h1
-  have hvalid2 : b64Valid (valToB64 ((b1 % 16) * 4 + b2 / 64)) = true := valToB64_valid _ h2
-  have hvalid3 : b64Valid (valToB64 (b2 % 64)) = true := valToB64_valid (b2 % 64) h3
-  have hb0v : (b0 / 4) * 4 + (((b0 % 4) * 16 + b1 / 16) / 16) = b0 := byte0 b0 b1 hb0 hb1
-  have hb1v : (((b0 % 4) * 16 + b1 / 16) % 16) * 16 + (((b1 % 16) * 4 + b2 / 64) / 4) = b1 := by
-    have hmod16 : ((b0 % 4) * 16 + b1 / 16) % 16 = b1 / 16 := by
-      have h := Nat.add_mul_mod_self_right (b0 % 4) (b1 / 16) 16
-      omega
-    have hdiv4 : ((b1 % 16) * 4 + b2 / 64) / 4 = b1 % 16 := by
-      have h := Nat.add_mul_div_left (b2 / 64) (b1 % 16) (by decide : 0 < 4)
-      have hz : b2 / 64 / 4 = 0 := Nat.div_eq_of_lt (by omega)
-      omega
-    have hsum := Nat.div_add_mod b1 16
-    omega
-  have hb2v : (((b1 % 16) * 4 + b2 / 64) % 4) * 64 + (b2 % 64) = b2 := byte2 b1 b2 hb1 hb2
-  show decodeN ([valToB64 (b0 / 4), valToB64 ((b0 % 4) * 16 + b1 / 16),
-      valToB64 ((b1 % 16) * 4 + b2 / 64), valToB64 (b2 % 64)] ++ encodeN []) = some [b0, b1, b2]
-  simp only [encodeN, List.append_nil]
-  unfold decodeN
-  rw [hvalid0, hvalid1]
-  rw [b64ToVal_valToB64 (b0 / 4) h0, b64ToVal_valToB64 ((b0 % 4) * 16 + b1 / 16) h1]
-  simp only [hnp0, hnp1]
-  rw [hb0v]
-  rw [hvalid2]
-  rw [b64ToVal_valToB64 ((b1 % 16) * 4 + b2 / 64) h2]
-  simp only [hnp2]
-  rw [hb1v]
-  rw [hvalid3]
-  rw [b64ToVal_valToB64 (b2 % 64) h3]
-  simp only [hnp3]
-  rw [hb2v]
-  simp [decodeN]
-
-/-- `decodeN (encodeN(b0::b1::b2::rest)) = (b0::b1::b2::·) <$> decodeN (encodeN rest)`. -/
-theorem decodeN_block (b0 b1 b2 : Nat) (hb0 : b0 < 256) (hb1 : b1 < 256) (hb2 : b2 < 256)
-    (rest : List Nat) :
-    decodeN (encodeN (b0 :: b1 :: b2 :: rest)) =
-      match decodeN (encodeN rest) with
-      | some ys => some (b0 :: b1 :: b2 :: ys)
-      | none => none := by
-  have h0 : b0 / 4 ≤ 63 := by omega
-  have h1 : (b0 % 4) * 16 + b1 / 16 ≤ 63 := by omega
-  have h2 : (b1 % 16) * 4 + b2 / 64 ≤ 63 := by omega
-  have h3 : b2 % 64 ≤ 63 := by omega
-  have hnp0 : valToB64 (b0 / 4) ≠ 61 := valToB64_not_pad (b0 / 4) h0
-  have hnp1 : valToB64 ((b0 % 4) * 16 + b1 / 16) ≠ 61 := valToB64_not_pad _ h1
-  have hnp2 : valToB64 ((b1 % 16) * 4 + b2 / 64) ≠ 61 := valToB64_not_pad _ h2
-  have hnp3 : valToB64 (b2 % 64) ≠ 61 := valToB64_not_pad (b2 % 64) h3
-  have hvalid0 : b64Valid (valToB64 (b0 / 4)) = true := valToB64_valid (b0 / 4) h0
-  have hvalid1 : b64Valid (valToB64 ((b0 % 4) * 16 + b1 / 16)) = true := valToB64_valid _ h1
-  have hvalid2 : b64Valid (valToB64 ((b1 % 16) * 4 + b2 / 64)) = true := valToB64_valid _ h2
-  have hvalid3 : b64Valid (valToB64 (b2 % 64)) = true := valToB64_valid (b2 % 64) h3
-  have hb0v : (b0 / 4) * 4 + (((b0 % 4) * 16 + b1 / 16) / 16) = b0 := byte0 b0 b1 hb0 hb1
-  have hb1v : (((b0 % 4) * 16 + b1 / 16) % 16) * 16 + (((b1 % 16) * 4 + b2 / 64) / 4) = b1 := by
-    have hmod16 : ((b0 % 4) * 16 + b1 / 16) % 16 = b1 / 16 := by
-      have h := Nat.add_mul_mod_self_right (b0 % 4) (b1 / 16) 16
-      omega
-    have hdiv4 : ((b1 % 16) * 4 + b2 / 64) / 4 = b1 % 16 := by
-      have h := Nat.add_mul_div_left (b2 / 64) (b1 % 16) (by decide : 0 < 4)
-      have hz : b2 / 64 / 4 = 0 := Nat.div_eq_of_lt (by omega)
-      omega
-    have hsum := Nat.div_add_mod b1 16
-    omega
-  have hb2v : (((b1 % 16) * 4 + b2 / 64) % 4) * 64 + (b2 % 64) = b2 := byte2 b1 b2 hb1 hb2
-  show decodeN ([valToB64 (b0 / 4), valToB64 ((b0 % 4) * 16 + b1 / 16),
-      valToB64 ((b1 % 16) * 4 + b2 / 64), valToB64 (b2 % 64)] ++ encodeN rest) =
-    match decodeN (encodeN rest) with
-    | some ys => some (b0 :: b1 :: b2 :: ys)
-    | none => none
-  simp only [List.cons_append, List.nil_append]
-  rw [decodeN_cons4]
-  rw [hvalid0, hvalid1]
-  rw [b64ToVal_valToB64 (b0 / 4) h0, b64ToVal_valToB64 ((b0 % 4) * 16 + b1 / 16) h1]
-  simp only [hnp0, hnp1]
-  rw [hb0v]
-  rw [hvalid2]
-  rw [b64ToVal_valToB64 ((b1 % 16) * 4 + b2 / 64) h2]
-  simp only [hnp2]
-  rw [hb1v]
-  rw [hvalid3]
-  rw [b64ToVal_valToB64 (b2 % 64) h3]
-  simp only [hnp3]
-  rw [hb2v]
-  simp
-
-
-/-- `decodeN (encodeN bs) = some bs`, for byte lists (all elements `< 256`). -/
-theorem roundtripN (bs : List Nat) :
-    (∀ b ∈ bs, b < 256) → decodeN (encodeN bs) = some bs := by
-  intro hbs
-  have h := Nat.strongRecOn (motive := fun n => ∀ (ys : List Nat), ys.length = n →
-      (∀ b ∈ ys, b < 256) → decodeN (encodeN ys) = some ys)
-    bs.length (fun n ih ys hlen hys => by
-      cases ys with
-      | nil => rfl
-      | cons b bs =>
-          cases bs with
-          | nil => exact decodeN_encodeN_single b (hys b (by simp))
-          | cons b1 bs =>
-              cases bs with
-              | nil => exact decodeN_encodeN_pair b b1 (hys b (by simp)) (hys b1 (by simp))
-              | cons b2 rest =>
-                  have hb : b < 256 := hys b (by simp)
-                  have hb1 : b1 < 256 := hys b1 (by simp)
-                  have hb2 : b2 < 256 := hys b2 (by simp)
-                  have hrest : ∀ x ∈ rest, x < 256 := by intro x hx; exact hys x (by simp [hx])
-                  rw [decodeN_block b b1 b2 hb hb1 hb2 rest]
-                  have hlen' : rest.length < n := by
-                    have hlt : rest.length < (b :: b1 :: b2 :: rest).length := by
-                      simp only [List.length_cons]
-                      omega
-                    rw [hlen] at hlt
-                    exact hlt
-                  rw [ih rest.length hlen' rest rfl hrest])
-  exact h bs rfl hbs
-
--- UInt8 surface
-
+/-- `(toByte (valToB64 i)).toNat = valToB64 i`. -/
 private theorem toByte_valToB64 (i : Nat) (hi : i ≤ 63) :
     (toByte (valToB64 i)).toNat = valToB64 i := by
   unfold toByte
   rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (valToB64_lt_256 i hi)]
 
-/-- Encode a byte list as base64, RFC 4648 §4 with `=` padding. -/
-def encode (bs : List UInt8) : List UInt8 :=
-  match bs with
-  | [] => []
-  | b0 :: b1 :: b2 :: rest =>
-    [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
-     toByte (valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)), toByte (valToB64 (b2.toNat % 64))] ++ encode rest
-  | [b0] => [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16)), 61, 61]
-  | [b0, b1] => [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)), toByte (valToB64 ((b1.toNat % 16) * 4)), 61]
+/-- `valToB64 (b64ToVal e) = e` when `e` is a valid base64 character. -/
+theorem valToB64_b64ToVal_of_valid (e : Nat) (h : b64Valid e = true) :
+    valToB64 (b64ToVal e) = e := by
+  have hv : b64ToVal e ≤ 63 := b64Valid_of_decide e h
+  by_cases hle90 : e ≤ 90
+  · by_cases hge65 : 65 ≤ e
+    · have hb : b64ToVal e = e - 65 := by simp [b64ToVal, hle90, hge65]
+      rw [hb]
+      have hle25 : e - 65 ≤ 25 := by omega
+      simp [valToB64, hle25]
+      omega
+    · by_cases hle57 : e ≤ 57
+      · by_cases hge48 : 48 ≤ e
+        · have hb : b64ToVal e = e - 48 + 52 := by simp [b64ToVal, hle90, hge65, hle57, hge48]
+          rw [hb]
+          have hnle25 : ¬ e - 48 + 52 ≤ 25 := by omega
+          have hnle51 : ¬ e - 48 + 52 ≤ 51 := by omega
+          have hle61 : e - 48 + 52 ≤ 61 := by omega
+          simp [valToB64, hnle25, hnle51, hle61]
+          omega
+        · by_cases he43 : e = 43
+          · have hb : b64ToVal e = 62 := by simp [b64ToVal, he43]
+            rw [hb]
+            rw [show valToB64 62 = 43 by decide]
+            exact he43.symm
+          · by_cases he47 : e = 47
+            · have hb : b64ToVal e = 63 := by simp [b64ToVal, he47]
+              rw [hb]
+              rw [show valToB64 63 = 47 by decide]
+              exact he47.symm
+            · have hb : b64ToVal e = 64 := by simp [b64ToVal, hle90, hge65, hle57, hge48, he43, he47]
+              rw [hb] at hv
+              omega
+      · have hb : b64ToVal e = 64 := by simp [b64ToVal, hle90, hge65, hle57]
+        rw [hb] at hv
+        omega
+  · by_cases hge97 : 97 ≤ e
+    · by_cases hle122 : e ≤ 122
+      · have hb : b64ToVal e = e - 97 + 26 := by simp [b64ToVal, hle90, hge97, hle122]
+        rw [hb]
+        have hnle25 : ¬ e - 97 + 26 ≤ 25 := by omega
+        have hle51 : e - 97 + 26 ≤ 51 := by omega
+        simp [valToB64, hnle25, hle51]
+        omega
+      · have hb : b64ToVal e = 64 := by simp [b64ToVal, hle90, hge97, hle122]
+        rw [hb] at hv
+        omega
+    · have hb : b64ToVal e = 64 := by simp [b64ToVal, hle90, hge97]
+      rw [hb] at hv
+      omega
 
-/-- Decode 4-char groups of base64 into bytes (`none` on bad input). -/
-def decode (bs : List UInt8) : Option (List UInt8) :=
+-- pad predicate
+
+/-- Base64 alphabet character or the `=` pad. -/
+def b64OrPad (b : UInt8) : Bool := b64Valid b.toNat || (b.toNat = 61)
+
+-- block unapply (encode) / lenient decode / apply (re-encode-check)
+
+/-- `b64BlockUnapply bs` — encode 1–3 bytes as exactly 4 base64 chars (with `=` pad). -/
+def b64BlockUnapply (bs : List UInt8) : Option (List UInt8) :=
   match bs with
-  | [] => some []
-  | c0 :: c1 :: c2 :: c3 :: rest =>
-    if c0.toNat = 61 || c1.toNat = 61 then none
-    else if ¬ b64Valid c0.toNat || ¬ b64Valid c1.toNat then none
-    else
-      let v0 := b64ToVal c0.toNat
-      let v1 := b64ToVal c1.toNat
-      let b0 := v0 * 4 + v1 / 16
-      if c2.toNat = 61 && c3.toNat = 61 then
-        if rest = [] then
-          match decode rest with
-          | some tl => some (toByte b0 :: tl)
-          | none => none
-        else none
-      else if c2.toNat = 61 then none
-      else if ¬ b64Valid c2.toNat then none
-      else
-        let v2 := b64ToVal c2.toNat
-        let b1 := (v1 % 16) * 16 + v2 / 4
-        if c3.toNat = 61 then
-          if rest = [] then
-            match decode rest with
-            | some tl => some (toByte b0 :: toByte b1 :: tl)
-            | none => none
-          else none
-        else if ¬ b64Valid c3.toNat then none
-        else
-          let v3 := b64ToVal c3.toNat
-          let b2 := (v2 % 4) * 64 + v3
-          match decode rest with
-          | some tl => some (toByte b0 :: toByte b1 :: toByte b2 :: tl)
-          | none => none
+  | [v0] => some [toByte (valToB64 (v0.toNat / 4)), toByte (valToB64 ((v0.toNat % 4) * 16)), 61, 61]
+  | [v0, v1] => some [toByte (valToB64 (v0.toNat / 4)), toByte (valToB64 ((v0.toNat % 4) * 16 + v1.toNat / 16)),
+                      toByte (valToB64 ((v1.toNat % 16) * 4)), 61]
+  | [v0, v1, v2] => some [toByte (valToB64 (v0.toNat / 4)), toByte (valToB64 ((v0.toNat % 4) * 16 + v1.toNat / 16)),
+                          toByte (valToB64 ((v1.toNat % 16) * 4 + v2.toNat / 64)), toByte (valToB64 (v2.toNat % 64))]
   | _ => none
 
-/-- `decode (c0::c1::c2::c3::rest)` — the 4-char group case (`UInt8`), stated equationally. -/
-theorem decode_cons4 (c0 c1 c2 c3 : UInt8) (rest : List UInt8) :
-    decode (c0 :: c1 :: c2 :: c3 :: rest) =
+/-- `b64BlockDecodeLenient cs` — decode exactly 4 base64 chars into 1–3 bytes,
+accepting any pad shape (no dropped-bit strictness). -/
+def b64BlockDecodeLenient (cs : List UInt8) : Option (List UInt8) :=
+  match cs with
+  | [c0, c1, c2, c3] =>
       if c0.toNat = 61 || c1.toNat = 61 then none
       else if ¬ b64Valid c0.toNat || ¬ b64Valid c1.toNat then none
       else
         let v0 := b64ToVal c0.toNat
         let v1 := b64ToVal c1.toNat
         let b0 := v0 * 4 + v1 / 16
-        if c2.toNat = 61 && c3.toNat = 61 then
-          if rest = [] then
-            match decode rest with
-            | some tl => some (toByte b0 :: tl)
-            | none => none
-          else none
+        if c2.toNat = 61 && c3.toNat = 61 then some [toByte b0]
         else if c2.toNat = 61 then none
         else if ¬ b64Valid c2.toNat then none
         else
           let v2 := b64ToVal c2.toNat
           let b1 := (v1 % 16) * 16 + v2 / 4
-          if c3.toNat = 61 then
-            if rest = [] then
-              match decode rest with
-              | some tl => some (toByte b0 :: toByte b1 :: tl)
-              | none => none
-            else none
+          if c3.toNat = 61 then some [toByte b0, toByte b1]
           else if ¬ b64Valid c3.toNat then none
           else
             let v3 := b64ToVal c3.toNat
             let b2 := (v2 % 4) * 64 + v3
-            match decode rest with
-            | some tl => some (toByte b0 :: toByte b1 :: toByte b2 :: tl)
-            | none => none :=
-  rfl
+            some [toByte b0, toByte b1, toByte b2]
+  | _ => none
 
-/-- `decode (encode bs) = some bs` — the full roundtrip, `UInt8` level. -/
-theorem roundtrip (bs : List UInt8) :
-    decode (encode bs) = some bs := by
-  have h := Nat.strongRecOn (motive := fun n => ∀ (ys : List UInt8), ys.length = n →
-      decode (encode ys) = some ys)
-    bs.length (fun n ih ys hlen => by
-      cases ys with
-      | nil => rfl
-      | cons b bs =>
-          cases bs with
+/-- `b64BlockApply cs` — decode 4 chars and verify the result re-encodes to `cs`
+(canonical input only). Makes `apply`/`unapply` a genuine bijection. -/
+def b64BlockApply (cs : List UInt8) : Option (List UInt8) :=
+  (b64BlockDecodeLenient cs).bind fun bs =>
+    if b64BlockUnapply bs = some cs then some bs else none
+
+-- forward: lenient decode∘encode = id for a single block
+
+/-- 1-byte tail. -/
+theorem b64BlockDecodeLenient_unapply_single (b0 : UInt8) :
+    b64BlockDecodeLenient [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16)), 61, 61] = some [b0] := by
+  have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+  have h0 : b0.toNat / 4 ≤ 63 := by omega
+  have h1 : (b0.toNat % 4) * 16 ≤ 63 := by omega
+  rw [b64BlockDecodeLenient]
+  rw [toByte_valToB64 (b0.toNat / 4) h0, toByte_valToB64 ((b0.toNat % 4) * 16) h1]
+  have hnp0 : valToB64 (b0.toNat / 4) ≠ 61 := valToB64_not_pad (b0.toNat / 4) h0
+  have hnp1 : valToB64 ((b0.toNat % 4) * 16) ≠ 61 := valToB64_not_pad ((b0.toNat % 4) * 16) h1
+  have hvd0 : b64Valid (valToB64 (b0.toNat / 4)) = true := valToB64_valid (b0.toNat / 4) h0
+  have hvd1 : b64Valid (valToB64 ((b0.toNat % 4) * 16)) = true := valToB64_valid ((b0.toNat % 4) * 16) h1
+  rw [hvd0, hvd1]
+  rw [b64ToVal_valToB64 (b0.toNat / 4) h0, b64ToVal_valToB64 ((b0.toNat % 4) * 16) h1]
+  simp only [hnp0, hnp1]
+  have hb0v : (b0.toNat / 4) * 4 + (((b0.toNat % 4) * 16) / 16) = b0.toNat :=
+    byte0 b0.toNat 0 hb0 (by decide)
+  rw [hb0v]
+  simp [toByte, UInt8.ofNat_toNat]
+
+/-- 2-byte tail. -/
+theorem b64BlockDecodeLenient_unapply_pair (b0 b1 : UInt8) :
+    b64BlockDecodeLenient [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
+                           toByte (valToB64 ((b1.toNat % 16) * 4)), 61] = some [b0, b1] := by
+  have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+  have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+  have h0 : b0.toNat / 4 ≤ 63 := by omega
+  have h1 : (b0.toNat % 4) * 16 + b1.toNat / 16 ≤ 63 := by omega
+  have h2 : (b1.toNat % 16) * 4 ≤ 63 := by omega
+  rw [b64BlockDecodeLenient]
+  rw [toByte_valToB64 (b0.toNat / 4) h0, toByte_valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16) h1,
+      toByte_valToB64 ((b1.toNat % 16) * 4) h2]
+  have hnp0 : valToB64 (b0.toNat / 4) ≠ 61 := valToB64_not_pad _ h0
+  have hnp1 : valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16) ≠ 61 := valToB64_not_pad _ h1
+  have hnp2 : valToB64 ((b1.toNat % 16) * 4) ≠ 61 := valToB64_not_pad _ h2
+  have hvd0 : b64Valid (valToB64 (b0.toNat / 4)) = true := valToB64_valid _ h0
+  have hvd1 : b64Valid (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)) = true := valToB64_valid _ h1
+  have hvd2 : b64Valid (valToB64 ((b1.toNat % 16) * 4)) = true := valToB64_valid _ h2
+  rw [hvd0, hvd1]
+  rw [b64ToVal_valToB64 (b0.toNat / 4) h0, b64ToVal_valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16) h1]
+  simp only [hnp0, hnp1]
+  have hb0v : (b0.toNat / 4) * 4 + (((b0.toNat % 4) * 16 + b1.toNat / 16) / 16) = b0.toNat := byte0 b0.toNat b1.toNat hb0 hb1
+  rw [hb0v]
+  rw [hvd2]
+  rw [b64ToVal_valToB64 ((b1.toNat % 16) * 4) h2]
+  simp only [hnp2]
+  have hb1v : (((b0.toNat % 4) * 16 + b1.toNat / 16) % 16) * 16 + (((b1.toNat % 16) * 4) / 4) = b1.toNat := byte1 b0.toNat b1.toNat hb0 hb1
+  rw [hb1v]
+  simp [toByte, UInt8.ofNat_toNat]
+
+/-- 3-byte block. -/
+theorem b64BlockDecodeLenient_unapply_triple (b0 b1 b2 : UInt8) :
+    b64BlockDecodeLenient [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
+                           toByte (valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)), toByte (valToB64 (b2.toNat % 64))] = some [b0, b1, b2] := by
+  have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+  have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+  have hb2 : b2.toNat < 256 := UInt8.toNat_lt b2
+  have h0 : b0.toNat / 4 ≤ 63 := by omega
+  have h1 : (b0.toNat % 4) * 16 + b1.toNat / 16 ≤ 63 := by omega
+  have h2 : (b1.toNat % 16) * 4 + b2.toNat / 64 ≤ 63 := by omega
+  have h3 : b2.toNat % 64 ≤ 63 := by omega
+  rw [b64BlockDecodeLenient]
+  rw [toByte_valToB64 (b0.toNat / 4) h0, toByte_valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16) h1,
+      toByte_valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64) h2, toByte_valToB64 (b2.toNat % 64) h3]
+  have hnp0 : valToB64 (b0.toNat / 4) ≠ 61 := valToB64_not_pad _ h0
+  have hnp1 : valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16) ≠ 61 := valToB64_not_pad _ h1
+  have hnp2 : valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64) ≠ 61 := valToB64_not_pad _ h2
+  have hnp3 : valToB64 (b2.toNat % 64) ≠ 61 := valToB64_not_pad _ h3
+  have hvd0 : b64Valid (valToB64 (b0.toNat / 4)) = true := valToB64_valid _ h0
+  have hvd1 : b64Valid (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)) = true := valToB64_valid _ h1
+  have hvd2 : b64Valid (valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)) = true := valToB64_valid _ h2
+  have hvd3 : b64Valid (valToB64 (b2.toNat % 64)) = true := valToB64_valid _ h3
+  rw [hvd0, hvd1]
+  rw [b64ToVal_valToB64 (b0.toNat / 4) h0, b64ToVal_valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16) h1]
+  simp only [hnp0, hnp1]
+  have hb0v : (b0.toNat / 4) * 4 + (((b0.toNat % 4) * 16 + b1.toNat / 16) / 16) = b0.toNat := byte0 b0.toNat b1.toNat hb0 hb1
+  rw [hb0v]
+  rw [hvd2]
+  rw [b64ToVal_valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64) h2]
+  simp only [hnp2]
+  have hb1v : (((b0.toNat % 4) * 16 + b1.toNat / 16) % 16) * 16 + (((b1.toNat % 16) * 4 + b2.toNat / 64) / 4) = b1.toNat := by
+    have hmod : ((b0.toNat % 4) * 16 + b1.toNat / 16) % 16 = b1.toNat / 16 := by
+      have h := Nat.add_mul_mod_self_right (b0.toNat % 4) (b1.toNat / 16) 16
+      omega
+    have hdiv : ((b1.toNat % 16) * 4 + b2.toNat / 64) / 4 = b1.toNat % 16 := by
+      have h := Nat.add_mul_div_left (b2.toNat / 64) (b1.toNat % 16) (by decide : 0 < 4)
+      have hz : b2.toNat / 64 / 4 = 0 := Nat.div_eq_of_lt (by omega)
+      omega
+    have hsum := Nat.div_add_mod b1.toNat 16
+    omega
+  rw [hb1v]
+  rw [hvd3]
+  rw [b64ToVal_valToB64 (b2.toNat % 64) h3]
+  simp only [hnp3]
+  have hb2v : (((b1.toNat % 16) * 4 + b2.toNat / 64) % 4) * 64 + (b2.toNat % 64) = b2.toNat := byte2 b1.toNat b2.toNat hb1 hb2
+  rw [hb2v]
+  simp [toByte, UInt8.ofNat_toNat]
+/-- The inverse law: `apply` and `unapply` are mutual inverses. -/
+theorem b64BlockIso_law (cs bs : List UInt8) :
+    b64BlockApply cs = some bs ↔ b64BlockUnapply bs = some cs := by
+  constructor
+  · -- backward: apply cs = some bs → unapply bs = some cs
+    intro h
+    rw [b64BlockApply] at h
+    rcases (Iso.bind_eq_some (b64BlockDecodeLenient cs) (fun bs' => if b64BlockUnapply bs' = some cs then some bs' else none) bs).1 h with
+      ⟨bs', hdec, hcheck⟩
+    have hun : b64BlockUnapply bs' = some cs := by
+      by_cases hbs : b64BlockUnapply bs' = some cs
+      · exact hbs
+      · simp [hbs] at hcheck
+    have hbs' : bs' = bs := by
+      by_cases hbs : b64BlockUnapply bs' = some cs
+      · simpa [hbs] using hcheck
+      · simp [hbs] at hcheck
+    rw [← hbs']
+    exact hun
+  · -- forward: unapply bs = some cs → apply cs = some bs
+    intro h
+    cases bs with
+    | nil => simp [b64BlockUnapply] at h
+    | cons b0 t0 =>
+      cases t0 with
+      | nil =>
+          have h' : cs = [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16)), 61, 61] := by
+            simpa [b64BlockUnapply] using h.symm
+          subst h'
+          rw [b64BlockApply, b64BlockDecodeLenient_unapply_single b0]
+          simp [b64BlockUnapply]
+      | cons b1 t1 =>
+        cases t1 with
+        | nil =>
+            have h' : cs = [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
+                            toByte (valToB64 ((b1.toNat % 16) * 4)), 61] := by
+              simpa [b64BlockUnapply] using h.symm
+            subst h'
+            rw [b64BlockApply, b64BlockDecodeLenient_unapply_pair b0 b1]
+            simp [b64BlockUnapply]
+        | cons b2 t2 =>
+          cases t2 with
           | nil =>
-              have hb : b.toNat < 256 := by simpa using UInt8.toNat_lt b
-              have h0 : b.toNat / 4 ≤ 63 := by omega
-              have h1 : (b.toNat % 4) * 16 ≤ 63 := by omega
-              have hnp0 : valToB64 (b.toNat / 4) ≠ 61 := valToB64_not_pad _ h0
-              have hnp1 : valToB64 ((b.toNat % 4) * 16) ≠ 61 := valToB64_not_pad _ h1
-              have hvalid0 : b64Valid (valToB64 (b.toNat / 4)) = true := valToB64_valid _ h0
-              have hvalid1 : b64Valid (valToB64 ((b.toNat % 4) * 16)) = true := valToB64_valid _ h1
-              have hsum : (b.toNat / 4) * 4 + (((b.toNat % 4) * 16) / 16) = b.toNat := by
-                have hbd : ((b.toNat % 4) * 16) / 16 = b.toNat % 4 := Nat.mul_div_left (b.toNat % 4) (by decide : 0 < 16)
-                have hdiv := Nat.div_add_mod b.toNat 4
-                omega
-              unfold encode decode
-              rw [toByte_valToB64 (b.toNat / 4) h0, toByte_valToB64 ((b.toNat % 4) * 16) h1]
-              rw [hvalid0, hvalid1]
-              rw [b64ToVal_valToB64 (b.toNat / 4) h0, b64ToVal_valToB64 ((b.toNat % 4) * 16) h1]
-              simp only [hnp0, hnp1]
-              rw [hsum]
-              simp [decode, toByte, UInt8.ofNat_toNat]
-          | cons b1 bs =>
-              cases bs with
-              | nil =>
-                  have hb : b.toNat < 256 := by simpa using UInt8.toNat_lt b
-                  have hb1 : b1.toNat < 256 := by simpa using UInt8.toNat_lt b1
-                  have h0 : b.toNat / 4 ≤ 63 := by omega
-                  have h1 : (b.toNat % 4) * 16 + b1.toNat / 16 ≤ 63 := by omega
-                  have h2 : (b1.toNat % 16) * 4 ≤ 63 := by omega
-                  have hnp0 : valToB64 (b.toNat / 4) ≠ 61 := valToB64_not_pad _ h0
-                  have hnp1 : valToB64 ((b.toNat % 4) * 16 + b1.toNat / 16) ≠ 61 := valToB64_not_pad _ h1
-                  have hnp2 : valToB64 ((b1.toNat % 16) * 4) ≠ 61 := valToB64_not_pad _ h2
-                  have hvalid0 : b64Valid (valToB64 (b.toNat / 4)) = true := valToB64_valid _ h0
-                  have hvalid1 : b64Valid (valToB64 ((b.toNat % 4) * 16 + b1.toNat / 16)) = true := valToB64_valid _ h1
-                  have hvalid2 : b64Valid (valToB64 ((b1.toNat % 16) * 4)) = true := valToB64_valid _ h2
-                  have hb0v : (b.toNat / 4) * 4 + (((b.toNat % 4) * 16 + b1.toNat / 16) / 16) = b.toNat := byte0 b.toNat b1.toNat hb hb1
-                  have hb1v : (((b.toNat % 4) * 16 + b1.toNat / 16) % 16) * 16 + (((b1.toNat % 16) * 4) / 4) = b1.toNat := byte1 b.toNat b1.toNat hb hb1
-                  unfold encode decode
-                  rw [toByte_valToB64 (b.toNat / 4) h0, toByte_valToB64 ((b.toNat % 4) * 16 + b1.toNat / 16) h1,
-                      toByte_valToB64 ((b1.toNat % 16) * 4) h2]
-                  rw [hvalid0, hvalid1]
-                  rw [b64ToVal_valToB64 (b.toNat / 4) h0, b64ToVal_valToB64 ((b.toNat % 4) * 16 + b1.toNat / 16) h1]
-                  simp only [hnp0, hnp1]
-                  rw [hb0v]
-                  rw [hvalid2]
-                  rw [b64ToVal_valToB64 ((b1.toNat % 16) * 4) h2]
-                  simp only [hnp2]
-                  rw [hb1v]
-                  simp [decode, toByte, UInt8.ofNat_toNat]
-              | cons b2 rest =>
-                  have hb : b.toNat < 256 := by simpa using UInt8.toNat_lt b
-                  have hb1 : b1.toNat < 256 := by simpa using UInt8.toNat_lt b1
-                  have hb2 : b2.toNat < 256 := by simpa using UInt8.toNat_lt b2
-                  have h0 : b.toNat / 4 ≤ 63 := by omega
-                  have h1 : (b.toNat % 4) * 16 + b1.toNat / 16 ≤ 63 := by omega
-                  have h2 : (b1.toNat % 16) * 4 + b2.toNat / 64 ≤ 63 := by omega
-                  have h3 : b2.toNat % 64 ≤ 63 := by omega
-                  have hnp0 : valToB64 (b.toNat / 4) ≠ 61 := valToB64_not_pad _ h0
-                  have hnp1 : valToB64 ((b.toNat % 4) * 16 + b1.toNat / 16) ≠ 61 := valToB64_not_pad _ h1
-                  have hnp2 : valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64) ≠ 61 := valToB64_not_pad _ h2
-                  have hnp3 : valToB64 (b2.toNat % 64) ≠ 61 := valToB64_not_pad _ h3
-                  have hvalid0 : b64Valid (valToB64 (b.toNat / 4)) = true := valToB64_valid _ h0
-                  have hvalid1 : b64Valid (valToB64 ((b.toNat % 4) * 16 + b1.toNat / 16)) = true := valToB64_valid _ h1
-                  have hvalid2 : b64Valid (valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)) = true := valToB64_valid _ h2
-                  have hvalid3 : b64Valid (valToB64 (b2.toNat % 64)) = true := valToB64_valid _ h3
-                  have hb0v : (b.toNat / 4) * 4 + (((b.toNat % 4) * 16 + b1.toNat / 16) / 16) = b.toNat := byte0 b.toNat b1.toNat hb hb1
-                  have hb1v : (((b.toNat % 4) * 16 + b1.toNat / 16) % 16) * 16 + (((b1.toNat % 16) * 4 + b2.toNat / 64) / 4) = b1.toNat := by
-                    have hmod16 : ((b.toNat % 4) * 16 + b1.toNat / 16) % 16 = b1.toNat / 16 := by
-                      have h := Nat.add_mul_mod_self_right (b.toNat % 4) (b1.toNat / 16) 16
-                      omega
-                    have hdiv4 : ((b1.toNat % 16) * 4 + b2.toNat / 64) / 4 = b1.toNat % 16 := by
-                      have h := Nat.add_mul_div_left (b2.toNat / 64) (b1.toNat % 16) (by decide : 0 < 4)
-                      have hz : b2.toNat / 64 / 4 = 0 := Nat.div_eq_of_lt (by omega)
-                      omega
-                    have hsum := Nat.div_add_mod b1.toNat 16
-                    omega
-                  have hb2v : (((b1.toNat % 16) * 4 + b2.toNat / 64) % 4) * 64 + (b2.toNat % 64) = b2.toNat := byte2 b1.toNat b2.toNat hb1 hb2
-                  have hcat : encode (b :: b1 :: b2 :: rest) = encode [b, b1, b2] ++ encode rest := by simp [encode]
-                  rw [hcat]
-                  show decode ([toByte (valToB64 (b.toNat / 4)), toByte (valToB64 ((b.toNat % 4) * 16 + b1.toNat / 16)),
-                      toByte (valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)), toByte (valToB64 (b2.toNat % 64))] ++ encode rest)
-                      = some (b :: b1 :: b2 :: rest)
-                  simp only [List.cons_append, List.nil_append]
-                  rw [decode_cons4]
-                  rw [toByte_valToB64 (b.toNat / 4) h0, toByte_valToB64 ((b.toNat % 4) * 16 + b1.toNat / 16) h1,
-                      toByte_valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64) h2, toByte_valToB64 (b2.toNat % 64) h3]
-                  rw [hvalid0, hvalid1]
-                  rw [b64ToVal_valToB64 (b.toNat / 4) h0, b64ToVal_valToB64 ((b.toNat % 4) * 16 + b1.toNat / 16) h1]
-                  simp only [hnp0, hnp1]
-                  rw [hb0v]
-                  rw [hvalid2]
-                  rw [b64ToVal_valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64) h2]
-                  simp only [hnp2]
-                  rw [hb1v]
-                  rw [hvalid3]
-                  rw [b64ToVal_valToB64 (b2.toNat % 64) h3]
-                  simp only [hnp3]
-                  rw [hb2v]
-                  simp
-                  have hlen' : rest.length < n := by
-                    have hlt : rest.length < (b :: b1 :: b2 :: rest).length := by
-                      simp only [List.length_cons]
-                      omega
-                    rw [hlen] at hlt
-                    exact hlt
-                  rw [ih rest.length hlen' rest rfl]
-                  simp [toByte, UInt8.ofNat_toNat])
-  exact h bs rfl
+              have h' : cs = [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
+                              toByte (valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)), toByte (valToB64 (b2.toNat % 64))] := by
+                simpa [b64BlockUnapply] using h.symm
+              subst h'
+              rw [b64BlockApply, b64BlockDecodeLenient_unapply_triple b0 b1 b2]
+              simp [b64BlockUnapply]
+          | cons _ _ => simp [b64BlockUnapply] at h
+
+def b64BlockIso : Iso (List UInt8) (List UInt8) :=
+  { apply := b64BlockApply, unapply := b64BlockUnapply, law := b64BlockIso_law }
+
+/-- The base64 element: 4 base64 (or pad) chars grouped into 1–3 bytes. -/
+def b64Elem : Codec (List UInt8) := Codec.iso b64BlockIso (count 4 (Codec.satisfy b64OrPad))
+
+/-- `b64Elem` is productive. -/
+theorem b64ConsumesByte : ConsumesByte b64Elem := by
+  unfold b64Elem
+  rw [← productive_iff_consumesByte (Codec.iso b64BlockIso (count 4 (Codec.satisfy b64OrPad)))]
+  apply Productive_iso b64BlockIso (count 4 (Codec.satisfy b64OrPad))
+  rw [show 4 = 3 + 1 by rfl]
+  exact Productive_count_satisfy_succ b64OrPad 3
+
+/-- The base64 decoder (run of blocks). -/
+def decodeB64 {n : Nat} (s : Bytes n) : List (List (List UInt8) × Suffix n) :=
+  decodeRepeat b64Elem b64ConsumesByte n s
+
+/-- The base64 encoder (run of blocks). -/
+def encodeB64 (bs : List (List UInt8)) : Option (Sigma fun n => Bytes n) :=
+  encodeRepeat b64Elem bs
+
+/-- The base64 relation. -/
+def relB64 : List (List UInt8) → (n : Nat) → Bytes n → Prop :=
+  relRepeat (Rel b64Elem)
+
+/-! ## Unambiguity and the inherited roundtrip law -/
+
+/-- `b64Elem` is unambiguous. -/
+theorem b64Elem_unambiguous : Unambiguous b64Elem := by
+  unfold b64Elem
+  apply Unambiguous_iso b64BlockIso (count 4 (Codec.satisfy b64OrPad))
+  exact count_satisfy_unambiguous b64OrPad 4
+
+/-- `Rel b64Elem x s` pins the byte length: `n = 4`. -/
+theorem Rel_b64Elem_len (x : List UInt8) {n : Nat} (s : Bytes n) :
+    Rel b64Elem x s → n = 4 := by
+  intro h
+  unfold b64Elem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_len b64OrPad 4 a s hc
+
+/-- The base64 relation is unambiguous. -/
+theorem relB64_unambiguous : relUnambiguous relB64 := by
+  intro a b n s ha hb
+  dsimp [relB64] at ha hb
+  induction a generalizing b n s with
+  | nil =>
+      rw [relRepeat_nil] at ha
+      subst n
+      cases b with
+      | nil => rfl
+      | cons y ys =>
+          rw [relRepeat_cons] at hb
+          rcases hb with ⟨m, hm, s₁, s₂, hs, hy, _⟩
+          have hlen : m = 4 := Rel_b64Elem_len y s₁ hy
+          have hm0 : m = 0 := by omega
+          omega
+  | cons x xs ih =>
+      cases b with
+      | nil =>
+          rw [relRepeat_nil] at hb
+          rw [relRepeat_cons] at ha
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
+          have hlen : mx = 4 := Rel_b64Elem_len x s₁x hx
+          subst n
+          have hm0 : mx = 0 := by omega
+          omega
+      | cons y ys =>
+          rw [relRepeat_cons] at ha hb
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
+          rcases hb with ⟨my, hmy, s₁y, s₂y, hsy, hy, hys⟩
+          have hlx : mx = 4 := Rel_b64Elem_len x s₁x hx
+          have hly : my = 4 := Rel_b64Elem_len y s₁y hy
+          subst mx
+          subst my
+          have hpre : s₁x = s₁y := by
+            apply Bytes.ext
+            intro i
+            have hin : i.val < n := Nat.lt_of_lt_of_le i.isLt hmx
+            have hx' : s ⟨i.val, hin⟩ = s₁x i := by
+              rw [hsx]
+              exact splice_prefix_read hmx s₁x s₂x ⟨i.val, hin⟩ i.isLt
+            have hy' : s ⟨i.val, hin⟩ = s₁y i := by
+              rw [hsy]
+              exact splice_prefix_read hmy s₁y s₂y ⟨i.val, hin⟩ i.isLt
+            exact hx'.symm.trans hy'
+          have htaily : s₂x = s₂y := by
+            rw [← bdrop_splice hmx s₁x s₂x, ← bdrop_splice hmy s₁y s₂y]
+            congr 1
+            rw [← hsx]
+            rw [hsy]
+          have hhead : x = y := by
+            exact b64Elem_unambiguous s₁x hx (by rw [hpre]; exact hy)
+          have htail : xs = ys := by
+            exact ih s₂x hxs (by simpa [htaily] using hys)
+          rw [hhead, htail]
+
+/-- Full-consumption decode is unambiguous for `b64Elem`. -/
+theorem b64DecodeFull_unambiguous {x y : List (List UInt8)} {n : Nat} (s : Bytes n) :
+    (x, Suffix.empty n) ∈ decodeRepeat b64Elem b64ConsumesByte n s →
+    (y, Suffix.empty n) ∈ decodeRepeat b64Elem b64ConsumesByte n s → x = y := by
+  intro hx hy
+  rcases (decodeRepeat_spec b64Elem b64ConsumesByte x n s (Suffix.empty n)).1 hx with ⟨s₀x, hsx, hrx⟩
+  rcases (decodeRepeat_spec b64Elem b64ConsumesByte y n s (Suffix.empty n)).1 hy with ⟨s₀y, hsy, hry⟩
+  have hs₀ : s₀x = s₀y := by
+    have hpre : (Suffix.empty n).prepend s₀x = (Suffix.empty n).prepend s₀y := by
+      exact hsx.symm.trans hsy
+    exact prepend_prefix_eq (Suffix.empty n) s₀x s₀y hpre
+  exact relB64_unambiguous s₀x hrx (by rw [hs₀]; exact hry)
+
+/-- The base64 roundtrip law. `[propext, Quot.sound]`-only. -/
+theorem roundtrip (bs : List (List UInt8)) {n : Nat} {s : Bytes n} :
+    encodeB64 bs = some ⟨n, s⟩ → decodeFull b64Elem b64ConsumesByte n s = some bs := by
+  intro he
+  have hrel : relRepeat (Rel b64Elem) bs n s := encodeRepeat_rel b64Elem bs he
+  have hmem : (bs, Suffix.empty n) ∈ decodeRepeat b64Elem b64ConsumesByte n s := by
+    refine (decodeRepeat_spec b64Elem b64ConsumesByte bs n s (Suffix.empty n)).2 ⟨
+      cast (congrArg Bytes (Nat.sub_zero n).symm) s, ?_, ?_⟩
+    · exact (prepend_empty_eq s).symm
+    · exact (relRepeat_cast (Rel b64Elem) bs (Nat.sub_zero n).symm s).2 hrel
+  exact (decodeFull_spec b64Elem b64ConsumesByte (fun {x y} {m} (t : Bytes m) =>
+    b64DecodeFull_unambiguous (s := t)) s bs).2 hmem
 
 end BaseN.Base64
