@@ -330,4 +330,214 @@ def encodeOct (bs : List UInt8) : Option (Sigma fun n => Bytes n) :=
 def relOct : List UInt8 → (n : Nat) → Bytes n → Prop :=
   relRepeat (Rel octElem)
 
+/-! ## Unambiguity and the inherited roundtrip law -/
+
+/-- `satisfy p` is unambiguous: the byte it relates is the unique content of the
+single-byte string. -/
+theorem Unambiguous_satisfy (p : UInt8 → Bool) :
+    Unambiguous (Codec.satisfy p) := by
+  intro x y n s hx hy
+  rw [Rel_satisfy] at hx hy
+  rcases hx with ⟨hpx, hn, hxs⟩
+  rcases hy with ⟨hpy, hn', hys⟩
+  subst n
+  have hxs' : s = single x := by simpa using hxs
+  have hys' : s = single y := by simpa using hys
+  rw [hys'] at hxs'
+  have hxy : single y ⟨0, Nat.zero_lt_one⟩ = single x ⟨0, Nat.zero_lt_one⟩ :=
+    congrFun hxs' ⟨0, Nat.zero_lt_one⟩
+  simp [single] at hxy
+  exact hxy.symm
+
+/-- `Rel (count k (satisfy p)) xs s` pins the byte length: `n = k`. -/
+theorem Rel_count_satisfy_len (p : UInt8 → Bool) (k : Nat) (xs : List UInt8)
+    {n : Nat} (s : Bytes n) :
+    Rel (count k (Codec.satisfy p)) xs s → n = k := by
+  induction k generalizing xs n s with
+  | zero =>
+      intro h
+      rw [Rel_count_zero] at h
+      exact h.2
+  | succ k ih =>
+      intro h
+      rw [count, Rel_iso] at h
+      rcases h with ⟨a, ha, hseq⟩
+      rw [Rel_seq] at hseq
+      rcases hseq with ⟨m, hm, s₁, s₂, hs, hr₁, hr₂⟩
+      rw [Rel_satisfy] at hr₁
+      rcases hr₁ with ⟨_, hn1, _⟩
+      subst hn1
+      have htail : n - 1 = k := ih a.2 s₂ hr₂
+      omega
+
+/-- `count k (satisfy p)` is unambiguous: the list of bytes is uniquely
+determined by the byte string. -/
+theorem count_satisfy_unambiguous (p : UInt8 → Bool) (k : Nat) :
+    Unambiguous (count k (Codec.satisfy p)) := by
+  intro xs ys n s hx hy
+  induction k generalizing xs ys n s with
+  | zero =>
+      rw [Rel_count_zero] at hx hy
+      exact hx.1.trans hy.1.symm
+  | succ k ih =>
+      rw [count, Rel_iso] at hx hy
+      rcases hx with ⟨ax, hax, hseqx⟩
+      rcases hy with ⟨ay, hay, hseqy⟩
+      rw [Rel_seq] at hseqx hseqy
+      rcases hseqx with ⟨mx, hmx, s₁x, s₂x, hsx, hr₁x, hr₂x⟩
+      rcases hseqy with ⟨my, hmy, s₁y, s₂y, hsy, hr₁y, hr₂y⟩
+      rw [Rel_satisfy] at hr₁x hr₁y
+      rcases hr₁x with ⟨_, hnx, hs₁x⟩
+      rcases hr₁y with ⟨_, hny, hs₁y⟩
+      subst mx
+      subst my
+      -- After `subst`, `s₁x : Bytes 1` and `hs₁x : s₁x = single ax.fst` (the
+      -- `1 = 1` cast in `Rel_satisfy` is defeq to identity).
+      have hs₁x' : s₁x = single ax.1 := by simpa using hs₁x
+      have hs₁y' : s₁y = single ay.1 := by simpa using hs₁y
+      rw [Iso.cons] at hax hay
+      dsimp at hax hay
+      have hax' : ax.1 :: ax.2 = xs := Option.some.inj hax
+      have hay' : ay.1 :: ay.2 = ys := Option.some.inj hay
+      -- Read index 0 to extract the head byte equality.
+      have h0lt : 0 < n := by omega
+      have hx0 : s ⟨0, h0lt⟩ = ax.1 := by
+        rw [hsx]
+        rw [splice_prefix_read hmx s₁x s₂x ⟨0, h0lt⟩ (by simp)]
+        rw [hs₁x']
+        rfl
+      have hy0 : s ⟨0, h0lt⟩ = ay.1 := by
+        rw [hsy]
+        rw [splice_prefix_read hmy s₁y s₂y ⟨0, h0lt⟩ (by simp)]
+        rw [hs₁y']
+        rfl
+      have hhead : ax.1 = ay.1 := by
+        rw [← hx0, ← hy0]
+      -- Drop the prefix to recover the tails (same type `Bytes (n - 1)`).
+      have htailEq : s₂x = s₂y := by
+        rw [← bdrop_splice hmx s₁x s₂x, ← bdrop_splice hmy s₁y s₂y]
+        congr 1
+        rw [← hsx]
+        rw [hsy]
+      have htail : ax.2 = ay.2 := by
+        exact ih s₂x hr₂x (by simpa [htailEq] using hr₂y)
+      -- Reassemble the lists.
+      rw [← hax', ← hay']
+      rw [hhead, htail]
+
+/-- `iso` preserves unambiguity: if `d` is unambiguous, so is `iso i d`. -/
+theorem Unambiguous_iso {α β : Type} (i : Iso α β) (d : Codec α) (h : Unambiguous d) :
+    Unambiguous (Codec.iso i d) := by
+  intro x y n s hx hy
+  rw [Rel_iso] at hx hy
+  rcases hx with ⟨ax, hax, hx⟩
+  rcases hy with ⟨ay, hay, hy⟩
+  have ha : ax = ay := h s hx hy
+  subst ha
+  have hxy : some x = some y := by rw [← hax, hay]
+  exact Option.some.inj hxy
+
+/-- `octElem` is unambiguous: the decoded byte is uniquely determined. -/
+theorem octElem_unambiguous : Unambiguous octElem := by
+  unfold octElem
+  apply Unambiguous_iso octBlockIso (count 3 (Codec.satisfy octDigit))
+  exact count_satisfy_unambiguous octDigit 3
+
+/-- `Rel octElem x s` pins the byte length: `n = 3`. -/
+theorem Rel_octElem_len (x : UInt8) {n : Nat} (s : Bytes n) :
+    Rel octElem x s → n = 3 := by
+  intro h
+  unfold octElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_len octDigit 3 a s hc
+
+/-- The base8 relation is unambiguous: a byte list is uniquely determined by
+its encoded byte string (via the productive `octElem` step, which consumes
+exactly 3 bytes). -/
+theorem relOct_unambiguous : relUnambiguous relOct := by
+  intro a b n s ha hb
+  dsimp [relOct] at ha hb
+  induction a generalizing b n s with
+  | nil =>
+      rw [relRepeat_nil] at ha
+      subst n
+      cases b with
+      | nil => rfl
+      | cons y ys =>
+          rw [relRepeat_cons] at hb
+          rcases hb with ⟨m, hm, s₁, s₂, hs, hy, _⟩
+          have hlen : m = 3 := Rel_octElem_len y s₁ hy
+          have hm0 : m = 0 := by omega
+          omega
+  | cons x xs ih =>
+      cases b with
+      | nil =>
+          rw [relRepeat_nil] at hb
+          rw [relRepeat_cons] at ha
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
+          have hlen : mx = 3 := Rel_octElem_len x s₁x hx
+          subst n
+          have hm0 : mx = 0 := by omega
+          omega
+      | cons y ys =>
+          rw [relRepeat_cons] at ha hb
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
+          rcases hb with ⟨my, hmy, s₁y, s₂y, hsy, hy, hys⟩
+          have hlx : mx = 3 := Rel_octElem_len x s₁x hx
+          have hly : my = 3 := Rel_octElem_len y s₁y hy
+          subst mx
+          subst my
+          have hpre : s₁x = s₁y := by
+            apply Bytes.ext
+            intro i
+            have hin : i.val < n := Nat.lt_of_lt_of_le i.isLt hmx
+            have hx' : s ⟨i.val, hin⟩ = s₁x i := by
+              rw [hsx]
+              exact splice_prefix_read hmx s₁x s₂x ⟨i.val, hin⟩ i.isLt
+            have hy' : s ⟨i.val, hin⟩ = s₁y i := by
+              rw [hsy]
+              exact splice_prefix_read hmy s₁y s₂y ⟨i.val, hin⟩ i.isLt
+            exact hx'.symm.trans hy'
+          have htaily : s₂x = s₂y := by
+            rw [← bdrop_splice hmx s₁x s₂x, ← bdrop_splice hmy s₁y s₂y]
+            congr 1
+            rw [← hsx]
+            rw [hsy]
+          have hhead : x = y := by
+            exact octElem_unambiguous s₁x hx (by rw [hpre]; exact hy)
+          have htail : xs = ys := by
+            exact ih s₂x hxs (by simpa [htaily] using hys)
+          rw [hhead, htail]
+
+/-- Full-consumption decode is unambiguous for `octElem`: two full-consumption
+results over the same input byte string agree. -/
+theorem octDecodeFull_unambiguous {x y : List UInt8} {n : Nat} (s : Bytes n) :
+    (x, Suffix.empty n) ∈ decodeRepeat octElem octConsumesByte n s →
+    (y, Suffix.empty n) ∈ decodeRepeat octElem octConsumesByte n s → x = y := by
+  intro hx hy
+  rcases (decodeRepeat_spec octElem octConsumesByte x n s (Suffix.empty n)).1 hx with ⟨s₀x, hsx, hrx⟩
+  rcases (decodeRepeat_spec octElem octConsumesByte y n s (Suffix.empty n)).1 hy with ⟨s₀y, hsy, hry⟩
+  have hs₀ : s₀x = s₀y := by
+    have hpre : (Suffix.empty n).prepend s₀x = (Suffix.empty n).prepend s₀y := by
+      exact hsx.symm.trans hsy
+    exact prepend_prefix_eq (Suffix.empty n) s₀x s₀y hpre
+  exact relOct_unambiguous s₀x hrx (by rw [hs₀]; exact hry)
+
+/-- The base8 roundtrip law: a byte list encoded by `octElem` decodes fully back
+to itself. This is the inherited `decodeRepeat_spec`/`encodeRepeat_rel` roundtrip
+(the `Codec (List UInt8)` analogue of `Codec.roundtrip`), gated by the
+`octDecodeFull_unambiguous` uniqueness fact. `[propext, Quot.sound]`-only. -/
+theorem roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n} :
+    encodeOct bs = some ⟨n, s⟩ → decodeFull octElem octConsumesByte n s = some bs := by
+  intro he
+  have hrel : relRepeat (Rel octElem) bs n s := encodeRepeat_rel octElem bs he
+  have hmem : (bs, Suffix.empty n) ∈ decodeRepeat octElem octConsumesByte n s := by
+    refine (decodeRepeat_spec octElem octConsumesByte bs n s (Suffix.empty n)).2 ⟨
+      cast (congrArg Bytes (Nat.sub_zero n).symm) s, ?_, ?_⟩
+    · exact (prepend_empty_eq s).symm
+    · exact (relRepeat_cast (Rel octElem) bs (Nat.sub_zero n).symm s).2 hrel
+  exact (decodeFull_spec octElem octConsumesByte (fun {x y} {m} (t : Bytes m) =>
+    octDecodeFull_unambiguous (s := t)) s bs).2 hmem
+
 end BaseN.Base8
