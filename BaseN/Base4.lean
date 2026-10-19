@@ -9,10 +9,25 @@ characters per byte, MSB-first (`v/64`, `(v/16)%4`, `(v/4)%4`, `v%4`).  Four
 quartets always span exactly one byte, so decoding needs no overflow check.
 
 Not an RFC encoding; semantics are defined by this package's spec: "one quartet
-per `0-3` char, 4 chars per byte".  Alphabet is ASCII `0-3` (48-51).
+per `0-3` char, 4 chars per byte".  Alphabet is ASCII `0-3` (48-51), all `< 256`.
+
+This module expresses the base as a `codec` `Codec (List UInt8)` value
+(`quartetElem`), composed from `satisfy` (one guarded quartet digit), `count 4`
+(four quartets per byte block), and an `iso` that folds the four quartet values
+into their byte (`q₀·64 + q₁·16 + q₂·4 + q₃`, no overflow check).  The unbounded
+run is the productive repetition triple `relQuartet`/`decodeQuartet`/
+`encodeQuartet` over `quartetElem`, whose roundtrip law is the *inherited*
+`decodeRepeat_spec`/`encodeRepeat_rel` — no bespoke `encode`/`decode`.
 -/
 
+import BaseN.Common
+
 namespace BaseN.Base4
+
+open Codec
+open BaseN.Common
+
+/-! ## Digit-level arithmetic (`Nat`) -/
 
 /-- `quartetVal e` — the quartet value of a `0-3` character, or `4` if invalid. -/
 def quartetVal (e : Nat) : Nat :=
@@ -45,124 +60,352 @@ theorem valToQuartet_lt_256 (d : Nat) (hd : d ≤ 3) : valToQuartet d < 256 := b
   unfold valToQuartet
   omega
 
+/-- `quartetValid e = true` implies `quartetVal e ≤ 3`. -/
+theorem quartetValid_of_decide (e : Nat) (h : quartetValid e = true) : quartetVal e ≤ 3 :=
+  of_decide_eq_true (by simpa [quartetValid] using h)
+
+/-- When `e` is a valid quartet digit, `valToQuartet (quartetVal e) = e`. -/
+theorem valToQuartet_quartetVal_of_valid (e : Nat) (h : quartetValid e = true) :
+    valToQuartet (quartetVal e) = e := by
+  have hv : quartetVal e ≤ 3 := quartetValid_of_decide e h
+  unfold quartetVal valToQuartet
+  by_cases hle : e ≤ 51
+  · by_cases hge : 48 ≤ e
+    · have hv' : e - 48 = quartetVal e := by simp [quartetVal, hle, hge]
+      have hb : e - 48 ≤ 3 := by omega
+      simp [hle, hge]
+    · have : quartetVal e = 4 := by simp [quartetVal, hle, hge]
+      omega
+  · have : quartetVal e = 4 := by simp [quartetVal, hle]
+    omega
+
 /-- The `i`-th quartet (0-indexed from MSB) of `v`. -/
 def quartetAt (v : Nat) (i : Nat) : Nat := (v / 4 ^ (3 - i)) % 4
 
+/-- The 4 MSB-first quartets of `v` (values `0`/`3`). -/
 def quartetsOf (v : Nat) : List Nat :=
   [quartetAt v 0, quartetAt v 1, quartetAt v 2, quartetAt v 3]
 
+/-- The value of 4 MSB-first quartets `q0..q3`. -/
 def quartetsVal (q0 q1 q2 q3 : Nat) : Nat :=
   q0 * 64 + q1 * 16 + q2 * 4 + q3
 
-/-- `quartetsVal (quartetsOf v) = v` — the quartet roundtrip at Nat level. -/
+/-- Each `quartetAt` of a byte is `≤ 3`. -/
+theorem quartetAt_le (v : Nat) (i : Nat) : quartetAt v i ≤ 3 := by
+  unfold quartetAt
+  omega
+
+/-- `quartetsVal (quartetsOf v) = v` for `v < 256`. -/
 theorem quartetsVal_quartetsOf (v : Nat) (hv : v < 256) :
     quartetsVal (quartetAt v 0) (quartetAt v 1) (quartetAt v 2) (quartetAt v 3) = v := by
   unfold quartetsVal quartetAt
   simp only [Nat.reducePow, Nat.reduceSub]
   omega
 
-/-- Encode each byte as 4 quartets (Nat level). -/
-def encodeN (bs : List Nat) : List Nat :=
-  bs.flatMap (fun b => (quartetsOf b).map valToQuartet)
+/-- Uniqueness of the quaternary decomposition: equal sums of quartet quadruples
+(each `≤ 3`) give equal quadruples. -/
+theorem quartets_decompose_unique (a0 a1 a2 a3 b0 b1 b2 b3 : Nat)
+    (_ha0 : a0 ≤ 3) (_ha1 : a1 ≤ 3) (_ha2 : a2 ≤ 3) (_ha3 : a3 ≤ 3)
+    (_hb0 : b0 ≤ 3) (_hb1 : b1 ≤ 3) (_hb2 : b2 ≤ 3) (_hb3 : b3 ≤ 3)
+    (h : quartetsVal a0 a1 a2 a3 = quartetsVal b0 b1 b2 b3) :
+    a0 = b0 ∧ a1 = b1 ∧ a2 = b2 ∧ a3 = b3 := by
+  have ha0' : a0 = b0 := by
+    have hm := congrArg (fun x => x / 64) h
+    unfold quartetsVal at hm
+    omega
+  have ha1' : a1 = b1 := by
+    have hm := congrArg (fun x => (x % 64) / 16) h
+    unfold quartetsVal at hm
+    omega
+  have ha2' : a2 = b2 := by
+    have hm := congrArg (fun x => (x % 16) / 4) h
+    unfold quartetsVal at hm
+    omega
+  have ha3' : a3 = b3 := by
+    have hm := congrArg (fun x => x % 4) h
+    unfold quartetsVal at hm
+    omega
+  exact ⟨ha0', ha1', ha2', ha3'⟩
 
-/-- Decode groups of 4 quartets into bytes (`none` on bad input), Nat level. -/
-def decodeN (bs : List Nat) : Option (List Nat) :=
-  match bs with
-  | [] => some []
-  | c0 :: c1 :: c2 :: c3 :: rest =>
-    if quartetValid c0 && quartetValid c1 && quartetValid c2 && quartetValid c3 then
-      let v := quartetsVal (quartetVal c0) (quartetVal c1) (quartetVal c2) (quartetVal c3)
-      match decodeN rest with
-      | some tl => some (v :: tl)
-      | none => none
-    else none
-  | _ => none
+/-! ## The block isomorphism -/
 
-/-- `decodeN (encodeN [b]) = some [b]`. -/
-theorem decodeN_encodeN_single (b : Nat) (hb : b < 256) :
-    decodeN (encodeN [b]) = some [b] := by
-  have hq : ∀ i, quartetAt b i ≤ 3 := by intro i; unfold quartetAt; omega
-  simp [encodeN, decodeN, quartetsOf]
-  rw [valToQuartet_valid (quartetAt b 0) (hq 0), valToQuartet_valid (quartetAt b 1) (hq 1),
-      valToQuartet_valid (quartetAt b 2) (hq 2), valToQuartet_valid (quartetAt b 3) (hq 3)]
-  rw [quartetVal_valToQuartet (quartetAt b 0) (hq 0), quartetVal_valToQuartet (quartetAt b 1) (hq 1),
-      quartetVal_valToQuartet (quartetAt b 2) (hq 2), quartetVal_valToQuartet (quartetAt b 3) (hq 3)]
-  rw [quartetsVal_quartetsOf b hb]
-  simp
+/-- The quartet digit predicate over `UInt8`. -/
+def quartetDigit (b : UInt8) : Bool := quartetValid b.toNat
 
-/-- `decodeN (encodeN [b] ++ xs) = (b :: ·) <$> decodeN xs`. -/
-theorem decodeN_block (b : Nat) (hb : b < 256) (xs : List Nat) :
-    decodeN (encodeN [b] ++ xs) =
-      match decodeN xs with
-      | some ys => some (b :: ys)
-      | none => none := by
-  have hq : ∀ i, quartetAt b i ≤ 3 := by intro i; unfold quartetAt; omega
-  simp [encodeN, decodeN, quartetsOf]
-  rw [valToQuartet_valid (quartetAt b 0) (hq 0), valToQuartet_valid (quartetAt b 1) (hq 1),
-      valToQuartet_valid (quartetAt b 2) (hq 2), valToQuartet_valid (quartetAt b 3) (hq 3)]
-  rw [quartetVal_valToQuartet (quartetAt b 0) (hq 0), quartetVal_valToQuartet (quartetAt b 1) (hq 1),
-      quartetVal_valToQuartet (quartetAt b 2) (hq 2), quartetVal_valToQuartet (quartetAt b 3) (hq 3)]
-  rw [quartetsVal_quartetsOf b hb]
-  simp
-
-/-- `decodeN (encodeN bs) = some bs`, for byte lists. -/
-theorem roundtripN (bs : List Nat) :
-    (∀ b ∈ bs, b < 256) → decodeN (encodeN bs) = some bs := by
-  intro hbs
-  induction bs with
-  | nil => rfl
-  | cons b bs ih =>
-      have hb : b < 256 := hbs b (by simp)
-      have htail : ∀ x ∈ bs, x < 256 := by intro x hx; exact hbs x (by simp [hx])
-      have hcat : encodeN (b :: bs) = encodeN [b] ++ encodeN bs := by simp [encodeN]
-      rw [hcat, decodeN_block b hb (encodeN bs), ih htail]
-
--- UInt8 surface
-
-private theorem toByte_valToQuartet (d : Nat) (hd : d ≤ 3) :
-    (toByte (valToQuartet d)).toNat = valToQuartet d := by
+/-- `toByte (valToQuartet d)` — the byte embedding, for `d ≤ 3`. -/
+private theorem toByte_valToQuartet (b : Nat) (hb : b ≤ 3) :
+    (toByte (valToQuartet b)).toNat = valToQuartet b := by
   unfold toByte
-  rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (valToQuartet_lt_256 d hd)]
+  rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (valToQuartet_lt_256 b hb)]
 
-/-- Encode each byte as 4 quartets. -/
-def encode (bs : List UInt8) : List UInt8 :=
-  bs.flatMap (fun b => (quartetsOf b.toNat).map (fun i => toByte (valToQuartet i)))
+/-- `quartetVal ((toByte (valToQuartet d)).toNat) = d` for `d ≤ 3`. -/
+theorem quartetVal_toByte_valToQuartet (d : Nat) (hd : d ≤ 3) :
+    quartetVal (toByte (valToQuartet d)).toNat = d := by
+  rw [toByte_valToQuartet d hd]
+  exact quartetVal_valToQuartet d hd
 
-/-- Decode groups of 4 quartets into bytes. -/
-def decode (bs : List UInt8) : Option (List UInt8) :=
-  match bs with
-  | [] => some []
-  | c0 :: c1 :: c2 :: c3 :: rest =>
-    if quartetValid c0.toNat && quartetValid c1.toNat && quartetValid c2.toNat && quartetValid c3.toNat then
-      let v := quartetsVal (quartetVal c0.toNat) (quartetVal c1.toNat) (quartetVal c2.toNat) (quartetVal c3.toNat)
-      match decode rest with
-      | some tl => some (toByte v :: tl)
-      | none => none
-    else none
+/-- `apply`: read four quartet digits and fold them into their byte. -/
+def quartetBlockApply (cs : List UInt8) : Option UInt8 :=
+  match cs with
+  | [d0, d1, d2, d3] =>
+      if quartetValid d0.toNat && quartetValid d1.toNat && quartetValid d2.toNat && quartetValid d3.toNat then
+        let n := quartetsVal (quartetVal d0.toNat) (quartetVal d1.toNat) (quartetVal d2.toNat) (quartetVal d3.toNat)
+        some (UInt8.ofNat n)
+      else none
   | _ => none
 
-/-- `decode (encode bs) = some bs` — the full roundtrip, `UInt8` level. -/
-theorem roundtrip (bs : List UInt8) :
-    decode (encode bs) = some bs := by
-  induction bs with
-  | nil => rfl
-  | cons b bs ih =>
-      have hlt : b.toNat < 256 := by simpa using UInt8.toNat_lt b
-      have hq : ∀ i, quartetAt b.toNat i ≤ 3 := by intro i; unfold quartetAt; omega
-      have hcat : encode (b :: bs) = encode [b] ++ encode bs := by simp [encode]
-      rw [hcat]
-      change decode (encode [b] ++ encode bs) = some (b :: bs)
-      change decode ((quartetsOf b.toNat).map (fun i => toByte (valToQuartet i)) ++ encode bs) = some (b :: bs)
-      simp [decode, quartetsOf]
-      rw [toByte_valToQuartet (quartetAt b.toNat 0) (hq 0), toByte_valToQuartet (quartetAt b.toNat 1) (hq 1),
-          toByte_valToQuartet (quartetAt b.toNat 2) (hq 2), toByte_valToQuartet (quartetAt b.toNat 3) (hq 3)]
-      rw [valToQuartet_valid (quartetAt b.toNat 0) (hq 0), valToQuartet_valid (quartetAt b.toNat 1) (hq 1),
-          valToQuartet_valid (quartetAt b.toNat 2) (hq 2), valToQuartet_valid (quartetAt b.toNat 3) (hq 3)]
-      rw [quartetVal_valToQuartet (quartetAt b.toNat 0) (hq 0), quartetVal_valToQuartet (quartetAt b.toNat 1) (hq 1),
-          quartetVal_valToQuartet (quartetAt b.toNat 2) (hq 2), quartetVal_valToQuartet (quartetAt b.toNat 3) (hq 3)]
-      rw [quartetsVal_quartetsOf b.toNat hlt]
-      simp
-      rw [ih]
-      simp [toByte, UInt8.ofNat_toNat]
+/-- `unapply`: write a byte as its four MSB-first quartet digits (always valid). -/
+def quartetBlockUnapply (b : UInt8) : Option (List UInt8) :=
+  some [toByte (valToQuartet (quartetAt b.toNat 0)),
+        toByte (valToQuartet (quartetAt b.toNat 1)),
+        toByte (valToQuartet (quartetAt b.toNat 2)),
+        toByte (valToQuartet (quartetAt b.toNat 3))]
+
+/-- Each digit byte of `quartetBlockUnapply b` is valid. -/
+theorem quartetDigit_valid_of_byte (b : UInt8) :
+    quartetValid (toByte (valToQuartet (quartetAt b.toNat 0))).toNat = true ∧
+    quartetValid (toByte (valToQuartet (quartetAt b.toNat 1))).toNat = true ∧
+    quartetValid (toByte (valToQuartet (quartetAt b.toNat 2))).toNat = true ∧
+    quartetValid (toByte (valToQuartet (quartetAt b.toNat 3))).toNat = true := by
+  have h0 := quartetAt_le b.toNat 0
+  have h1 := quartetAt_le b.toNat 1
+  have h2 := quartetAt_le b.toNat 2
+  have h3 := quartetAt_le b.toNat 3
+  constructor
+  · rw [toByte_valToQuartet (quartetAt b.toNat 0) h0]; exact valToQuartet_valid (quartetAt b.toNat 0) h0
+  constructor
+  · rw [toByte_valToQuartet (quartetAt b.toNat 1) h1]; exact valToQuartet_valid (quartetAt b.toNat 1) h1
+  constructor
+  · rw [toByte_valToQuartet (quartetAt b.toNat 2) h2]; exact valToQuartet_valid (quartetAt b.toNat 2) h2
+  · rw [toByte_valToQuartet (quartetAt b.toNat 3) h3]; exact valToQuartet_valid (quartetAt b.toNat 3) h3
+
+/-- `apply` is a left inverse of `unapply`. -/
+theorem quartetBlockApply_unapply (b : UInt8) :
+    quartetBlockApply [toByte (valToQuartet (quartetAt b.toNat 0)),
+                       toByte (valToQuartet (quartetAt b.toNat 1)),
+                       toByte (valToQuartet (quartetAt b.toNat 2)),
+                       toByte (valToQuartet (quartetAt b.toNat 3))] = some b := by
+  have hbv : b.toNat < 256 := UInt8.toNat_lt b
+  have h0 := quartetAt_le b.toNat 0
+  have h1 := quartetAt_le b.toNat 1
+  have h2 := quartetAt_le b.toNat 2
+  have h3 := quartetAt_le b.toNat 3
+  rw [quartetBlockApply]
+  rw [quartetVal_toByte_valToQuartet (quartetAt b.toNat 0) h0,
+      quartetVal_toByte_valToQuartet (quartetAt b.toNat 1) h1,
+      quartetVal_toByte_valToQuartet (quartetAt b.toNat 2) h2,
+      quartetVal_toByte_valToQuartet (quartetAt b.toNat 3) h3]
+  have hvd := quartetDigit_valid_of_byte b
+  rw [hvd.1, hvd.2.1, hvd.2.2.1, hvd.2.2.2]
+  have hh : (true && true && true && true) = true := by decide
+  rw [hh]
+  have hsum : quartetsVal (quartetAt b.toNat 0) (quartetAt b.toNat 1) (quartetAt b.toNat 2) (quartetAt b.toNat 3) = b.toNat :=
+    quartetsVal_quartetsOf b.toNat hbv
+  rw [hsum]
+  simp
+
+/-- The inverse law of the quartet block: `apply` and `unapply` are mutual inverses. -/
+theorem quartetBlockIso_law (cs : List UInt8) (b : UInt8) :
+    quartetBlockApply cs = some b ↔ quartetBlockUnapply b = some cs := by
+  constructor
+  · intro h
+    cases cs with
+    | nil => simp [quartetBlockApply] at h
+    | cons d0 rest =>
+        cases rest with
+        | nil => simp [quartetBlockApply] at h
+        | cons d1 rest2 =>
+            cases rest2 with
+            | nil => simp [quartetBlockApply] at h
+            | cons d2 rest3 =>
+                cases rest3 with
+                | nil => simp [quartetBlockApply] at h
+                | cons d3 rest4 =>
+                    cases rest4 with
+                    | nil =>
+                        rw [quartetBlockApply] at h
+                        by_cases hv : quartetValid d0.toNat && quartetValid d1.toNat && quartetValid d2.toNat && quartetValid d3.toNat
+                        · simp only [hv, ite_true] at h
+                          have hb_eq : UInt8.ofNat (quartetsVal (quartetVal d0.toNat) (quartetVal d1.toNat) (quartetVal d2.toNat) (quartetVal d3.toNat)) = b := by
+                            exact Option.some.inj h
+                          have hv' : (((quartetValid d0.toNat = true ∧ quartetValid d1.toNat = true) ∧
+                              quartetValid d2.toNat = true) ∧ quartetValid d3.toNat = true) := by
+                            simpa only [Bool.and_eq_true_iff] using hv
+                          have hvd0 : quartetValid d0.toNat = true := hv'.1.1.1
+                          have hvd1 : quartetValid d1.toNat = true := hv'.1.1.2
+                          have hvd2 : quartetValid d2.toNat = true := hv'.1.2
+                          have hvd3 : quartetValid d3.toNat = true := hv'.2
+                          have v0le := quartetValid_of_decide d0.toNat hvd0
+                          have v1le := quartetValid_of_decide d1.toNat hvd1
+                          have v2le := quartetValid_of_decide d2.toNat hvd2
+                          have v3le := quartetValid_of_decide d3.toNat hvd3
+                          have hb : b.toNat = quartetsVal (quartetVal d0.toNat) (quartetVal d1.toNat) (quartetVal d2.toNat) (quartetVal d3.toNat) := by
+                            have hbt := congrArg UInt8.toNat hb_eq
+                            rw [UInt8.toNat_ofNat'] at hbt
+                            have hbnd : quartetsVal (quartetVal d0.toNat) (quartetVal d1.toNat) (quartetVal d2.toNat) (quartetVal d3.toNat) < 256 := by
+                              unfold quartetsVal
+                              omega
+                            rw [Nat.mod_eq_of_lt hbnd] at hbt
+                            exact hbt.symm
+                          have hdev : quartetVal d0.toNat = quartetAt b.toNat 0 ∧ quartetVal d1.toNat = quartetAt b.toNat 1 ∧
+                                      quartetVal d2.toNat = quartetAt b.toNat 2 ∧ quartetVal d3.toNat = quartetAt b.toNat 3 := by
+                            have hbit0 := quartetAt_le b.toNat 0
+                            have hbit1 := quartetAt_le b.toNat 1
+                            have hbit2 := quartetAt_le b.toNat 2
+                            have hbit3 := quartetAt_le b.toNat 3
+                            have hb' : quartetsVal (quartetVal d0.toNat) (quartetVal d1.toNat) (quartetVal d2.toNat) (quartetVal d3.toNat)
+                              = quartetsVal (quartetAt b.toNat 0) (quartetAt b.toNat 1) (quartetAt b.toNat 2) (quartetAt b.toNat 3) := by
+                              rw [quartetsVal_quartetsOf b.toNat (UInt8.toNat_lt b)]
+                              exact hb.symm
+                            exact quartets_decompose_unique
+                              (quartetVal d0.toNat) (quartetVal d1.toNat) (quartetVal d2.toNat) (quartetVal d3.toNat)
+                              (quartetAt b.toNat 0) (quartetAt b.toNat 1) (quartetAt b.toNat 2) (quartetAt b.toNat 3)
+                              v0le v1le v2le v3le
+                              hbit0 hbit1 hbit2 hbit3
+                              hb'
+                          rw [quartetBlockUnapply]
+                          have hd0 : d0.toNat = valToQuartet (quartetVal d0.toNat) :=
+                            (valToQuartet_quartetVal_of_valid d0.toNat hvd0).symm
+                          have hd1 : d1.toNat = valToQuartet (quartetVal d1.toNat) :=
+                            (valToQuartet_quartetVal_of_valid d1.toNat hvd1).symm
+                          have hd2 : d2.toNat = valToQuartet (quartetVal d2.toNat) :=
+                            (valToQuartet_quartetVal_of_valid d2.toNat hvd2).symm
+                          have hd3 : d3.toNat = valToQuartet (quartetVal d3.toNat) :=
+                            (valToQuartet_quartetVal_of_valid d3.toNat hvd3).symm
+                          rw [← hdev.1, ← hdev.2.1, ← hdev.2.2.1, ← hdev.2.2.2]
+                          rw [← hd0, ← hd1, ← hd2, ← hd3]
+                          simp [toByte]
+                        · simp [hv] at h
+                    | cons _ _ => simp [quartetBlockApply] at h
+  · intro h
+    rw [quartetBlockUnapply] at h
+    cases h
+    exact quartetBlockApply_unapply b
+
+/-- The four-quartet block ↔ one byte partial isomorphism. -/
+def quartetBlockIso : Iso (List UInt8) UInt8 :=
+  { apply := quartetBlockApply, unapply := quartetBlockUnapply, law := quartetBlockIso_law }
+
+/-- The base4 element: four quartet digit bytes grouped into one byte. -/
+def quartetElem : Codec UInt8 := Codec.iso quartetBlockIso (count 4 (Codec.satisfy quartetDigit))
+
+/-- `quartetElem` is productive, hence a `ConsumesByte` witness. -/
+theorem quartetConsumesByte : ConsumesByte quartetElem := by
+  unfold quartetElem
+  rw [← productive_iff_consumesByte (Codec.iso quartetBlockIso (count 4 (Codec.satisfy quartetDigit)))]
+  apply Productive_iso quartetBlockIso (count 4 (Codec.satisfy quartetDigit))
+  rw [show 4 = 3 + 1 by rfl]
+  exact Productive_count_satisfy_succ quartetDigit 3
+
+/-- The base4 decoder. -/
+def decodeQuartet {n : Nat} (s : Bytes n) : List (List UInt8 × Suffix n) :=
+  decodeRepeat quartetElem quartetConsumesByte n s
+
+/-- The base4 encoder. -/
+def encodeQuartet (bs : List UInt8) : Option (Sigma fun n => Bytes n) :=
+  encodeRepeat quartetElem bs
+
+/-- The base4 relation. -/
+def relQuartet : List UInt8 → (n : Nat) → Bytes n → Prop :=
+  relRepeat (Rel quartetElem)
+
+/-! ## Unambiguity and the inherited roundtrip law -/
+
+/-- `quartetElem` is unambiguous. -/
+theorem quartetElem_unambiguous : Unambiguous quartetElem := by
+  unfold quartetElem
+  apply Unambiguous_iso quartetBlockIso (count 4 (Codec.satisfy quartetDigit))
+  exact count_satisfy_unambiguous quartetDigit 4
+
+/-- `Rel quartetElem x s` pins the byte length: `n = 4`. -/
+theorem Rel_quartetElem_len (x : UInt8) {n : Nat} (s : Bytes n) :
+    Rel quartetElem x s → n = 4 := by
+  intro h
+  unfold quartetElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_len quartetDigit 4 a s hc
+
+/-- The base4 relation is unambiguous. -/
+theorem relQuartet_unambiguous : relUnambiguous relQuartet := by
+  intro a b n s ha hb
+  dsimp [relQuartet] at ha hb
+  induction a generalizing b n s with
+  | nil =>
+      rw [relRepeat_nil] at ha
+      subst n
+      cases b with
+      | nil => rfl
+      | cons y ys =>
+          rw [relRepeat_cons] at hb
+          rcases hb with ⟨m, hm, s₁, s₂, hs, hy, _⟩
+          have hlen : m = 4 := Rel_quartetElem_len y s₁ hy
+          have hm0 : m = 0 := by omega
+          omega
+  | cons x xs ih =>
+      cases b with
+      | nil =>
+          rw [relRepeat_nil] at hb
+          rw [relRepeat_cons] at ha
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
+          have hlen : mx = 4 := Rel_quartetElem_len x s₁x hx
+          subst n
+          have hm0 : mx = 0 := by omega
+          omega
+      | cons y ys =>
+          rw [relRepeat_cons] at ha hb
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
+          rcases hb with ⟨my, hmy, s₁y, s₂y, hsy, hy, hys⟩
+          have hlx : mx = 4 := Rel_quartetElem_len x s₁x hx
+          have hly : my = 4 := Rel_quartetElem_len y s₁y hy
+          subst mx
+          subst my
+          have hpre : s₁x = s₁y := by
+            apply Bytes.ext
+            intro i
+            have hin : i.val < n := Nat.lt_of_lt_of_le i.isLt hmx
+            have hx' : s ⟨i.val, hin⟩ = s₁x i := by
+              rw [hsx]
+              exact splice_prefix_read hmx s₁x s₂x ⟨i.val, hin⟩ i.isLt
+            have hy' : s ⟨i.val, hin⟩ = s₁y i := by
+              rw [hsy]
+              exact splice_prefix_read hmy s₁y s₂y ⟨i.val, hin⟩ i.isLt
+            exact hx'.symm.trans hy'
+          have htaily : s₂x = s₂y := by
+            rw [← bdrop_splice hmx s₁x s₂x, ← bdrop_splice hmy s₁y s₂y]
+            congr 1
+            rw [← hsx]
+            rw [hsy]
+          have hhead : x = y := by
+            exact quartetElem_unambiguous s₁x hx (by rw [hpre]; exact hy)
+          have htail : xs = ys := by
+            exact ih s₂x hxs (by simpa [htaily] using hys)
+          rw [hhead, htail]
+
+/-- Full-consumption decode is unambiguous for `quartetElem`. -/
+theorem quartetDecodeFull_unambiguous {x y : List UInt8} {n : Nat} (s : Bytes n) :
+    (x, Suffix.empty n) ∈ decodeRepeat quartetElem quartetConsumesByte n s →
+    (y, Suffix.empty n) ∈ decodeRepeat quartetElem quartetConsumesByte n s → x = y := by
+  intro hx hy
+  rcases (decodeRepeat_spec quartetElem quartetConsumesByte x n s (Suffix.empty n)).1 hx with ⟨s₀x, hsx, hrx⟩
+  rcases (decodeRepeat_spec quartetElem quartetConsumesByte y n s (Suffix.empty n)).1 hy with ⟨s₀y, hsy, hry⟩
+  have hs₀ : s₀x = s₀y := by
+    have hpre : (Suffix.empty n).prepend s₀x = (Suffix.empty n).prepend s₀y := by
+      exact hsx.symm.trans hsy
+    exact prepend_prefix_eq (Suffix.empty n) s₀x s₀y hpre
+  exact relQuartet_unambiguous s₀x hrx (by rw [hs₀]; exact hry)
+
+/-- The base4 roundtrip law. `[propext, Quot.sound]`-only. -/
+theorem roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n} :
+    encodeQuartet bs = some ⟨n, s⟩ → decodeFull quartetElem quartetConsumesByte n s = some bs := by
+  intro he
+  have hrel : relRepeat (Rel quartetElem) bs n s := encodeRepeat_rel quartetElem bs he
+  have hmem : (bs, Suffix.empty n) ∈ decodeRepeat quartetElem quartetConsumesByte n s := by
+    refine (decodeRepeat_spec quartetElem quartetConsumesByte bs n s (Suffix.empty n)).2 ⟨
+      cast (congrArg Bytes (Nat.sub_zero n).symm) s, ?_, ?_⟩
+    · exact (prepend_empty_eq s).symm
+    · exact (relRepeat_cast (Rel quartetElem) bs (Nat.sub_zero n).symm s).2 hrel
+  exact (decodeFull_spec quartetElem quartetConsumesByte (fun {x y} {m} (t : Bytes m) =>
+    quartetDecodeFull_unambiguous (s := t)) s bs).2 hmem
 
 end BaseN.Base4
