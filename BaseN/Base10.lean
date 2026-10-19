@@ -9,14 +9,27 @@ Decimal encoding, **byte-oriented** and **sign-free**: each byte encodes as
 `(v/10)%10`, `v%10`).  Three decimal digits span `0..999`, exceeding a byte, so
 decoding rejects a triple with value `> 255`.
 
-Not an RFC encoding; semantics are defined by this package's spec (see design
-D3: "decimal digit math, byte-oriented, no sign").  The three-digit fixed width
-is what makes `decode (encode bs) = some bs` hold unconditionally: a
-variable-width decimal (whole-byte-list-as-one-number) would drop leading zero
-bytes and break the roundtrip.  Alphabet is ASCII `0-9` (48-57).
+Not an RFC encoding; semantics are defined by this package's spec.  The
+three-digit fixed width is what makes `decode (encode bs) = some bs` hold
+unconditionally.  Alphabet is ASCII `0-9` (48-57), all `< 256`.
+
+This module expresses the base as a `codec` `Codec (List UInt8)` value
+(`digElem`), composed from `satisfy` (one guarded decimal digit), `count 3`
+(three digits per byte block), and an `iso` that folds the three digit values
+into their byte (`v₀·100 + v₁·10 + v₂`, rejecting a block value `> 255`).  The
+unbounded run is the productive repetition triple `relDig`/`decodeDig`/
+`encodeDig`, whose roundtrip is the inherited `decodeRepeat_spec`/
+`encodeRepeat_rel` law.
 -/
 
+import BaseN.Common
+
 namespace BaseN.Base10
+
+open Codec
+open BaseN.Common
+
+/-! ## Digit-level arithmetic (`Nat`) -/
 
 /-- `digVal e` — the decimal value of a `0-9` character, or `10` if invalid. -/
 def digVal (e : Nat) : Nat :=
@@ -49,119 +62,306 @@ theorem valToDig_lt_256 (d : Nat) (hd : d ≤ 9) : valToDig d < 256 := by
   unfold valToDig
   omega
 
-/-- Encode each byte as three zero-padded decimal digits (Nat level). -/
-def encodeN (bs : List Nat) : List Nat :=
-  bs.flatMap (fun b => [valToDig (b / 100), valToDig ((b / 10) % 10), valToDig (b % 10)])
+/-- `digValid e = true` implies `digVal e ≤ 9`. -/
+theorem digValid_of_decide (e : Nat) (h : digValid e = true) : digVal e ≤ 9 :=
+  of_decide_eq_true (by simpa [digValid] using h)
 
-/-- Decode triples of decimal digits into bytes (`none` on bad input or overflow). -/
-def decodeN (bs : List Nat) : Option (List Nat) :=
-  match bs with
-  | [] => some []
-  | d0 :: d1 :: d2 :: rest =>
-    if digValid d0 && digValid d1 && digValid d2 then
-      let n := digVal d0 * 100 + digVal d1 * 10 + digVal d2
-      if n ≤ 255 then
-        match decodeN rest with
-        | some tl => some (n :: tl)
-        | none => none
+/-- When `e` is a valid decimal digit, `valToDig (digVal e) = e`. -/
+theorem valToDig_digVal_of_valid (e : Nat) (h : digValid e = true) :
+    valToDig (digVal e) = e := by
+  have hv : digVal e ≤ 9 := digValid_of_decide e h
+  unfold digVal valToDig
+  by_cases hle : e ≤ 57
+  · by_cases hge : 48 ≤ e
+    · have hv' : e - 48 = digVal e := by simp [digVal, hle, hge]
+      have hb : e - 48 ≤ 9 := by omega
+      simp [hle, hge]
+    · have : digVal e = 10 := by simp [digVal, hle, hge]
+      omega
+  · have : digVal e = 10 := by simp [digVal, hle]
+    omega
+
+/-- The reconstruction identity: `(v/100)*100 + ((v/10)%10)*10 + v%10 = v`. -/
+theorem dig_sum_eq (v : Nat) :
+    (v / 100) * 100 + ((v / 10) % 10) * 10 + v % 10 = v := by
+  have hdiv100 := Nat.div_add_mod v 100
+  have hdiv10 := Nat.div_add_mod v 10
+  omega
+
+/-- Uniqueness of the decimal decomposition: equal sums of digit triples (each
+digit `≤ 9`) give equal triples. -/
+theorem dig_decompose_unique (a b c d e f : Nat)
+    (_ha : a ≤ 9) (_hb : b ≤ 9) (_hc : c ≤ 9) (_hd : d ≤ 9) (_he : e ≤ 9) (_hf : f ≤ 9)
+    (h : a * 100 + b * 10 + c = d * 100 + e * 10 + f) :
+    a = d ∧ b = e ∧ c = f := by
+  have ha_d : a = d := by
+    have hm := congrArg (fun x => x / 100) h
+    omega
+  have hbe : b = e := by
+    have hm := congrArg (fun x => (x % 100) / 10) h
+    omega
+  have hcf : c = f := by omega
+  exact ⟨ha_d, hbe, hcf⟩
+
+/-! ## The block isomorphism -/
+
+/-- The decimal digit predicate over `UInt8`. -/
+def digDigit (b : UInt8) : Bool := digValid b.toNat
+
+/-- `apply`: read three digit bytes and fold them into their byte (rejecting an
+invalid digit or a block value `> 255`). -/
+def digBlockApply (cs : List UInt8) : Option UInt8 :=
+  match cs with
+  | [d0, d1, d2] =>
+      if digValid d0.toNat && digValid d1.toNat && digValid d2.toNat then
+        let n := digVal d0.toNat * 100 + digVal d1.toNat * 10 + digVal d2.toNat
+        if n ≤ 255 then some (UInt8.ofNat n) else none
       else none
-    else none
   | _ => none
 
-/-- `decodeN (encodeN [b]) = some [b]`. -/
-theorem decodeN_encodeN_single (b : Nat) (hb : b < 256) :
-    decodeN (encodeN [b]) = some [b] := by
-  have h0 : b / 100 ≤ 9 := by omega
-  have h1 : (b / 10) % 10 ≤ 9 := by omega
-  have h2 : b % 10 ≤ 9 := by omega
-  simp [encodeN, decodeN]
-  rw [valToDig_valid (b / 100) h0, valToDig_valid ((b / 10) % 10) h1, valToDig_valid (b % 10) h2]
-  rw [digVal_valToDig (b / 100) h0, digVal_valToDig ((b / 10) % 10) h1, digVal_valToDig (b % 10) h2]
-  have hsum : b / 100 * 100 + (b / 10) % 10 * 10 + b % 10 = b := by omega
-  have hle : b / 100 * 100 + (b / 10) % 10 * 10 + b % 10 ≤ 255 := by omega
-  rw [hsum]
-  have hb_le : b ≤ 255 := by omega
-  simp [hb_le]
+/-- `unapply`: write a byte as its three decimal digit bytes (always valid). -/
+def digBlockUnapply (b : UInt8) : Option (List UInt8) :=
+  some [toByte (valToDig (b.toNat / 100)),
+        toByte (valToDig ((b.toNat / 10) % 10)),
+        toByte (valToDig (b.toNat % 10))]
 
-/-- `decodeN (encodeN [b] ++ xs) = (b :: ·) <$> decodeN xs`. -/
-theorem decodeN_block (b : Nat) (hb : b < 256) (xs : List Nat) :
-    decodeN (encodeN [b] ++ xs) =
-      match decodeN xs with
-      | some ys => some (b :: ys)
-      | none => none := by
-  have h0 : b / 100 ≤ 9 := by omega
-  have h1 : (b / 10) % 10 ≤ 9 := by omega
-  have h2 : b % 10 ≤ 9 := by omega
-  simp [encodeN, decodeN]
-  rw [valToDig_valid (b / 100) h0, valToDig_valid ((b / 10) % 10) h1, valToDig_valid (b % 10) h2]
-  rw [digVal_valToDig (b / 100) h0, digVal_valToDig ((b / 10) % 10) h1, digVal_valToDig (b % 10) h2]
-  have hsum : b / 100 * 100 + (b / 10) % 10 * 10 + b % 10 = b := by omega
-  have hle : b / 100 * 100 + (b / 10) % 10 * 10 + b % 10 ≤ 255 := by omega
-  rw [hsum]
-  have hb_le : b ≤ 255 := by omega
-  simp [hb_le]
+/-- A single byte's digits are always valid. -/
+theorem digDigit_valid_of_byte (b : UInt8) :
+    digValid (toByte (valToDig (b.toNat / 100))).toNat = true ∧
+    digValid (toByte (valToDig ((b.toNat / 10) % 10))).toNat = true ∧
+    digValid (toByte (valToDig (b.toNat % 10))).toNat = true := by
+  have hbv : b.toNat < 256 := UInt8.toNat_lt b
+  have h0 : b.toNat / 100 ≤ 9 := by omega
+  have h1 : (b.toNat / 10) % 10 ≤ 9 := by omega
+  have h2 : b.toNat % 10 ≤ 9 := by omega
+  constructor
+  · rw [show (toByte (valToDig (b.toNat / 100))).toNat = (UInt8.ofNat (valToDig (b.toNat / 100))).toNat by rfl]
+    rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (valToDig_lt_256 (b.toNat / 100) h0)]
+    exact valToDig_valid (b.toNat / 100) h0
+  constructor
+  · rw [show (toByte (valToDig ((b.toNat / 10) % 10))).toNat = (UInt8.ofNat (valToDig ((b.toNat / 10) % 10))).toNat by rfl]
+    rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (valToDig_lt_256 ((b.toNat / 10) % 10) h1)]
+    exact valToDig_valid ((b.toNat / 10) % 10) h1
+  · rw [show (toByte (valToDig (b.toNat % 10))).toNat = (UInt8.ofNat (valToDig (b.toNat % 10))).toNat by rfl]
+    rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (valToDig_lt_256 (b.toNat % 10) h2)]
+    exact valToDig_valid (b.toNat % 10) h2
 
-/-- `decodeN (encodeN bs) = some bs`, for byte lists. -/
-theorem roundtripN (bs : List Nat) :
-    (∀ b ∈ bs, b < 256) → decodeN (encodeN bs) = some bs := by
-  intro hbs
-  induction bs with
-  | nil => rfl
-  | cons b bs ih =>
-      have hb : b < 256 := hbs b (by simp)
-      have htail : ∀ x ∈ bs, x < 256 := by intro x hx; exact hbs x (by simp [hx])
-      have hcat : encodeN (b :: bs) = encodeN [b] ++ encodeN bs := by simp [encodeN]
-      rw [hcat, decodeN_block b hb (encodeN bs), ih htail]
-
--- UInt8 surface
-
-private theorem toByte_valToDig (d : Nat) (hd : d ≤ 9) :
-    (toByte (valToDig d)).toNat = valToDig d := by
-  unfold toByte
+/-- `digVal ((toByte (valToDig d)).toNat) = d` for `d ≤ 9`. -/
+theorem digVal_toByte_valToDig (d : Nat) (hd : d ≤ 9) :
+    digVal (toByte (valToDig d)).toNat = d := by
+  rw [show (toByte (valToDig d)).toNat = (UInt8.ofNat (valToDig d)).toNat by rfl]
   rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (valToDig_lt_256 d hd)]
+  exact digVal_valToDig d hd
 
-/-- Encode each byte as three zero-padded decimal digits. -/
-def encode (bs : List UInt8) : List UInt8 :=
-  bs.flatMap (fun b => [toByte (valToDig (b.toNat / 100)), toByte (valToDig ((b.toNat / 10) % 10)), toByte (valToDig (b.toNat % 10))])
+/-- `apply` is a left inverse of `unapply`. -/
+theorem digBlockApply_unapply (b : UInt8) :
+    digBlockApply [toByte (valToDig (b.toNat / 100)),
+                   toByte (valToDig ((b.toNat / 10) % 10)),
+                   toByte (valToDig (b.toNat % 10))] = some b := by
+  have hbv : b.toNat < 256 := UInt8.toNat_lt b
+  rw [digBlockApply]
+  rw [digVal_toByte_valToDig (b.toNat / 100) (by omega),
+      digVal_toByte_valToDig ((b.toNat / 10) % 10) (by omega),
+      digVal_toByte_valToDig (b.toNat % 10) (by omega)]
+  have hd := digDigit_valid_of_byte b
+  rw [hd.1, hd.2.1, hd.2.2]
+  have hh : (true && true && true) = true := by decide
+  rw [hh]
+  have hsum : b.toNat / 100 * 100 + (b.toNat / 10) % 10 * 10 + b.toNat % 10 = b.toNat :=
+    dig_sum_eq b.toNat
+  rw [hsum]
+  have hle : b.toNat ≤ 255 := by omega
+  simp only [hle, ite_true]
+  simp
 
-/-- Decode triples of decimal digits into bytes. -/
-def decode (bs : List UInt8) : Option (List UInt8) :=
-  match bs with
-  | [] => some []
-  | d0 :: d1 :: d2 :: rest =>
-    if digValid d0.toNat && digValid d1.toNat && digValid d2.toNat then
-      let n := digVal d0.toNat * 100 + digVal d1.toNat * 10 + digVal d2.toNat
-      if n ≤ 255 then
-        match decode rest with
-        | some tl => some (toByte n :: tl)
-        | none => none
-      else none
-    else none
-  | _ => none
+/-- The inverse law of the decimal block. -/
+theorem digBlockIso_law (cs : List UInt8) (b : UInt8) :
+    digBlockApply cs = some b ↔ digBlockUnapply b = some cs := by
+  constructor
+  · intro h
+    cases cs with
+    | nil => simp [digBlockApply] at h
+    | cons d0 rest =>
+        cases rest with
+        | nil => simp [digBlockApply] at h
+        | cons d1 rest2 =>
+            cases rest2 with
+            | nil => simp [digBlockApply] at h
+            | cons d2 rest3 =>
+                cases rest3 with
+                | nil =>
+                    rw [digBlockApply] at h
+                    by_cases hv : digValid d0.toNat && digValid d1.toNat && digValid d2.toNat
+                    · simp only [hv, ite_true] at h
+                      by_cases hl : digVal d0.toNat * 100 + digVal d1.toNat * 10 + digVal d2.toNat ≤ 255
+                      · simp only [hl, ite_true] at h
+                        have hb_eq : UInt8.ofNat (digVal d0.toNat * 100 + digVal d1.toNat * 10 + digVal d2.toNat) = b := by
+                          exact Option.some.inj h
+                        have hv' : ((digValid d0.toNat = true ∧ digValid d1.toNat = true) ∧ digValid d2.toNat = true) := by
+                          simpa only [Bool.and_eq_true_iff] using hv
+                        have hvd0 : digValid d0.toNat = true := hv'.1.1
+                        have hvd1 : digValid d1.toNat = true := hv'.1.2
+                        have hvd2 : digValid d2.toNat = true := hv'.2
+                        have v0le := digValid_of_decide d0.toNat hvd0
+                        have v1le := digValid_of_decide d1.toNat hvd1
+                        have v2le := digValid_of_decide d2.toNat hvd2
+                        have hd0 : d0.toNat = valToDig (digVal d0.toNat) :=
+                          (valToDig_digVal_of_valid d0.toNat hvd0).symm
+                        have hd1 : d1.toNat = valToDig (digVal d1.toNat) :=
+                          (valToDig_digVal_of_valid d1.toNat hvd1).symm
+                        have hd2 : d2.toNat = valToDig (digVal d2.toNat) :=
+                          (valToDig_digVal_of_valid d2.toNat hvd2).symm
+                        have hb : b.toNat = digVal d0.toNat * 100 + digVal d1.toNat * 10 + digVal d2.toNat := by
+                          have hbt := congrArg UInt8.toNat hb_eq
+                          rw [UInt8.toNat_ofNat'] at hbt
+                          rw [Nat.mod_eq_of_lt] at hbt
+                          · exact hbt.symm
+                          · omega
+                        have hsplit : digVal d0.toNat = b.toNat / 100 ∧
+                                      digVal d1.toNat = (b.toNat / 10) % 10 ∧
+                                      digVal d2.toNat = b.toNat % 10 := by
+                          exact dig_decompose_unique
+                            (digVal d0.toNat) (digVal d1.toNat) (digVal d2.toNat)
+                            (b.toNat / 100) ((b.toNat / 10) % 10) (b.toNat % 10)
+                            v0le v1le v2le (by omega) (by omega) (by omega)
+                            (hb.symm.trans (dig_sum_eq b.toNat).symm)
+                        rw [digBlockUnapply]
+                        rw [← hsplit.1, ← hsplit.2.1, ← hsplit.2.2]
+                        rw [← hd0, ← hd1, ← hd2]
+                        simp [toByte]
+                      · simp only [hl, ite_false] at h
+                        cases h
+                    · simp [hv] at h
+                | cons _ _ => simp [digBlockApply] at h
+  · intro h
+    rw [digBlockUnapply] at h
+    cases h
+    exact digBlockApply_unapply b
 
-/-- `decode (encode bs) = some bs` — the full roundtrip, `UInt8` level. -/
-theorem roundtrip (bs : List UInt8) :
-    decode (encode bs) = some bs := by
-  induction bs with
-  | nil => rfl
-  | cons b bs ih =>
-      have hlt : b.toNat < 256 := by simpa using UInt8.toNat_lt b
-      have h0 : b.toNat / 100 ≤ 9 := by omega
-      have h1 : (b.toNat / 10) % 10 ≤ 9 := by omega
-      have h2 : b.toNat % 10 ≤ 9 := by omega
-      have hcat : encode (b :: bs) = encode [b] ++ encode bs := by simp [encode]
-      rw [hcat]
-      change decode (encode [b] ++ encode bs) = some (b :: bs)
-      change decode ([toByte (valToDig (b.toNat / 100)), toByte (valToDig ((b.toNat / 10) % 10)), toByte (valToDig (b.toNat % 10))] ++ encode bs) = some (b :: bs)
-      simp [decode]
-      rw [toByte_valToDig (b.toNat / 100) h0, toByte_valToDig ((b.toNat / 10) % 10) h1, toByte_valToDig (b.toNat % 10) h2]
-      rw [valToDig_valid (b.toNat / 100) h0, valToDig_valid ((b.toNat / 10) % 10) h1, valToDig_valid (b.toNat % 10) h2]
-      rw [digVal_valToDig (b.toNat / 100) h0, digVal_valToDig ((b.toNat / 10) % 10) h1, digVal_valToDig (b.toNat % 10) h2]
-      have hsum : b.toNat / 100 * 100 + (b.toNat / 10) % 10 * 10 + b.toNat % 10 = b.toNat := by omega
-      rw [hsum]
-      have hb_le : b.toNat ≤ 255 := by omega
-      simp [hb_le]
-      rw [ih]
-      simp [toByte, UInt8.ofNat_toNat]
+/-- The three-decimal-digit block ↔ one byte partial isomorphism. -/
+def digBlockIso : Iso (List UInt8) UInt8 :=
+  { apply := digBlockApply, unapply := digBlockUnapply, law := digBlockIso_law }
+
+/-- The base10 element: three decimal digit bytes grouped into one byte. -/
+def digElem : Codec UInt8 := Codec.iso digBlockIso (count 3 (Codec.satisfy digDigit))
+
+/-- `digElem` is productive. -/
+theorem digConsumesByte : ConsumesByte digElem := by
+  unfold digElem
+  rw [← productive_iff_consumesByte (Codec.iso digBlockIso (count 3 (Codec.satisfy digDigit)))]
+  apply Productive_iso digBlockIso (count 3 (Codec.satisfy digDigit))
+  rw [show 3 = 2 + 1 by rfl]
+  exact Productive_count_satisfy_succ digDigit 2
+
+/-- The base10 decoder. -/
+def decodeDig {n : Nat} (s : Bytes n) : List (List UInt8 × Suffix n) :=
+  decodeRepeat digElem digConsumesByte n s
+
+/-- The base10 encoder. -/
+def encodeDig (bs : List UInt8) : Option (Sigma fun n => Bytes n) :=
+  encodeRepeat digElem bs
+
+/-- The base10 relation. -/
+def relDig : List UInt8 → (n : Nat) → Bytes n → Prop :=
+  relRepeat (Rel digElem)
+
+/-! ## Unambiguity and the inherited roundtrip law -/
+
+/-- `digElem` is unambiguous. -/
+theorem digElem_unambiguous : Unambiguous digElem := by
+  unfold digElem
+  apply Unambiguous_iso digBlockIso (count 3 (Codec.satisfy digDigit))
+  exact count_satisfy_unambiguous digDigit 3
+
+/-- `Rel digElem x s` pins the byte length: `n = 3`. -/
+theorem Rel_digElem_len (x : UInt8) {n : Nat} (s : Bytes n) :
+    Rel digElem x s → n = 3 := by
+  intro h
+  unfold digElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_len digDigit 3 a s hc
+
+/-- The base10 relation is unambiguous. -/
+theorem relDig_unambiguous : relUnambiguous relDig := by
+  intro a b n s ha hb
+  dsimp [relDig] at ha hb
+  induction a generalizing b n s with
+  | nil =>
+      rw [relRepeat_nil] at ha
+      subst n
+      cases b with
+      | nil => rfl
+      | cons y ys =>
+          rw [relRepeat_cons] at hb
+          rcases hb with ⟨m, hm, s₁, s₂, hs, hy, _⟩
+          have hlen : m = 3 := Rel_digElem_len y s₁ hy
+          have hm0 : m = 0 := by omega
+          omega
+  | cons x xs ih =>
+      cases b with
+      | nil =>
+          rw [relRepeat_nil] at hb
+          rw [relRepeat_cons] at ha
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
+          have hlen : mx = 3 := Rel_digElem_len x s₁x hx
+          subst n
+          have hm0 : mx = 0 := by omega
+          omega
+      | cons y ys =>
+          rw [relRepeat_cons] at ha hb
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
+          rcases hb with ⟨my, hmy, s₁y, s₂y, hsy, hy, hys⟩
+          have hlx : mx = 3 := Rel_digElem_len x s₁x hx
+          have hly : my = 3 := Rel_digElem_len y s₁y hy
+          subst mx
+          subst my
+          have hpre : s₁x = s₁y := by
+            apply Bytes.ext
+            intro i
+            have hin : i.val < n := Nat.lt_of_lt_of_le i.isLt hmx
+            have hx' : s ⟨i.val, hin⟩ = s₁x i := by
+              rw [hsx]
+              exact splice_prefix_read hmx s₁x s₂x ⟨i.val, hin⟩ i.isLt
+            have hy' : s ⟨i.val, hin⟩ = s₁y i := by
+              rw [hsy]
+              exact splice_prefix_read hmy s₁y s₂y ⟨i.val, hin⟩ i.isLt
+            exact hx'.symm.trans hy'
+          have htaily : s₂x = s₂y := by
+            rw [← bdrop_splice hmx s₁x s₂x, ← bdrop_splice hmy s₁y s₂y]
+            congr 1
+            rw [← hsx]
+            rw [hsy]
+          have hhead : x = y := by
+            exact digElem_unambiguous s₁x hx (by rw [hpre]; exact hy)
+          have htail : xs = ys := by
+            exact ih s₂x hxs (by simpa [htaily] using hys)
+          rw [hhead, htail]
+
+/-- Full-consumption decode is unambiguous for `digElem`. -/
+theorem digDecodeFull_unambiguous {x y : List UInt8} {n : Nat} (s : Bytes n) :
+    (x, Suffix.empty n) ∈ decodeRepeat digElem digConsumesByte n s →
+    (y, Suffix.empty n) ∈ decodeRepeat digElem digConsumesByte n s → x = y := by
+  intro hx hy
+  rcases (decodeRepeat_spec digElem digConsumesByte x n s (Suffix.empty n)).1 hx with ⟨s₀x, hsx, hrx⟩
+  rcases (decodeRepeat_spec digElem digConsumesByte y n s (Suffix.empty n)).1 hy with ⟨s₀y, hsy, hry⟩
+  have hs₀ : s₀x = s₀y := by
+    have hpre : (Suffix.empty n).prepend s₀x = (Suffix.empty n).prepend s₀y := by
+      exact hsx.symm.trans hsy
+    exact prepend_prefix_eq (Suffix.empty n) s₀x s₀y hpre
+  exact relDig_unambiguous s₀x hrx (by rw [hs₀]; exact hry)
+
+/-- The base10 roundtrip law. `[propext, Quot.sound]`-only. -/
+theorem roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n} :
+    encodeDig bs = some ⟨n, s⟩ → decodeFull digElem digConsumesByte n s = some bs := by
+  intro he
+  have hrel : relRepeat (Rel digElem) bs n s := encodeRepeat_rel digElem bs he
+  have hmem : (bs, Suffix.empty n) ∈ decodeRepeat digElem digConsumesByte n s := by
+    refine (decodeRepeat_spec digElem digConsumesByte bs n s (Suffix.empty n)).2 ⟨
+      cast (congrArg Bytes (Nat.sub_zero n).symm) s, ?_, ?_⟩
+    · exact (prepend_empty_eq s).symm
+    · exact (relRepeat_cast (Rel digElem) bs (Nat.sub_zero n).symm s).2 hrel
+  exact (decodeFull_spec digElem digConsumesByte (fun {x y} {m} (t : Bytes m) =>
+    digDecodeFull_unambiguous (s := t)) s bs).2 hmem
 
 end BaseN.Base10
