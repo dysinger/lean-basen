@@ -5,12 +5,21 @@
 # BaseN
 
 The base-`N` encoding/decoding package: one verified package covering base 2, 4,
-8, 10, 16, 32, and 64, each with a byte-list encoder and decoder (over `UInt8`,
-the `codec` `Bytes n` element type), a roundtrip law proved `[propext,
-Quot.sound]`-only, and UTF-8/ASCII alphabets per RFC 4648.
+8, 10, 16, 32, and 64, each re-expressed as a `codec` `Codec` value over the
+`satisfy`/`count`/`iso` primitives plus the productive repetition layer —
+decoded and encoded by the single `Codec` operations, "only the codec changes."
 
-This facade re-exports the seven per-base modules and dispatches a single
-`roundtrip` theorem over a small inductive `Base`.
+Each base is a *run triple* inherited from the repetition layer:
+
+  * `relX`    — `relRepeat (Rel xElem)` (the least-fixpoint relation)
+  * `decodeX` — `decodeRepeat xElem xConsumesByte` (the backtracking decoder)
+  * `encodeX` — `encodeRepeat xElem` (the partial encoder)
+  * `roundtrip` — the inherited `decodeRepeat_spec`/`encodeRepeat_rel` law
+
+The fixed-width bases (2/4/8/10/16) have element `Codec UInt8` (one byte per
+element); the cross-byte bit-packing bases (32/64) have element
+`Codec (List UInt8)` (a 5-byte / 3-byte block).  No bespoke `encode`/`decode`;
+every law is `[propext, Quot.sound]`-only.
 
   * `BaseN.Base2`  — one bit per `0`/`1` char, 8 chars per byte, MSB-first
   * `BaseN.Base4`  — one quartet per `0`-`3` char, 4 chars per byte
@@ -35,34 +44,5 @@ namespace BaseN
 inductive Base where
   | B2 | B4 | B8 | B10 | B16 | B32 | B64
   deriving DecidableEq, Repr, Inhabited
-
-/-- `encode b bs` — encode `bs` in base `b`. -/
-def encode (b : Base) : List UInt8 → List UInt8 :=
-  match b with
-  | .B2 => Base2.encode
-  | .B4 => Base4.encode
-  | .B8 => Base8.encode
-  | .B10 => Base10.encode
-  | .B16 => Base16.encode
-  | .B32 => Base32.encode
-  | .B64 => Base64.encode
-
-/-- `decode b bs` — decode `bs` from base `b`, or `none` on malformed input. -/
-def decode (b : Base) : List UInt8 → Option (List UInt8) :=
-  match b with
-  | .B2 => Base2.decode
-  | .B4 => Base4.decode
-  | .B8 => Base8.decode
-  | .B10 => Base10.decode
-  | .B16 => Base16.decode
-  | .B32 => Base32.decode
-  | .B64 => Base64.decode
-
-/-- Every base satisfies the roundtrip law: `decode b (encode b bs) = some bs`. -/
-theorem roundtrip (b : Base) (bs : List UInt8) :
-    decode b (encode b bs) = some bs := by
-  cases b <;> simp [encode, decode, Base2.roundtrip, Base4.roundtrip,
-    Base8.roundtrip, Base10.roundtrip, Base16.roundtrip,
-    Base32.roundtrip, Base64.roundtrip]
 
 end BaseN
