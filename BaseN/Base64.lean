@@ -540,4 +540,79 @@ theorem roundtrip (bs : List (List UInt8)) {n : Nat} {s : Bytes n} :
   exact (decodeFull_spec b64Elem b64ConsumesByte (fun {x y} {m} (t : Bytes m) =>
     b64DecodeFull_unambiguous (s := t)) s bs).2 hmem
 
+/-! ## RFC 4648 §3.2 run-level terminal padding (the whole-input guard)
+
+The block `iso` rejects `=` in a non-terminal *intra-block* position, but the
+run-level case — a `=`-terminated block followed by another block — is accepted
+by `decodeFull b64Elem` (the `count 4` window fixes bytes, not value length).
+This section adds the run-level guard: a decidable `b64TerminalPad` shape on the
+decoded `List (List UInt8)` (every block full except possibly the last, which may
+be a tail), and `decodeB64Strict` — the grammar-correct whole-input decoder
+(a single `decodeFull` plus a cheap `O(#blocks)` shape check, no second byte
+pass). -/
+
+/-- A block is a full base64 block iff it decodes to exactly 3 bytes. -/
+def b64FullBlock (b : List UInt8) : Prop := b.length = 3
+
+/-- `b64TerminalPad blocks` — the run-level terminal-padding shape (a `Bool`).
+Every block is full (length 3) except possibly the last, which may be a full or
+tail block (length 1 or 2).  Rendered as a `Bool` so `decodeB64Strict` is
+`#eval`-able and concrete rejection vectors close by `decide`. -/
+def b64TerminalPad : List (List UInt8) → Bool
+  | [] => true
+  | [b] => decide (b.length = 1 ∨ b.length = 2 ∨ b.length = 3)
+  | b :: rest => (decide (b.length = 3)) && b64TerminalPad rest
+
+/-- The decidable `Prop` mirror: `B64TerminalPad blocks := b64TerminalPad blocks = true`. -/
+def B64TerminalPad (blocks : List (List UInt8)) : Prop :=
+  b64TerminalPad blocks = true
+
+/-- `decodeB64Strict` — the whole-input base64 decoder that additionally enforces
+RFC 4648 §3.2 terminal padding: decode fully with `decodeFull b64Elem`, then keep
+the result only when it has terminal-pad shape.  A single decode pass plus an
+`O(#blocks)` shape check. -/
+def decodeB64Strict {n : Nat} (s : Bytes n) : Option (List (List UInt8)) :=
+  match decodeFull b64Elem b64ConsumesByte n s with
+  | none => none
+  | some bs => if b64TerminalPad bs then some bs else none
+
+/-- The grammar-correct denotation: full blocks in a run, plus a terminal-pad
+shape constraint.  "Data after a terminal `=`" has no inhabitant because a tail
+block (length < 3) can only be last. -/
+def relB64Strict : List (List UInt8) → (n : Nat) → Bytes n → Prop :=
+  fun blocks n s => relRepeat (Rel b64Elem) blocks n s ∧ B64TerminalPad blocks
+
+/-- The concrete `b64TerminalPad` rejection fact: a tail block `[0x66]` followed by
+a full block `[0,0,0]` is *not* terminal-pad shaped. -/
+theorem b64TerminalPad_rejects_tail_then_full :
+    b64TerminalPad [[0x66], [0, 0, 0]] = false := by
+  unfold b64TerminalPad
+  decide
+
+/-- Canonical encoding (value shape): a terminal-pad-shaped value list encodes
+and strict-decodes round-trip. -/
+theorem roundtripStrict (bs : List (List UInt8)) (hpad : B64TerminalPad bs)
+    {n : Nat} {s : Bytes n} :
+    encodeB64 bs = some ⟨n, s⟩ → decodeB64Strict s = some bs := by
+  intro he
+  unfold decodeB64Strict
+  rw [roundtrip bs he]
+  change (if b64TerminalPad bs then some bs else none) = some bs
+  rw [hpad]
+  rfl
+
+/-- The base64 run-level rejection theorem (STATEMENT): a `=`-terminated block
+followed by further data is rejected (`none`).  The `decodeFull` half (`some [[0x66],[0,0,0]]`)
+plus `b64TerminalPad_rejects_tail_then_full` gives `none`; the concrete `decodeFull`
+equality is established via `decodeFull_spec` + `encode_rel` for each block (in
+progress in the next pass). -/
+theorem decodeB64Strict_rejects_trailing
+    (hs : (fun i : Fin 8 => [0x5A, 0x67, 0x3D, 0x3D, 0x41, 0x41, 0x41, 0x41][i.val]) = (s : Bytes 8))
+    (hf : decodeFull b64Elem b64ConsumesByte 8 s = some [[0x66], [0, 0, 0]]) :
+    decodeB64Strict s = none := by
+  subst s
+  unfold decodeB64Strict
+  rw [hf]
+  simp [b64TerminalPad_rejects_tail_then_full]
+
 end BaseN.Base64
