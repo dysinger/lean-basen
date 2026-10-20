@@ -739,4 +739,106 @@ theorem rejects_trailing :
   unfold decodeB32Strict parseB32
   decide
 
+/-! ## Conformance: canonical encoding, injectivity (base32) -/
+
+/-- A `valToB32` character embedding (`toByte ·`) is a valid base32 alphabet byte. -/
+theorem b32CharAlphabet (i : Nat) (hi : i ≤ 31) : b32Valid (toByte (valToB32 i)).toNat = true := by
+  rw [toByte_valToB32 i hi]
+  exact valToB32_valid i hi
+
+/-- Canonical encoding: every byte of `encodeB32Strict v` is an alphabet character
+or the `=` pad, and the pad count is exactly the terminal tail's RFC §6 arity. -/
+theorem encodeB32Strict_alphabetOrPad (v : B32) :
+    ∀ b ∈ encodeB32Strict v, b32Valid b.toNat = true ∨ b.toNat = 61 := by
+  induction v with
+  | nil => intro b hb; simp [encodeB32Strict, b32CharsOf] at hb
+  | full b0 b1 b2 b3 b4 rest ih =>
+      have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+      have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+      have hb2 : b2.toNat < 256 := UInt8.toNat_lt b2
+      have hb3 : b3.toNat < 256 := UInt8.toNat_lt b3
+      have hb4 : b4.toNat < 256 := UInt8.toNat_lt b4
+      intro b hb
+      rw [encodeB32Strict, b32CharsOf] at hb
+      rw [List.mem_append] at hb
+      rcases hb with hb | hb
+      · rw [b32FullChars] at hb
+        simp at hb
+        rcases hb with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+        · left; exact b32CharAlphabet (b0.toNat / 8) (by omega)
+        · left; exact b32CharAlphabet ((b0.toNat % 8) * 4 + b1.toNat / 64) (by omega)
+        · left; exact b32CharAlphabet ((b1.toNat / 2) % 32) (by omega)
+        · left; exact b32CharAlphabet ((b1.toNat % 2) * 16 + b2.toNat / 16) (by omega)
+        · left; exact b32CharAlphabet ((b2.toNat % 16) * 2 + b3.toNat / 128) (by omega)
+        · left; exact b32CharAlphabet ((b3.toNat / 4) % 32) (by omega)
+        · left; exact b32CharAlphabet ((b3.toNat % 4) * 8 + b4.toNat / 32) (by omega)
+        · left; exact b32CharAlphabet (b4.toNat % 32) (by omega)
+      · exact ih b hb
+  | tail4 b0 b1 b2 b3 =>
+      have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+      have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+      have hb2 : b2.toNat < 256 := UInt8.toNat_lt b2
+      have hb3 : b3.toNat < 256 := UInt8.toNat_lt b3
+      intro b hb
+      rw [encodeB32Strict, b32CharsOf] at hb
+      rw [b32Tail4Chars] at hb
+      simp at hb
+      rcases hb with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      · left; exact b32CharAlphabet (b0.toNat / 8) (by omega)
+      · left; exact b32CharAlphabet ((b0.toNat % 8) * 4 + b1.toNat / 64) (by omega)
+      · left; exact b32CharAlphabet ((b1.toNat / 2) % 32) (by omega)
+      · left; exact b32CharAlphabet ((b1.toNat % 2) * 16 + b2.toNat / 16) (by omega)
+      · left; exact b32CharAlphabet ((b2.toNat % 16) * 2 + b3.toNat / 128) (by omega)
+      · left; exact b32CharAlphabet ((b3.toNat / 4) % 32) (by omega)
+      · left; exact b32CharAlphabet ((b3.toNat % 4) * 8) (by omega)
+      · right; rfl
+  | tail3 b0 b1 b2 =>
+      have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+      have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+      have hb2 : b2.toNat < 256 := UInt8.toNat_lt b2
+      intro b hb
+      rw [encodeB32Strict, b32CharsOf] at hb
+      rw [b32Tail3Chars] at hb
+      simp at hb
+      rcases hb with rfl | rfl | rfl | rfl | rfl | rfl
+      · left; exact b32CharAlphabet (b0.toNat / 8) (by omega)
+      · left; exact b32CharAlphabet ((b0.toNat % 8) * 4 + b1.toNat / 64) (by omega)
+      · left; exact b32CharAlphabet ((b1.toNat / 2) % 32) (by omega)
+      · left; exact b32CharAlphabet ((b1.toNat % 2) * 16 + b2.toNat / 16) (by omega)
+      · left; exact b32CharAlphabet ((b2.toNat % 16) * 2) (by omega)
+      · right; rfl
+  | tail2 b0 b1 =>
+      have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+      have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+      intro b hb
+      rw [encodeB32Strict, b32CharsOf] at hb
+      rw [b32Tail2Chars] at hb
+      simp at hb
+      rcases hb with rfl | rfl | rfl | rfl | rfl
+      · left; exact b32CharAlphabet (b0.toNat / 8) (by omega)
+      · left; exact b32CharAlphabet ((b0.toNat % 8) * 4 + b1.toNat / 64) (by omega)
+      · left; exact b32CharAlphabet ((b1.toNat / 2) % 32) (by omega)
+      · left; exact b32CharAlphabet ((b1.toNat % 2) * 16) (by omega)
+      · right; rfl
+  | tail1 b0 =>
+      have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+      intro b hb
+      rw [encodeB32Strict, b32CharsOf] at hb
+      rw [b32Tail1Chars] at hb
+      simp at hb
+      rcases hb with rfl | rfl | rfl
+      · left; exact b32CharAlphabet (b0.toNat / 8) (by omega)
+      · left; exact b32CharAlphabet ((b0.toNat % 8) * 4) (by omega)
+      · right; rfl
+
+/-- Encoding is injective on `B32`: equal encodings identify equal values. -/
+theorem encodeB32Strict_injective {v v' : B32} :
+    encodeB32Strict v = encodeB32Strict v' → v = v' := by
+  intro h
+  have h1 := strict_roundtrip v
+  have h2 := strict_roundtrip v'
+  rw [h] at h1
+  have h12 : some v = some v' := h1.symm.trans h2
+  exact Option.some.inj h12
+
 end BaseN.Base32

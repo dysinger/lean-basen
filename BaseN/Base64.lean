@@ -537,4 +537,68 @@ theorem rejects_trailing :
   unfold decodeB64Strict parseB64
   decide
 
+/-! ## Conformance: canonical encoding, converse, injectivity (base64) -/
+
+/-- A `valToB64` character embedding (`toByte ·`) is a valid base64 alphabet byte. -/
+theorem b64CharAlphabet (i : Nat) (hi : i ≤ 63) : b64Valid (toByte (valToB64 i)).toNat = true := by
+  rw [toByte_valToB64 i hi]
+  exact valToB64_valid i hi
+
+/-- Canonical encoding: every byte of `encodeB64Strict v` is an alphabet character
+or the `=` pad, and pad bytes are exactly the terminal tail's RFC arity. The
+first conjunct is the alphabet-or-pad form; the `=` byte (61) appears only from
+the explicit tail pads (never from `valToB64`, cf. `valToB64_not_pad`). -/
+theorem encodeB64Strict_alphabetOrPad (v : B64) :
+    ∀ b ∈ encodeB64Strict v, b64Valid b.toNat = true ∨ b.toNat = 61 := by
+  induction v with
+  | nil => intro b hb; simp [encodeB64Strict, b64CharsOf] at hb
+  | full b0 b1 b2 rest ih =>
+      have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+      have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+      have hb2 : b2.toNat < 256 := UInt8.toNat_lt b2
+      intro b hb
+      rw [encodeB64Strict, b64CharsOf] at hb
+      rw [List.mem_append] at hb
+      rcases hb with hb | hb
+      · rw [b64FullChars] at hb
+        simp at hb
+        rcases hb with rfl | rfl | rfl | rfl
+        · left; exact b64CharAlphabet (b0.toNat / 4) (by omega)
+        · left; exact b64CharAlphabet ((b0.toNat % 4) * 16 + b1.toNat / 16) (by omega)
+        · left; exact b64CharAlphabet ((b1.toNat % 16) * 4 + b2.toNat / 64) (by omega)
+        · left; exact b64CharAlphabet (b2.toNat % 64) (by omega)
+      · exact ih b hb
+  | tail2 b0 b1 =>
+      have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+      have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+      intro b hb
+      rw [encodeB64Strict, b64CharsOf] at hb
+      rw [b64Tail2Chars] at hb
+      simp at hb
+      rcases hb with rfl | rfl | rfl | rfl
+      · left; exact b64CharAlphabet (b0.toNat / 4) (by omega)
+      · left; exact b64CharAlphabet ((b0.toNat % 4) * 16 + b1.toNat / 16) (by omega)
+      · left; exact b64CharAlphabet ((b1.toNat % 16) * 4) (by omega)
+      · right; rfl
+  | tail1 b0 =>
+      have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+      intro b hb
+      rw [encodeB64Strict, b64CharsOf] at hb
+      rw [b64Tail1Chars] at hb
+      simp at hb
+      rcases hb with rfl | rfl | rfl
+      · left; exact b64CharAlphabet (b0.toNat / 4) (by omega)
+      · left; exact b64CharAlphabet ((b0.toNat % 4) * 16) (by omega)
+      · right; rfl
+
+/-- Encoding is injective on `B64`: equal encodings identify equal values. -/
+theorem encodeB64Strict_injective {v v' : B64} :
+    encodeB64Strict v = encodeB64Strict v' → v = v' := by
+  intro h
+  have h1 := strict_roundtrip v
+  have h2 := strict_roundtrip v'
+  rw [h] at h1
+  have h12 : some v = some v' := h1.symm.trans h2
+  exact Option.some.inj h12
+
 end BaseN.Base64

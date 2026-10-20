@@ -364,4 +364,115 @@ theorem roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n} :
   exact (decodeFull_spec digElem digConsumesByte (fun {x y} {m} (t : Bytes m) =>
     digDecodeFull_unambiguous (s := t)) s bs).2 hmem
 
+/-! ## Conformance: canonical encoding, converse, injectivity -/
+
+/-- `digElem` is functional: one byte relates to a unique 3-byte string. -/
+theorem digElem_functional : Functional digElem := by
+  unfold digElem
+  exact Functional_iso digBlockIso (count 3 (Codec.satisfy digDigit))
+    (Functional_count_satisfy digDigit 3)
+
+/-- Every byte of a `digElem`-related string is a decimal digit. -/
+theorem Rel_digElem_canonical {x : UInt8} {m : Nat} {t : Bytes m} :
+    Rel digElem x t → ∀ i : Fin m, digDigit (t i) = true := by
+  intro ht
+  change Rel (Codec.iso digBlockIso (count 3 (Codec.satisfy digDigit))) x t at ht
+  rw [Rel_iso] at ht
+  rcases ht with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_forall digDigit 3 a t hc
+
+/-- Canonical encoding (alphabet-only): every byte `encodeDig` produces is a decimal
+digit. `[propext, Quot.sound]`-only. -/
+theorem encodeDig_canonical (bs : List UInt8) {n : Nat} {s : Bytes n} :
+    encodeDig bs = some ⟨n, s⟩ → ∀ i : Fin n, digDigit (s i) = true := by
+  intro he
+  have hrel : relRepeat (Rel digElem) bs n s := encodeRepeat_rel digElem bs he
+  exact relRepeat_forall digDigit (fun x {m} t ht => Rel_digElem_canonical (t := t) ht) bs n s hrel
+
+/-- Converse: a fully-decoded value re-encodes to exactly the input bytes. -/
+theorem decode_encode_inverse {n : Nat} {s : Bytes n} (v : List UInt8) :
+    decodeFull digElem digConsumesByte n s = some v → encodeDig v = some ⟨n, s⟩ := by
+  intro hd
+  have hmem : (v, Suffix.empty n) ∈ decodeRepeat digElem digConsumesByte n s :=
+    decodeFull_some digElem digConsumesByte s v hd
+  rcases (decodeRepeat_spec digElem digConsumesByte v n s (Suffix.empty n)).1 hmem with ⟨s₀, hs, hrel⟩
+  have hne : s = cast (congrArg Bytes (Nat.sub_zero n)) s₀ := by
+    rw [hs]
+    exact prepend_empty_eq s₀
+  have hrels : relRepeat (Rel digElem) v n s := by
+    rw [hne]
+    exact (relRepeat_cast (Rel digElem) v (Nat.sub_zero n) s₀).1 hrel
+  exact encodeRepeat_of_rel digElem digElem_functional v s hrels
+
+/-- Encoding is injective: a byte list has a unique decimal encoding. -/
+theorem encode_injective {v v' : List UInt8} {n : Nat} {s : Bytes n} :
+    encodeDig v = some ⟨n, s⟩ → encodeDig v' = some ⟨n, s⟩ → v = v' := by
+  intro hv hv'
+  have hrelv : relRepeat (Rel digElem) v n s := encodeRepeat_rel digElem v hv
+  have hrelv' : relRepeat (Rel digElem) v' n s := encodeRepeat_rel digElem v' hv'
+  exact relDig_unambiguous s hrelv hrelv'
+
+/-- A fully-decoded value means every input byte is a decimal digit. `[propext,
+Quot.sound]`-only. -/
+theorem decodeFull_canonical {n : Nat} {s : Bytes n} {v : List UInt8} :
+    decodeFull digElem digConsumesByte n s = some v → ∀ i : Fin n, digDigit (s i) = true := by
+  intro hd
+  have hmem : (v, Suffix.empty n) ∈ decodeRepeat digElem digConsumesByte n s :=
+    decodeFull_some digElem digConsumesByte s v hd
+  rcases (decodeRepeat_spec digElem digConsumesByte v n s (Suffix.empty n)).1 hmem with ⟨s₀, hs, hrel⟩
+  have hne : s = cast (congrArg Bytes (Nat.sub_zero n)) s₀ := by
+    rw [hs]
+    exact prepend_empty_eq s₀
+  have hrels : relRepeat (Rel digElem) v n s := by
+    rw [hne]
+    exact (relRepeat_cast (Rel digElem) v (Nat.sub_zero n) s₀).1 hrel
+  exact relRepeat_forall digDigit (fun x {m} t ht => Rel_digElem_canonical (t := t) ht) v n s hrels
+
+/-- Rejection: a byte outside the decimal alphabet is rejected. -/
+theorem rejects_invalid_byte (bad : UInt8) (hbad : digDigit bad = false) :
+    decodeFull digElem digConsumesByte 1 (fun _ => bad) = none := by
+  cases h : decodeFull digElem digConsumesByte 1 (fun _ => bad) with
+  | none => rfl
+  | some v =>
+      have hall := decodeFull_canonical (n := 1) (s := fun _ => bad) (v := v) h
+      have h0 : digDigit bad = true := by simpa using (hall ⟨0, by decide⟩)
+      rw [hbad] at h0
+      simp at h0
+
+/-- Rejection: wrong arity (not a multiple of 3 decimal digits) is rejected. -/
+theorem rejects_bad_arity :
+    decodeFull digElem digConsumesByte 1 (fun _ => 0x30) = none := by
+  cases h : decodeFull digElem digConsumesByte 1 (fun _ => 0x30) with
+  | none => rfl
+  | some v =>
+      have hmem : (v, Suffix.empty 1) ∈ decodeRepeat digElem digConsumesByte 1 (fun _ => 0x30) :=
+        decodeFull_some digElem digConsumesByte (fun _ => 0x30) v h
+      rcases (decodeRepeat_spec digElem digConsumesByte v 1 (fun _ => 0x30) (Suffix.empty 1)).1 hmem with ⟨s₀, hs, hrel⟩
+      have hne : (fun _ => 0x30 : Bytes 1) = cast (congrArg Bytes (Nat.sub_zero 1)) s₀ := by
+        rw [hs]
+        exact prepend_empty_eq s₀
+      have hrels : relRepeat (Rel digElem) v 1 (fun _ => 0x30) := by
+        rw [hne]
+        exact (relRepeat_cast (Rel digElem) v (Nat.sub_zero 1) s₀).1 hrel
+      cases v with
+      | nil =>
+          rw [relRepeat_nil] at hrels
+          omega
+      | cons x xs =>
+          rw [relRepeat_cons] at hrels
+          rcases hrels with ⟨m, hm, s₁, s₂, _, hx, _⟩
+          have hlen : m = 3 := Rel_digElem_len x s₁ hx
+          omega
+
+/-- Rejection: a decimal triple that overflows a byte (`> 255`) is rejected;
+`256` (`2·100 + 5·10 + 6 = 256`) is the canonical overflow vector. -/
+theorem rejects_overflow :
+    decodeFull digElem digConsumesByte 3 (fun i : Fin 3 => [0x32, 0x35, 0x36][i]) = none := by
+  unfold decodeFull
+  rw [WellFounded.fix_eq]
+  simp only
+  rw [Codec.decodeFullStep.eq_def]
+  simp
+  rfl
+
 end BaseN.Base10

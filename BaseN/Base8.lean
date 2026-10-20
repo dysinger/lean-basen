@@ -24,10 +24,12 @@ fresh induction.
 -/
 
 import Codec.Combinators
+import BaseN.Common
 
 namespace BaseN.Base8
 
 open Codec
+open BaseN.Common
 
 /-! ## Digit-level arithmetic (`Nat`) -/
 
@@ -539,5 +541,116 @@ theorem roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n} :
     · exact (relRepeat_cast (Rel octElem) bs (Nat.sub_zero n).symm s).2 hrel
   exact (decodeFull_spec octElem octConsumesByte (fun {x y} {m} (t : Bytes m) =>
     octDecodeFull_unambiguous (s := t)) s bs).2 hmem
+
+/-! ## Conformance: canonical encoding, converse, injectivity -/
+
+/-- `octElem` is functional: one byte relates to a unique 3-byte string. -/
+theorem octElem_functional : Functional octElem := by
+  unfold octElem
+  exact Functional_iso octBlockIso (count 3 (Codec.satisfy octDigit))
+    (Functional_count_satisfy octDigit 3)
+
+/-- Every byte of a `octElem`-related string is an octal digit. -/
+theorem Rel_octElem_canonical {x : UInt8} {m : Nat} {t : Bytes m} :
+    Rel octElem x t → ∀ i : Fin m, octDigit (t i) = true := by
+  intro ht
+  change Rel (Codec.iso octBlockIso (count 3 (Codec.satisfy octDigit))) x t at ht
+  rw [Rel_iso] at ht
+  rcases ht with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_forall octDigit 3 a t hc
+
+/-- Canonical encoding (alphabet-only): every byte `encodeOct` produces is an octal
+digit. `[propext, Quot.sound]`-only. -/
+theorem encodeOct_canonical (bs : List UInt8) {n : Nat} {s : Bytes n} :
+    encodeOct bs = some ⟨n, s⟩ → ∀ i : Fin n, octDigit (s i) = true := by
+  intro he
+  have hrel : relRepeat (Rel octElem) bs n s := encodeRepeat_rel octElem bs he
+  exact relRepeat_forall octDigit (fun x {m} t ht => Rel_octElem_canonical (t := t) ht) bs n s hrel
+
+/-- Converse: a fully-decoded value re-encodes to exactly the input bytes. -/
+theorem decode_encode_inverse {n : Nat} {s : Bytes n} (v : List UInt8) :
+    decodeFull octElem octConsumesByte n s = some v → encodeOct v = some ⟨n, s⟩ := by
+  intro hd
+  have hmem : (v, Suffix.empty n) ∈ decodeRepeat octElem octConsumesByte n s :=
+    decodeFull_some octElem octConsumesByte s v hd
+  rcases (decodeRepeat_spec octElem octConsumesByte v n s (Suffix.empty n)).1 hmem with ⟨s₀, hs, hrel⟩
+  have hne : s = cast (congrArg Bytes (Nat.sub_zero n)) s₀ := by
+    rw [hs]
+    exact prepend_empty_eq s₀
+  have hrels : relRepeat (Rel octElem) v n s := by
+    rw [hne]
+    exact (relRepeat_cast (Rel octElem) v (Nat.sub_zero n) s₀).1 hrel
+  exact encodeRepeat_of_rel octElem octElem_functional v s hrels
+
+/-- Encoding is injective: a byte list has a unique octal encoding. -/
+theorem encode_injective {v v' : List UInt8} {n : Nat} {s : Bytes n} :
+    encodeOct v = some ⟨n, s⟩ → encodeOct v' = some ⟨n, s⟩ → v = v' := by
+  intro hv hv'
+  have hrelv : relRepeat (Rel octElem) v n s := encodeRepeat_rel octElem v hv
+  have hrelv' : relRepeat (Rel octElem) v' n s := encodeRepeat_rel octElem v' hv'
+  exact relOct_unambiguous s hrelv hrelv'
+
+/-- A fully-decoded value means every input byte is an octal digit. `[propext,
+Quot.sound]`-only. -/
+theorem decodeFull_canonical {n : Nat} {s : Bytes n} {v : List UInt8} :
+    decodeFull octElem octConsumesByte n s = some v → ∀ i : Fin n, octDigit (s i) = true := by
+  intro hd
+  have hmem : (v, Suffix.empty n) ∈ decodeRepeat octElem octConsumesByte n s :=
+    decodeFull_some octElem octConsumesByte s v hd
+  rcases (decodeRepeat_spec octElem octConsumesByte v n s (Suffix.empty n)).1 hmem with ⟨s₀, hs, hrel⟩
+  have hne : s = cast (congrArg Bytes (Nat.sub_zero n)) s₀ := by
+    rw [hs]
+    exact prepend_empty_eq s₀
+  have hrels : relRepeat (Rel octElem) v n s := by
+    rw [hne]
+    exact (relRepeat_cast (Rel octElem) v (Nat.sub_zero n) s₀).1 hrel
+  exact relRepeat_forall octDigit (fun x {m} t ht => Rel_octElem_canonical (t := t) ht) v n s hrels
+
+/-- Rejection: a byte outside the octal alphabet is rejected. -/
+theorem rejects_invalid_byte (bad : UInt8) (hbad : octDigit bad = false) :
+    decodeFull octElem octConsumesByte 1 (fun _ => bad) = none := by
+  cases h : decodeFull octElem octConsumesByte 1 (fun _ => bad) with
+  | none => rfl
+  | some v =>
+      have hall := decodeFull_canonical (n := 1) (s := fun _ => bad) (v := v) h
+      have h0 : octDigit bad = true := by simpa using (hall ⟨0, by decide⟩)
+      rw [hbad] at h0
+      simp at h0
+
+/-- Rejection: wrong arity (not a multiple of 3 octal digits) is rejected. -/
+theorem rejects_bad_arity :
+    decodeFull octElem octConsumesByte 1 (fun _ => 0x30) = none := by
+  cases h : decodeFull octElem octConsumesByte 1 (fun _ => 0x30) with
+  | none => rfl
+  | some v =>
+      have hmem : (v, Suffix.empty 1) ∈ decodeRepeat octElem octConsumesByte 1 (fun _ => 0x30) :=
+        decodeFull_some octElem octConsumesByte (fun _ => 0x30) v h
+      rcases (decodeRepeat_spec octElem octConsumesByte v 1 (fun _ => 0x30) (Suffix.empty 1)).1 hmem with ⟨s₀, hs, hrel⟩
+      have hne : (fun _ => 0x30 : Bytes 1) = cast (congrArg Bytes (Nat.sub_zero 1)) s₀ := by
+        rw [hs]
+        exact prepend_empty_eq s₀
+      have hrels : relRepeat (Rel octElem) v 1 (fun _ => 0x30) := by
+        rw [hne]
+        exact (relRepeat_cast (Rel octElem) v (Nat.sub_zero 1) s₀).1 hrel
+      cases v with
+      | nil =>
+          rw [relRepeat_nil] at hrels
+          omega
+      | cons x xs =>
+          rw [relRepeat_cons] at hrels
+          rcases hrels with ⟨m, hm, s₁, s₂, _, hx, _⟩
+          have hlen : m = 3 := Rel_octElem_len x s₁ hx
+          omega
+
+/-- Rejection: an octal triple that overflows a byte (`> 255`) is rejected;
+`400` (`4·64 + 0·8 + 0 = 256`) is the canonical overflow vector. -/
+theorem rejects_overflow :
+    decodeFull octElem octConsumesByte 3 (fun i : Fin 3 => [0x34, 0x30, 0x30][i]) = none := by
+  unfold decodeFull
+  rw [WellFounded.fix_eq]
+  simp only
+  rw [Codec.decodeFullStep.eq_def]
+  simp
+  rfl
 
 end BaseN.Base8

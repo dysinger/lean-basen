@@ -352,4 +352,111 @@ theorem roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n} :
   exact (decodeFull_spec hexElem hexConsumesByte (fun {x y} {m} (t : Bytes m) =>
     hexDecodeFull_unambiguous (s := t)) s bs).2 hmem
 
+/-! ## Conformance: canonical encoding, converse, injectivity -/
+
+/-- `hexElem` is functional: one byte relates to a unique 2-byte string. -/
+theorem hexElem_functional : Functional hexElem := by
+  unfold hexElem
+  exact Functional_iso hexBlockIso (count 2 (Codec.satisfy hexDigit))
+    (Functional_count_satisfy hexDigit 2)
+
+/-- Every byte of a `hexElem`-related string is an uppercase hex digit. -/
+theorem Rel_hexElem_canonical {x : UInt8} {m : Nat} {t : Bytes m} :
+    Rel hexElem x t → ∀ i : Fin m, hexDigit (t i) = true := by
+  intro ht
+  change Rel (Codec.iso hexBlockIso (count 2 (Codec.satisfy hexDigit))) x t at ht
+  rw [Rel_iso] at ht
+  rcases ht with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_forall hexDigit 2 a t hc
+
+/-- Canonical encoding (alphabet-only): every byte `encodeHex` produces is an
+uppercase hex digit. `[propext, Quot.sound]`-only. -/
+theorem encodeHex_canonical (bs : List UInt8) {n : Nat} {s : Bytes n} :
+    encodeHex bs = some ⟨n, s⟩ → ∀ i : Fin n, hexDigit (s i) = true := by
+  intro he
+  have hrel : relRepeat (Rel hexElem) bs n s := encodeRepeat_rel hexElem bs he
+  exact relRepeat_forall hexDigit (fun x {m} t ht => Rel_hexElem_canonical (t := t) ht) bs n s hrel
+
+/-- Converse: a fully-decoded value re-encodes to exactly the input bytes. -/
+theorem decode_encode_inverse {n : Nat} {s : Bytes n} (v : List UInt8) :
+    decodeFull hexElem hexConsumesByte n s = some v → encodeHex v = some ⟨n, s⟩ := by
+  intro hd
+  have hmem : (v, Suffix.empty n) ∈ decodeRepeat hexElem hexConsumesByte n s :=
+    decodeFull_some hexElem hexConsumesByte s v hd
+  rcases (decodeRepeat_spec hexElem hexConsumesByte v n s (Suffix.empty n)).1 hmem with ⟨s₀, hs, hrel⟩
+  have hne : s = cast (congrArg Bytes (Nat.sub_zero n)) s₀ := by
+    rw [hs]
+    exact prepend_empty_eq s₀
+  have hrels : relRepeat (Rel hexElem) v n s := by
+    rw [hne]
+    exact (relRepeat_cast (Rel hexElem) v (Nat.sub_zero n) s₀).1 hrel
+  exact encodeRepeat_of_rel hexElem hexElem_functional v s hrels
+
+/-- Encoding is injective: a byte list has a unique hex encoding. -/
+theorem encode_injective {v v' : List UInt8} {n : Nat} {s : Bytes n} :
+    encodeHex v = some ⟨n, s⟩ → encodeHex v' = some ⟨n, s⟩ → v = v' := by
+  intro hv hv'
+  have hrelv : relRepeat (Rel hexElem) v n s := encodeRepeat_rel hexElem v hv
+  have hrelv' : relRepeat (Rel hexElem) v' n s := encodeRepeat_rel hexElem v' hv'
+  exact relHex_unambiguous s hrelv hrelv'
+
+/-- A fully-decoded value means every input byte is a hex digit: the decoder
+never accepts a byte outside the uppercase canonical alphabet. `[propext,
+Quot.sound]`-only. -/
+theorem decodeFull_canonical {n : Nat} {s : Bytes n} {v : List UInt8} :
+    decodeFull hexElem hexConsumesByte n s = some v → ∀ i : Fin n, hexDigit (s i) = true := by
+  intro hd
+  have hmem : (v, Suffix.empty n) ∈ decodeRepeat hexElem hexConsumesByte n s :=
+    decodeFull_some hexElem hexConsumesByte s v hd
+  rcases (decodeRepeat_spec hexElem hexConsumesByte v n s (Suffix.empty n)).1 hmem with ⟨s₀, hs, hrel⟩
+  have hne : s = cast (congrArg Bytes (Nat.sub_zero n)) s₀ := by
+    rw [hs]
+    exact prepend_empty_eq s₀
+  have hrels : relRepeat (Rel hexElem) v n s := by
+    rw [hne]
+    exact (relRepeat_cast (Rel hexElem) v (Nat.sub_zero n) s₀).1 hrel
+  exact relRepeat_forall hexDigit (fun x {m} t ht => Rel_hexElem_canonical (t := t) ht) v n s hrels
+
+/-- Rejection: a byte outside the uppercase hex alphabet (e.g. `!`) is rejected. -/
+theorem rejects_invalid_byte (bad : UInt8) (hbad : hexDigit bad = false) :
+    decodeFull hexElem hexConsumesByte 1 (fun _ => bad) = none := by
+  cases h : decodeFull hexElem hexConsumesByte 1 (fun _ => bad) with
+  | none => rfl
+  | some v =>
+      have hall := decodeFull_canonical (n := 1) (s := fun _ => bad) (v := v) h
+      have h0 : hexDigit bad = true := by simpa using (hall ⟨0, by decide⟩)
+      rw [hbad] at h0
+      simp at h0
+
+/-- Rejection: lowercase `f` (`0x66`) is *not* accepted by the strict uppercase
+bijection (D8). -/
+theorem rejects_lowercase :
+    decodeFull hexElem hexConsumesByte 1 (fun _ => 0x66) = none := by
+  exact rejects_invalid_byte (0x66 : UInt8) (by decide)
+
+/-- Rejection: wrong arity (an odd number of hex digits does not form a byte). -/
+theorem rejects_odd_arity :
+    decodeFull hexElem hexConsumesByte 1 (fun _ => 0x36) = none := by
+  cases h : decodeFull hexElem hexConsumesByte 1 (fun _ => 0x36) with
+  | none => rfl
+  | some v =>
+      have hmem : (v, Suffix.empty 1) ∈ decodeRepeat hexElem hexConsumesByte 1 (fun _ => 0x36) :=
+        decodeFull_some hexElem hexConsumesByte (fun _ => 0x36) v h
+      rcases (decodeRepeat_spec hexElem hexConsumesByte v 1 (fun _ => 0x36) (Suffix.empty 1)).1 hmem with ⟨s₀, hs, hrel⟩
+      have hne : (fun _ => 0x36 : Bytes 1) = cast (congrArg Bytes (Nat.sub_zero 1)) s₀ := by
+        rw [hs]
+        exact prepend_empty_eq s₀
+      have hrels : relRepeat (Rel hexElem) v 1 (fun _ => 0x36) := by
+        rw [hne]
+        exact (relRepeat_cast (Rel hexElem) v (Nat.sub_zero 1) s₀).1 hrel
+      cases v with
+      | nil =>
+          rw [relRepeat_nil] at hrels
+          omega
+      | cons x xs =>
+          rw [relRepeat_cons] at hrels
+          rcases hrels with ⟨m, hm, s₁, s₂, _, hx, _⟩
+          have hlen : m = 2 := Rel_hexElem_len x s₁ hx
+          omega
+
 end BaseN.Base16

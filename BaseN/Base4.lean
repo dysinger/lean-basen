@@ -408,4 +408,104 @@ theorem roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n} :
   exact (decodeFull_spec quartetElem quartetConsumesByte (fun {x y} {m} (t : Bytes m) =>
     quartetDecodeFull_unambiguous (s := t)) s bs).2 hmem
 
+/-! ## Conformance: canonical encoding, converse, injectivity -/
+
+/-- `quartetElem` is functional: one byte relates to a unique 4-byte string. -/
+theorem quartetElem_functional : Functional quartetElem := by
+  unfold quartetElem
+  exact Functional_iso quartetBlockIso (count 4 (Codec.satisfy quartetDigit))
+    (Functional_count_satisfy quartetDigit 4)
+
+/-- Every byte of a `quartetElem`-related string is a quartet digit. -/
+theorem Rel_quartetElem_canonical {x : UInt8} {m : Nat} {t : Bytes m} :
+    Rel quartetElem x t → ∀ i : Fin m, quartetDigit (t i) = true := by
+  intro ht
+  change Rel (Codec.iso quartetBlockIso (count 4 (Codec.satisfy quartetDigit))) x t at ht
+  rw [Rel_iso] at ht
+  rcases ht with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_forall quartetDigit 4 a t hc
+
+/-- Canonical encoding (alphabet-only): every byte `encodeQuartet` produces is a
+quartet digit. `[propext, Quot.sound]`-only. -/
+theorem encodeQuartet_canonical (bs : List UInt8) {n : Nat} {s : Bytes n} :
+    encodeQuartet bs = some ⟨n, s⟩ → ∀ i : Fin n, quartetDigit (s i) = true := by
+  intro he
+  have hrel : relRepeat (Rel quartetElem) bs n s := encodeRepeat_rel quartetElem bs he
+  exact relRepeat_forall quartetDigit (fun x {m} t ht => Rel_quartetElem_canonical (t := t) ht) bs n s hrel
+
+/-- Converse: a fully-decoded value re-encodes to exactly the input bytes. -/
+theorem decode_encode_inverse {n : Nat} {s : Bytes n} (v : List UInt8) :
+    decodeFull quartetElem quartetConsumesByte n s = some v → encodeQuartet v = some ⟨n, s⟩ := by
+  intro hd
+  have hmem : (v, Suffix.empty n) ∈ decodeRepeat quartetElem quartetConsumesByte n s :=
+    decodeFull_some quartetElem quartetConsumesByte s v hd
+  rcases (decodeRepeat_spec quartetElem quartetConsumesByte v n s (Suffix.empty n)).1 hmem with ⟨s₀, hs, hrel⟩
+  have hne : s = cast (congrArg Bytes (Nat.sub_zero n)) s₀ := by
+    rw [hs]
+    exact prepend_empty_eq s₀
+  have hrels : relRepeat (Rel quartetElem) v n s := by
+    rw [hne]
+    exact (relRepeat_cast (Rel quartetElem) v (Nat.sub_zero n) s₀).1 hrel
+  exact encodeRepeat_of_rel quartetElem quartetElem_functional v s hrels
+
+/-- Encoding is injective: a byte list has a unique quartet encoding. -/
+theorem encode_injective {v v' : List UInt8} {n : Nat} {s : Bytes n} :
+    encodeQuartet v = some ⟨n, s⟩ → encodeQuartet v' = some ⟨n, s⟩ → v = v' := by
+  intro hv hv'
+  have hrelv : relRepeat (Rel quartetElem) v n s := encodeRepeat_rel quartetElem v hv
+  have hrelv' : relRepeat (Rel quartetElem) v' n s := encodeRepeat_rel quartetElem v' hv'
+  exact relQuartet_unambiguous s hrelv hrelv'
+
+/-- A fully-decoded value means every input byte is a quartet digit. `[propext,
+Quot.sound]`-only. -/
+theorem decodeFull_canonical {n : Nat} {s : Bytes n} {v : List UInt8} :
+    decodeFull quartetElem quartetConsumesByte n s = some v → ∀ i : Fin n, quartetDigit (s i) = true := by
+  intro hd
+  have hmem : (v, Suffix.empty n) ∈ decodeRepeat quartetElem quartetConsumesByte n s :=
+    decodeFull_some quartetElem quartetConsumesByte s v hd
+  rcases (decodeRepeat_spec quartetElem quartetConsumesByte v n s (Suffix.empty n)).1 hmem with ⟨s₀, hs, hrel⟩
+  have hne : s = cast (congrArg Bytes (Nat.sub_zero n)) s₀ := by
+    rw [hs]
+    exact prepend_empty_eq s₀
+  have hrels : relRepeat (Rel quartetElem) v n s := by
+    rw [hne]
+    exact (relRepeat_cast (Rel quartetElem) v (Nat.sub_zero n) s₀).1 hrel
+  exact relRepeat_forall quartetDigit (fun x {m} t ht => Rel_quartetElem_canonical (t := t) ht) v n s hrels
+
+/-- Rejection: a byte outside the quartet alphabet is rejected. -/
+theorem rejects_invalid_byte (bad : UInt8) (hbad : quartetDigit bad = false) :
+    decodeFull quartetElem quartetConsumesByte 1 (fun _ => bad) = none := by
+  cases h : decodeFull quartetElem quartetConsumesByte 1 (fun _ => bad) with
+  | none => rfl
+  | some v =>
+      have hall := decodeFull_canonical (n := 1) (s := fun _ => bad) (v := v) h
+      have h0 : quartetDigit bad = true := by simpa using (hall ⟨0, by decide⟩)
+      rw [hbad] at h0
+      simp at h0
+
+/-- Rejection: wrong arity (not a multiple of 4 digits) is rejected. -/
+theorem rejects_bad_arity :
+    decodeFull quartetElem quartetConsumesByte 1 (fun _ => 0x30) = none := by
+  cases h : decodeFull quartetElem quartetConsumesByte 1 (fun _ => 0x30) with
+  | none => rfl
+  | some v =>
+      have hmem : (v, Suffix.empty 1) ∈ decodeRepeat quartetElem quartetConsumesByte 1 (fun _ => 0x30) :=
+        decodeFull_some quartetElem quartetConsumesByte (fun _ => 0x30) v h
+      rcases (decodeRepeat_spec quartetElem quartetConsumesByte v 1 (fun _ => 0x30) (Suffix.empty 1)).1 hmem with ⟨s₀, hs, hrel⟩
+      have hne : (fun _ => 0x30 : Bytes 1) = cast (congrArg Bytes (Nat.sub_zero 1)) s₀ := by
+        rw [hs]
+        exact prepend_empty_eq s₀
+      have hrels : relRepeat (Rel quartetElem) v 1 (fun _ => 0x30) := by
+        rw [hne]
+        exact (relRepeat_cast (Rel quartetElem) v (Nat.sub_zero 1) s₀).1 hrel
+      cases v with
+      | nil =>
+          rw [relRepeat_nil] at hrels
+          omega
+      | cons x xs =>
+          rw [relRepeat_cons] at hrels
+          rcases hrels with ⟨m, hm, s₁, s₂, _, hx, _⟩
+          have hlen : m = 4 := Rel_quartetElem_len x s₁ hx
+          omega
+
 end BaseN.Base4

@@ -513,4 +513,104 @@ theorem roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n} :
   exact (decodeFull_spec bitElem bitConsumesByte (fun {x y} {m} (t : Bytes m) =>
     bitDecodeFull_unambiguous (s := t)) s bs).2 hmem
 
+/-! ## Conformance: canonical encoding, converse, injectivity -/
+
+/-- `bitElem` is functional: one byte relates to a unique 8-byte string. -/
+theorem bitElem_functional : Functional bitElem := by
+  unfold bitElem
+  exact Functional_iso bitBlockIso (count 8 (Codec.satisfy bitDigit))
+    (Functional_count_satisfy bitDigit 8)
+
+/-- Every byte of a `bitElem`-related string is a bit digit. -/
+theorem Rel_bitElem_canonical {x : UInt8} {m : Nat} {t : Bytes m} :
+    Rel bitElem x t → ∀ i : Fin m, bitDigit (t i) = true := by
+  intro ht
+  change Rel (Codec.iso bitBlockIso (count 8 (Codec.satisfy bitDigit))) x t at ht
+  rw [Rel_iso] at ht
+  rcases ht with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_forall bitDigit 8 a t hc
+
+/-- Canonical encoding (alphabet-only): every byte `encodeBit` produces is a bit
+digit. `[propext, Quot.sound]`-only. -/
+theorem encodeBit_canonical (bs : List UInt8) {n : Nat} {s : Bytes n} :
+    encodeBit bs = some ⟨n, s⟩ → ∀ i : Fin n, bitDigit (s i) = true := by
+  intro he
+  have hrel : relRepeat (Rel bitElem) bs n s := encodeRepeat_rel bitElem bs he
+  exact relRepeat_forall bitDigit (fun x {m} t ht => Rel_bitElem_canonical (t := t) ht) bs n s hrel
+
+/-- Converse: a fully-decoded value re-encodes to exactly the input bytes. -/
+theorem decode_encode_inverse {n : Nat} {s : Bytes n} (v : List UInt8) :
+    decodeFull bitElem bitConsumesByte n s = some v → encodeBit v = some ⟨n, s⟩ := by
+  intro hd
+  have hmem : (v, Suffix.empty n) ∈ decodeRepeat bitElem bitConsumesByte n s :=
+    decodeFull_some bitElem bitConsumesByte s v hd
+  rcases (decodeRepeat_spec bitElem bitConsumesByte v n s (Suffix.empty n)).1 hmem with ⟨s₀, hs, hrel⟩
+  have hne : s = cast (congrArg Bytes (Nat.sub_zero n)) s₀ := by
+    rw [hs]
+    exact prepend_empty_eq s₀
+  have hrels : relRepeat (Rel bitElem) v n s := by
+    rw [hne]
+    exact (relRepeat_cast (Rel bitElem) v (Nat.sub_zero n) s₀).1 hrel
+  exact encodeRepeat_of_rel bitElem bitElem_functional v s hrels
+
+/-- Encoding is injective: a byte list has a unique binary encoding. -/
+theorem encode_injective {v v' : List UInt8} {n : Nat} {s : Bytes n} :
+    encodeBit v = some ⟨n, s⟩ → encodeBit v' = some ⟨n, s⟩ → v = v' := by
+  intro hv hv'
+  have hrelv : relRepeat (Rel bitElem) v n s := encodeRepeat_rel bitElem v hv
+  have hrelv' : relRepeat (Rel bitElem) v' n s := encodeRepeat_rel bitElem v' hv'
+  exact relBit_unambiguous s hrelv hrelv'
+
+/-- A fully-decoded value means every input byte is a bit digit. `[propext,
+Quot.sound]`-only. -/
+theorem decodeFull_canonical {n : Nat} {s : Bytes n} {v : List UInt8} :
+    decodeFull bitElem bitConsumesByte n s = some v → ∀ i : Fin n, bitDigit (s i) = true := by
+  intro hd
+  have hmem : (v, Suffix.empty n) ∈ decodeRepeat bitElem bitConsumesByte n s :=
+    decodeFull_some bitElem bitConsumesByte s v hd
+  rcases (decodeRepeat_spec bitElem bitConsumesByte v n s (Suffix.empty n)).1 hmem with ⟨s₀, hs, hrel⟩
+  have hne : s = cast (congrArg Bytes (Nat.sub_zero n)) s₀ := by
+    rw [hs]
+    exact prepend_empty_eq s₀
+  have hrels : relRepeat (Rel bitElem) v n s := by
+    rw [hne]
+    exact (relRepeat_cast (Rel bitElem) v (Nat.sub_zero n) s₀).1 hrel
+  exact relRepeat_forall bitDigit (fun x {m} t ht => Rel_bitElem_canonical (t := t) ht) v n s hrels
+
+/-- Rejection: a byte outside the binary alphabet is rejected. -/
+theorem rejects_invalid_byte (bad : UInt8) (hbad : bitDigit bad = false) :
+    decodeFull bitElem bitConsumesByte 1 (fun _ => bad) = none := by
+  cases h : decodeFull bitElem bitConsumesByte 1 (fun _ => bad) with
+  | none => rfl
+  | some v =>
+      have hall := decodeFull_canonical (n := 1) (s := fun _ => bad) (v := v) h
+      have h0 : bitDigit bad = true := by simpa using (hall ⟨0, by decide⟩)
+      rw [hbad] at h0
+      simp at h0
+
+/-- Rejection: wrong arity (not a multiple of 8 bits) is rejected. -/
+theorem rejects_bad_arity :
+    decodeFull bitElem bitConsumesByte 1 (fun _ => 0x30) = none := by
+  cases h : decodeFull bitElem bitConsumesByte 1 (fun _ => 0x30) with
+  | none => rfl
+  | some v =>
+      have hmem : (v, Suffix.empty 1) ∈ decodeRepeat bitElem bitConsumesByte 1 (fun _ => 0x30) :=
+        decodeFull_some bitElem bitConsumesByte (fun _ => 0x30) v h
+      rcases (decodeRepeat_spec bitElem bitConsumesByte v 1 (fun _ => 0x30) (Suffix.empty 1)).1 hmem with ⟨s₀, hs, hrel⟩
+      have hne : (fun _ => 0x30 : Bytes 1) = cast (congrArg Bytes (Nat.sub_zero 1)) s₀ := by
+        rw [hs]
+        exact prepend_empty_eq s₀
+      have hrels : relRepeat (Rel bitElem) v 1 (fun _ => 0x30) := by
+        rw [hne]
+        exact (relRepeat_cast (Rel bitElem) v (Nat.sub_zero 1) s₀).1 hrel
+      cases v with
+      | nil =>
+          rw [relRepeat_nil] at hrels
+          omega
+      | cons x xs =>
+          rw [relRepeat_cons] at hrels
+          rcases hrels with ⟨m, hm, s₁, s₂, _, hx, _⟩
+          have hlen : m = 8 := Rel_bitElem_len x s₁ hx
+          omega
+
 end BaseN.Base2

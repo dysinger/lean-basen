@@ -74,6 +74,77 @@ theorem Unambiguous_satisfy (p : UInt8 → Bool) :
   simp [single] at hxy
   exact hxy.symm
 
+/-- `satisfy p` is functional: a `p`-byte relates to a unique (length-1) string. -/
+theorem Functional_satisfy (p : UInt8 → Bool) : Functional (Codec.satisfy p) := by
+  intro x n₁ n₂ s₁ s₂ h₁ h₂
+  rw [Rel_satisfy] at h₁ h₂
+  rcases h₁ with ⟨_, hn₁, hs₁⟩
+  rcases h₂ with ⟨_, hn₂, hs₂⟩
+  subst n₁; subst n₂
+  have hs₁' : s₁ = single x := by simpa using hs₁
+  have hs₂' : s₂ = single x := by simpa using hs₂
+  rw [hs₁', hs₂']
+
+/-- `count k (satisfy p)` is functional: a list value relates to a unique `Bytes k`. -/
+theorem Functional_count_satisfy (p : UInt8 → Bool) (k : Nat) :
+    Functional (count k (Codec.satisfy p)) := by
+  intro xs n₁ n₂ s₁ s₂ h₁ h₂
+  induction k generalizing xs n₁ n₂ s₁ s₂ with
+  | zero =>
+      rw [Rel_count_zero] at h₁ h₂
+      rcases h₁ with ⟨hx₁, hn₁⟩; rcases h₂ with ⟨hx₂, hn₂⟩
+      subst n₁; subst n₂
+      apply Sigma.ext
+      · rfl
+      · apply heq_of_eq; apply Bytes.ext; intro i; exact Fin.elim0 i
+  | succ k ih =>
+      rw [count, Rel_iso] at h₁ h₂
+      rcases h₁ with ⟨a₁, ha₁, hseq₁⟩
+      rcases h₂ with ⟨a₂, ha₂, hseq₂⟩
+      rw [Rel_seq] at hseq₁ hseq₂
+      rcases hseq₁ with ⟨m₁, hm₁, s₁₁, s₁₂, hsp₁, hr₁₁, hr₁₂⟩
+      rcases hseq₂ with ⟨m₂, hm₂, s₂₁, s₂₂, hsp₂, hr₂₁, hr₂₂⟩
+      rw [Rel_satisfy] at hr₁₁ hr₂₁
+      rcases hr₁₁ with ⟨_, hn₁₁, hs₁₁⟩
+      rcases hr₂₁ with ⟨_, hn₂₁, hs₂₁⟩
+      subst m₁; subst m₂
+      have hx : a₁.1 :: a₁.2 = xs := by simpa [Iso.cons] using ha₁
+      have hy : a₂.1 :: a₂.2 = xs := by simpa [Iso.cons] using ha₂
+      have hhead : a₁.1 = a₂.1 := (List.cons.inj (hx.trans hy.symm)).1
+      have htail : a₁.2 = a₂.2 := (List.cons.inj (hx.trans hy.symm)).2
+      have hpre : s₁₁ = s₂₁ := by
+        have hs₁₁' : s₁₁ = single a₁.1 := by simpa using hs₁₁
+        have hs₂₁' : s₂₁ = single a₂.1 := by simpa using hs₂₁
+        rw [hs₁₁', hs₂₁', hhead]
+      have htail' : (⟨n₁ - 1, s₁₂⟩ : Sigma fun k => Bytes k) = ⟨n₂ - 1, s₂₂⟩ :=
+        ih a₁.2 s₁₂ s₂₂ hr₁₂ (by simpa [htail] using hr₂₂)
+      have hfst : n₁ - 1 = n₂ - 1 := by simpa using (congrArg Sigma.fst htail')
+      have hn : n₁ = n₂ := by omega
+      subst n₂
+      have hb : s₁₂ = s₂₂ := by
+        cases htail'
+        rfl
+      apply Sigma.ext
+      · rfl
+      · apply heq_of_eq
+        rw [hsp₁, hsp₂]
+        rw [hpre, hb]
+
+/-- `iso` preserves functionality: a functional inner description yields a
+functional iso-description (`i.unapply` being a total function makes the
+pre-image unique). -/
+theorem Functional_iso {α β : Type} (i : Iso α β) (d : Codec α) (hd : Functional d) :
+    Functional (Codec.iso i d) := by
+  intro b n₁ n₂ s₁ s₂ h₁ h₂
+  rw [Rel_iso] at h₁ h₂
+  rcases h₁ with ⟨a₁, ha₁, hr₁⟩
+  rcases h₂ with ⟨a₂, ha₂, hr₂⟩
+  have hu₁ : i.unapply b = some a₁ := (i.law a₁ b).1 ha₁
+  have hu₂ : i.unapply b = some a₂ := (i.law a₂ b).1 ha₂
+  have ha : a₁ = a₂ := Option.some.inj (hu₁.symm.trans hu₂)
+  subst a₂
+  exact hd a₁ s₁ s₂ hr₁ hr₂
+
 /-- `Rel (count k (satisfy p)) xs s` pins the byte length: `n = k`. -/
 theorem Rel_count_satisfy_len (p : UInt8 → Bool) (k : Nat) (xs : List UInt8)
     {n : Nat} (s : Bytes n) :
@@ -94,6 +165,142 @@ theorem Rel_count_satisfy_len (p : UInt8 → Bool) (k : Nat) (xs : List UInt8)
       subst hn1
       have htail : n - 1 = k := ih a.2 s₂ hr₂
       omega
+
+/-- Every byte of a `count k (satisfy p)`-related string satisfies `p` (the
+*backward* direction of the alphabet-only encoding property): if the relation
+holds, each of the `k` bytes is a `p`-byte. This is the primitive the
+canonical-encoding and rejection theorems descend through. -/
+theorem Rel_count_satisfy_forall (p : UInt8 → Bool) (k : Nat) (xs : List UInt8)
+    {n : Nat} (s : Bytes n) :
+    Rel (count k (Codec.satisfy p)) xs s → ∀ i : Fin n, p (s i) = true := by
+  intro h
+  induction k generalizing xs n s with
+  | zero =>
+      rw [Rel_count_zero] at h
+      rcases h with ⟨_, hn⟩
+      subst n
+      intro i
+      exact Fin.elim0 i
+  | succ k ih =>
+      rw [count, Rel_iso] at h
+      rcases h with ⟨a, ha, hseq⟩
+      rw [Rel_seq] at hseq
+      rcases hseq with ⟨m, hm, s₁, s₂, hs, hr₁, hr₂⟩
+      rw [Rel_satisfy] at hr₁
+      rcases hr₁ with ⟨hp1, hn1, hs1⟩
+      subst m
+      intro i
+      have hs1' : s₁ = single a.1 := by simpa using hs1
+      by_cases hi : i.val < 1
+      · have hle : i.val = 0 := by omega
+        have hbv : s ⟨i.val, i.isLt⟩ = a.1 := by
+          rw [hs]
+          rw [splice_prefix_read (by omega : 1 ≤ n) s₁ s₂ ⟨i.val, i.isLt⟩ (by omega)]
+          rw [hs1']
+          rfl
+        rw [hbv]
+        exact hp1
+      · have hbv : s ⟨i.val, i.isLt⟩ = s₂ ⟨i.val - 1, by omega⟩ := by
+          rw [hs]
+          rw [splice_apply]
+          unfold concat
+          rw [cast_fin_symm]
+          · dsimp
+            simp [hi]
+          · omega
+        rw [hbv]
+        exact ih a.2 s₂ hr₂ ⟨i.val - 1, by omega⟩
+
+/-- A byte predicate `p` propagates through `relRepeat` when every *step* string
+satisfies it pointwise (`hstep`). This is the lemma that lifts an element-level
+alphabet-only fact (`Rel <elem> x s → ∀ i, p (s i)`) to the whole encoded run, and it
+is what the canonical-encoding theorems (`encode{X}` alphabet-only) close with. -/
+theorem relRepeat_forall {α : Type} {R : α → {m : Nat} → Bytes m → Prop}
+    (p : UInt8 → Bool)
+    (hstep : ∀ x {m : Nat} (s : Bytes m), R x s → ∀ i : Fin m, p (s i) = true) :
+    ∀ (xs : List α) (n : Nat) (s : Bytes n),
+      relRepeat R xs n s → ∀ i : Fin n, p (s i) = true := by
+  intro xs
+  induction xs with
+  | nil =>
+      intro n s h i
+      rw [relRepeat_nil] at h
+      subst n
+      exact Fin.elim0 i
+  | cons x rest ih =>
+      intro n s h i
+      rw [relRepeat_cons] at h
+      rcases h with ⟨m, hm, s₁, s₂, hs, hx, hr⟩
+      by_cases hi : i.val < m
+      · have hbv : s i = s₁ ⟨i.val, hi⟩ := by
+          rw [hs]
+          exact splice_prefix_read hm s₁ s₂ i hi
+        rw [hbv]
+        exact hstep x s₁ hx ⟨i.val, hi⟩
+      · have hbv : s i = s₂ ⟨i.val - m, by omega⟩ := by
+          rw [hs]
+          rw [splice_apply]
+          unfold concat
+          rw [cast_fin_symm]
+          · dsimp
+            simp [hi]
+          · omega
+        rw [hbv]
+        exact ih (n - m) s₂ hr ⟨i.val - m, by omega⟩
+
+/-- `relRepeat` is functional when its step relation is (`relFunctional R`): a list
+value relates to at most one length+bytes pair. This is the repeat-level mirror of
+`relFunctional`, and it is the single lemma the converse theorems (decode→encode)
+close with (together with `encodeRepeat_ne_none`/`encodeRepeat_rel`). -/
+theorem relRepeat_functional {α : Type} {R : α → {m : Nat} → Bytes m → Prop} (hR : relFunctional R) :
+    ∀ (xs : List α) {n₁ n₂ : Nat} (s₁ : Bytes n₁) (s₂ : Bytes n₂),
+      relRepeat R xs n₁ s₁ → relRepeat R xs n₂ s₂ → (⟨n₁, s₁⟩ : Sigma fun k => Bytes k) = ⟨n₂, s₂⟩ := by
+  intro xs
+  induction xs with
+  | nil =>
+      intro n₁ n₂ s₁ s₂ h₁ h₂
+      rw [relRepeat_nil] at h₁ h₂
+      subst n₁; subst n₂
+      apply Sigma.ext
+      · rfl
+      · apply heq_of_eq
+        apply Bytes.ext; intro i; exact Fin.elim0 i
+  | cons x rest ih =>
+      intro n₁ n₂ s₁ s₂ h₁ h₂
+      rw [relRepeat_cons] at h₁ h₂
+      rcases h₁ with ⟨m₁, hm₁, s₁₁, s₁₂, hs₁, hx₁, hr₁⟩
+      rcases h₂ with ⟨m₂, hm₂, s₂₁, s₂₂, hs₂, hx₂, hr₂⟩
+      have hp : (⟨m₁, s₁₁⟩ : Sigma fun k => Bytes k) = ⟨m₂, s₂₁⟩ := hR x s₁₁ s₂₁ hx₁ hx₂
+      cases hp
+      have hfull := ih s₁₂ s₂₂ hr₁ hr₂
+      have hl : n₁ - m₁ = n₂ - m₁ := congrArg (Sigma.fst (β := fun k => Bytes k)) hfull
+      have hn : n₁ = n₂ := by omega
+      subst n₂
+      have hb : s₁₂ = s₂₂ := by
+        cases hfull
+        rfl
+      apply Sigma.ext
+      · rfl
+      · apply heq_of_eq
+        rw [hs₁, hs₂]
+        rw [hb]
+
+/-- Encoder completeness for repetition: if `relRepeat (Rel p) xs n s` and `Rel p` is
+functional, then `encodeRepeat p xs = some ⟨n, s⟩`. This is the repetition mirror of
+`encode_of_decode` (the decode→encode converse), and it is what the per-base
+converse theorems (`decodeFull … = some v → encode{X} v = some ⟨n, s⟩`) reduce to. -/
+theorem encodeRepeat_of_rel {α : Type} (p : Codec α) (hR : relFunctional (Rel p)) :
+    ∀ (xs : List α) {n : Nat} (s : Bytes n), relRepeat (Rel p) xs n s → encodeRepeat p xs = some ⟨n, s⟩ := by
+  intro xs n s hrel
+  have hne : encodeRepeat p xs ≠ none := encodeRepeat_ne_none p xs s hrel
+  cases he : encodeRepeat p xs with
+  | none => exact False.elim (hne he)
+  | some e =>
+      rcases e with ⟨n', s'⟩
+      have hrel' : relRepeat (Rel p) xs n' s' := encodeRepeat_rel p xs he
+      have hpin : (⟨n, s⟩ : Sigma fun k => Bytes k) = ⟨n', s'⟩ := relRepeat_functional hR xs s s' hrel hrel'
+      cases hpin
+      rfl
 
 /-- `count k (satisfy p)` is unambiguous: the list of bytes is uniquely
 determined by the byte string. -/
