@@ -418,201 +418,123 @@ theorem b64BlockIso_law (cs bs : List UInt8) :
 def b64BlockIso : Iso (List UInt8) (List UInt8) :=
   { apply := b64BlockApply, unapply := b64BlockUnapply, law := b64BlockIso_law }
 
-/-- The base64 element: 4 base64 (or pad) chars grouped into 1–3 bytes. -/
-def b64Elem : Codec (List UInt8) := Codec.iso b64BlockIso (count 4 (Codec.satisfy b64OrPad))
+/-! ## The strict value type and the run triple
 
-/-- `b64Elem` is productive. -/
-theorem b64ConsumesByte : ConsumesByte b64Elem := by
-  unfold b64Elem
-  rw [← productive_iff_consumesByte (Codec.iso b64BlockIso (count 4 (Codec.satisfy b64OrPad)))]
-  apply Productive_iso b64BlockIso (count 4 (Codec.satisfy b64OrPad))
-  rw [show 4 = 3 + 1 by rfl]
-  exact Productive_count_satisfy_succ b64OrPad 3
+`B64` is the canonical base64 value: full 3-byte blocks, then at most one
+terminal tail of 1 or 2 bytes.  Its tail constructors are terminal (no
+continuation), so "data after a pad" is unrepresentable by construction.
+-/
 
-/-- The base64 decoder (run of blocks). -/
-def decodeB64 {n : Nat} (s : Bytes n) : List (List (List UInt8) × Suffix n) :=
-  decodeRepeat b64Elem b64ConsumesByte n s
+/-- The canonical base64 value. -/
+inductive B64 where
+  | nil
+  | full (b0 b1 b2 : UInt8) (rest : B64)
+  | tail1 (b0 : UInt8)
+  | tail2 (b0 b1 : UInt8)
 
-/-- The base64 encoder (run of blocks). -/
-def encodeB64 (bs : List (List UInt8)) : Option (Sigma fun n => Bytes n) :=
-  encodeRepeat b64Elem bs
+/-- The 4-character (no pad) encoding of a full 3-byte block. -/
+def b64FullChars (b0 b1 b2 : UInt8) : List UInt8 :=
+  [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
+   toByte (valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)), toByte (valToB64 (b2.toNat % 64))]
 
-/-- The base64 relation. -/
-def relB64 : List (List UInt8) → (n : Nat) → Bytes n → Prop :=
-  relRepeat (Rel b64Elem)
+/-- The `3 chars + "="` encoding of a 2-byte tail. -/
+def b64Tail2Chars (b0 b1 : UInt8) : List UInt8 :=
+  [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
+   toByte (valToB64 ((b1.toNat % 16) * 4)), 61]
 
-/-! ## Unambiguity and the inherited roundtrip law -/
+/-- The `2 chars + "=="` encoding of a 1-byte tail. -/
+def b64Tail1Chars (b0 : UInt8) : List UInt8 :=
+  [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16)), 61, 61]
 
-/-- `b64Elem` is unambiguous. -/
-theorem b64Elem_unambiguous : Unambiguous b64Elem := by
-  unfold b64Elem
-  apply Unambiguous_iso b64BlockIso (count 4 (Codec.satisfy b64OrPad))
-  exact count_satisfy_unambiguous b64OrPad 4
+/-- The canonical character list of a `B64` value. -/
+def b64CharsOf : B64 → List UInt8
+  | B64.nil => []
+  | B64.full b0 b1 b2 rest => b64FullChars b0 b1 b2 ++ b64CharsOf rest
+  | B64.tail2 b0 b1 => b64Tail2Chars b0 b1
+  | B64.tail1 b0 => b64Tail1Chars b0
 
-/-- `Rel b64Elem x s` pins the byte length: `n = 4`. -/
-theorem Rel_b64Elem_len (x : List UInt8) {n : Nat} (s : Bytes n) :
-    Rel b64Elem x s → n = 4 := by
-  intro h
-  unfold b64Elem at h
-  rw [Rel_iso] at h
-  rcases h with ⟨a, _, hc⟩
-  exact Rel_count_satisfy_len b64OrPad 4 a s hc
+/-- `b64FullChars` is exactly `b64BlockUnapply` on a 3-byte block. -/
+theorem b64FullChars_eq_unapply (b0 b1 b2 : UInt8) :
+    b64FullChars b0 b1 b2 = [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
+      toByte (valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)), toByte (valToB64 (b2.toNat % 64))] := rfl
 
-/-- The base64 relation is unambiguous. -/
-theorem relB64_unambiguous : relUnambiguous relB64 := by
-  intro a b n s ha hb
-  dsimp [relB64] at ha hb
-  induction a generalizing b n s with
-  | nil =>
-      rw [relRepeat_nil] at ha
-      subst n
-      cases b with
-      | nil => rfl
-      | cons y ys =>
-          rw [relRepeat_cons] at hb
-          rcases hb with ⟨m, hm, s₁, s₂, hs, hy, _⟩
-          have hlen : m = 4 := Rel_b64Elem_len y s₁ hy
-          have hm0 : m = 0 := by omega
-          omega
-  | cons x xs ih =>
-      cases b with
-      | nil =>
-          rw [relRepeat_nil] at hb
-          rw [relRepeat_cons] at ha
-          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
-          have hlen : mx = 4 := Rel_b64Elem_len x s₁x hx
-          subst n
-          have hm0 : mx = 0 := by omega
-          omega
-      | cons y ys =>
-          rw [relRepeat_cons] at ha hb
-          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
-          rcases hb with ⟨my, hmy, s₁y, s₂y, hsy, hy, hys⟩
-          have hlx : mx = 4 := Rel_b64Elem_len x s₁x hx
-          have hly : my = 4 := Rel_b64Elem_len y s₁y hy
-          subst mx
-          subst my
-          have hpre : s₁x = s₁y := by
-            apply Bytes.ext
-            intro i
-            have hin : i.val < n := Nat.lt_of_lt_of_le i.isLt hmx
-            have hx' : s ⟨i.val, hin⟩ = s₁x i := by
-              rw [hsx]
-              exact splice_prefix_read hmx s₁x s₂x ⟨i.val, hin⟩ i.isLt
-            have hy' : s ⟨i.val, hin⟩ = s₁y i := by
-              rw [hsy]
-              exact splice_prefix_read hmy s₁y s₂y ⟨i.val, hin⟩ i.isLt
-            exact hx'.symm.trans hy'
-          have htaily : s₂x = s₂y := by
-            rw [← bdrop_splice hmx s₁x s₂x, ← bdrop_splice hmy s₁y s₂y]
-            congr 1
-            rw [← hsx]
-            rw [hsy]
-          have hhead : x = y := by
-            exact b64Elem_unambiguous s₁x hx (by rw [hpre]; exact hy)
-          have htail : xs = ys := by
-            exact ih s₂x hxs (by simpa [htaily] using hys)
-          rw [hhead, htail]
+/-- The strict base64 encoder: a structural fold over `B64`, always canonical. -/
+def encodeB64Strict : B64 → List UInt8 := b64CharsOf
 
-/-- Full-consumption decode is unambiguous for `b64Elem`. -/
-theorem b64DecodeFull_unambiguous {x y : List (List UInt8)} {n : Nat} (s : Bytes n) :
-    (x, Suffix.empty n) ∈ decodeRepeat b64Elem b64ConsumesByte n s →
-    (y, Suffix.empty n) ∈ decodeRepeat b64Elem b64ConsumesByte n s → x = y := by
-  intro hx hy
-  rcases (decodeRepeat_spec b64Elem b64ConsumesByte x n s (Suffix.empty n)).1 hx with ⟨s₀x, hsx, hrx⟩
-  rcases (decodeRepeat_spec b64Elem b64ConsumesByte y n s (Suffix.empty n)).1 hy with ⟨s₀y, hsy, hry⟩
-  have hs₀ : s₀x = s₀y := by
-    have hpre : (Suffix.empty n).prepend s₀x = (Suffix.empty n).prepend s₀y := by
-      exact hsx.symm.trans hsy
-    exact prepend_prefix_eq (Suffix.empty n) s₀x s₀y hpre
-  exact relB64_unambiguous s₀x hrx (by rw [hs₀]; exact hry)
+/-- Strict (canonical) base64 parse: decode 4 chars via the already-proved
+`b64BlockDecodeLenient`, map the block's byte-list shape to a `B64` constructor
+(1 byte = tail1, 2 = tail2, 3 = full/recursive), and thread the remainder. -/
+def parseB64 : List UInt8 → Option (B64 × List UInt8)
+  | [] => some (B64.nil, [])
+  | c0 :: c1 :: c2 :: c3 :: rest =>
+      match b64BlockDecodeLenient [c0, c1, c2, c3] with
+      | some [b0] => some (B64.tail1 b0, rest)
+      | some [b0, b1] => some (B64.tail2 b0 b1, rest)
+      | some [b0, b1, b2] =>
+          match parseB64 rest with
+          | some (v, r) => some (B64.full b0 b1 b2 v, r)
+          | none => none
+      | some _ => none
+      | none => none
+  | _ => none
 
-/-- The base64 roundtrip law. `[propext, Quot.sound]`-only. -/
-theorem roundtrip (bs : List (List UInt8)) {n : Nat} {s : Bytes n} :
-    encodeB64 bs = some ⟨n, s⟩ → decodeFull b64Elem b64ConsumesByte n s = some bs := by
-  intro he
-  have hrel : relRepeat (Rel b64Elem) bs n s := encodeRepeat_rel b64Elem bs he
-  have hmem : (bs, Suffix.empty n) ∈ decodeRepeat b64Elem b64ConsumesByte n s := by
-    refine (decodeRepeat_spec b64Elem b64ConsumesByte bs n s (Suffix.empty n)).2 ⟨
-      cast (congrArg Bytes (Nat.sub_zero n).symm) s, ?_, ?_⟩
-    · exact (prepend_empty_eq s).symm
-    · exact (relRepeat_cast (Rel b64Elem) bs (Nat.sub_zero n).symm s).2 hrel
-  exact (decodeFull_spec b64Elem b64ConsumesByte (fun {x y} {m} (t : Bytes m) =>
-    b64DecodeFull_unambiguous (s := t)) s bs).2 hmem
+/-- The strict base64 decoder over a `List UInt8` of input bytes. -/
+def decodeB64Strict (s : List UInt8) : Option B64 :=
+  match parseB64 s with
+  | some (v, []) => some v
+  | _ => none
 
-/-! ## RFC 4648 §3.2 run-level terminal padding (the whole-input guard)
+/-! ## Strict roundtrip and rejection (base64)
 
-The block `iso` rejects `=` in a non-terminal *intra-block* position, but the
-run-level case — a `=`-terminated block followed by another block — is accepted
-by `decodeFull b64Elem` (the `count 4` window fixes bytes, not value length).
-This section adds the run-level guard: a decidable `b64TerminalPad` shape on the
-decoded `List (List UInt8)` (every block full except possibly the last, which may
-be a tail), and `decodeB64Strict` — the grammar-correct whole-input decoder
-(a single `decodeFull` plus a cheap `O(#blocks)` shape check, no second byte
-pass). -/
+The strict decoder is total and returns `B64`; the malformed shape has no
+inhabitant.  Roundtrip is an induction over `B64` using the per-shape
+block-decode identities; rejection of trailing data is structural. -/
 
-/-- A block is a full base64 block iff it decodes to exactly 3 bytes. -/
-def b64FullBlock (b : List UInt8) : Prop := b.length = 3
+/-- Full-block parse: the canonical chars of a full block parse to it, threading
+`rest`. -/
+private theorem parseB64_full (b0 b1 b2 : UInt8) (rest : List UInt8) :
+    parseB64 (b64FullChars b0 b1 b2 ++ rest) =
+      (match parseB64 rest with | some (v, r) => some (B64.full b0 b1 b2 v, r) | none => none) := by
+  simp [parseB64, b64FullChars, b64BlockDecodeLenient_unapply_triple]
 
-/-- `b64TerminalPad blocks` — the run-level terminal-padding shape (a `Bool`).
-Every block is full (length 3) except possibly the last, which may be a full or
-tail block (length 1 or 2).  Rendered as a `Bool` so `decodeB64Strict` is
-`#eval`-able and concrete rejection vectors close by `decide`. -/
-def b64TerminalPad : List (List UInt8) → Bool
-  | [] => true
-  | [b] => decide (b.length = 1 ∨ b.length = 2 ∨ b.length = 3)
-  | b :: rest => (decide (b.length = 3)) && b64TerminalPad rest
+/-- 2-byte-tail parse: the canonical chars parse to the tail, threading `rest`. -/
+private theorem parseB64_tail2 (b0 b1 : UInt8) (rest : List UInt8) :
+    parseB64 (b64Tail2Chars b0 b1 ++ rest) = some (B64.tail2 b0 b1, rest) := by
+  simp [parseB64, b64Tail2Chars, b64BlockDecodeLenient_unapply_pair]
 
-/-- The decidable `Prop` mirror: `B64TerminalPad blocks := b64TerminalPad blocks = true`. -/
-def B64TerminalPad (blocks : List (List UInt8)) : Prop :=
-  b64TerminalPad blocks = true
+/-- 1-byte-tail parse: the canonical chars parse to the tail, threading `rest`. -/
+private theorem parseB64_tail1 (b0 : UInt8) (rest : List UInt8) :
+    parseB64 (b64Tail1Chars b0 ++ rest) = some (B64.tail1 b0, rest) := by
+  simp [parseB64, b64Tail1Chars, b64BlockDecodeLenient_unapply_single]
 
-/-- `decodeB64Strict` — the whole-input base64 decoder that additionally enforces
-RFC 4648 §3.2 terminal padding: decode fully with `decodeFull b64Elem`, then keep
-the result only when it has terminal-pad shape.  A single decode pass plus an
-`O(#blocks)` shape check. -/
-def decodeB64Strict {n : Nat} (s : Bytes n) : Option (List (List UInt8)) :=
-  match decodeFull b64Elem b64ConsumesByte n s with
-  | none => none
-  | some bs => if b64TerminalPad bs then some bs else none
+/-- The canonical chars of a `B64` value parse back to that value with empty
+remainder. -/
+private theorem parseB64_charsOf (v : B64) : parseB64 (b64CharsOf v) = some (v, []) := by
+  induction v with
+  | nil => rfl
+  | full b0 b1 b2 rest ih =>
+      unfold b64CharsOf
+      rw [parseB64_full b0 b1 b2 (b64CharsOf rest)]
+      rw [ih]
+  | tail2 b0 b1 =>
+      unfold b64CharsOf
+      rw [← List.append_nil (b64Tail2Chars b0 b1)]
+      rw [parseB64_tail2 b0 b1 []]
+  | tail1 b0 =>
+      unfold b64CharsOf
+      rw [← List.append_nil (b64Tail1Chars b0)]
+      rw [parseB64_tail1 b0 []]
 
-/-- The grammar-correct denotation: full blocks in a run, plus a terminal-pad
-shape constraint.  "Data after a terminal `=`" has no inhabitant because a tail
-block (length < 3) can only be last. -/
-def relB64Strict : List (List UInt8) → (n : Nat) → Bytes n → Prop :=
-  fun blocks n s => relRepeat (Rel b64Elem) blocks n s ∧ B64TerminalPad blocks
+/-- Strict roundtrip: encoding then strict-decoding a `B64` value returns it. -/
+theorem strict_roundtrip (v : B64) : decodeB64Strict (encodeB64Strict v) = some v := by
+  unfold encodeB64Strict decodeB64Strict
+  rw [parseB64_charsOf v]
 
-/-- The concrete `b64TerminalPad` rejection fact: a tail block `[0x66]` followed by
-a full block `[0,0,0]` is *not* terminal-pad shaped. -/
-theorem b64TerminalPad_rejects_tail_then_full :
-    b64TerminalPad [[0x66], [0, 0, 0]] = false := by
-  unfold b64TerminalPad
+/-- The run-level rejection: `Zg==AAAA` (a pad-terminated block followed by data)
+is `none` — the malformed shape has no `B64` inhabitant. -/
+theorem rejects_trailing :
+    decodeB64Strict [0x5A, 0x67, 0x3D, 0x3D, 0x41, 0x41, 0x41, 0x41] = none := by
+  unfold decodeB64Strict parseB64
   decide
-
-/-- Canonical encoding (value shape): a terminal-pad-shaped value list encodes
-and strict-decodes round-trip. -/
-theorem roundtripStrict (bs : List (List UInt8)) (hpad : B64TerminalPad bs)
-    {n : Nat} {s : Bytes n} :
-    encodeB64 bs = some ⟨n, s⟩ → decodeB64Strict s = some bs := by
-  intro he
-  unfold decodeB64Strict
-  rw [roundtrip bs he]
-  change (if b64TerminalPad bs then some bs else none) = some bs
-  rw [hpad]
-  rfl
-
-/-- The base64 run-level rejection theorem (STATEMENT): a `=`-terminated block
-followed by further data is rejected (`none`).  The `decodeFull` half (`some [[0x66],[0,0,0]]`)
-plus `b64TerminalPad_rejects_tail_then_full` gives `none`; the concrete `decodeFull`
-equality is established via `decodeFull_spec` + `encode_rel` for each block (in
-progress in the next pass). -/
-theorem decodeB64Strict_rejects_trailing
-    (hs : (fun i : Fin 8 => [0x5A, 0x67, 0x3D, 0x3D, 0x41, 0x41, 0x41, 0x41][i.val]) = (s : Bytes 8))
-    (hf : decodeFull b64Elem b64ConsumesByte 8 s = some [[0x66], [0, 0, 0]]) :
-    decodeB64Strict s = none := by
-  subst s
-  unfold decodeB64Strict
-  rw [hf]
-  simp [b64TerminalPad_rejects_tail_then_full]
 
 end BaseN.Base64

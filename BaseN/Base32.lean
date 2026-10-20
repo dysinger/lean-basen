@@ -596,126 +596,147 @@ theorem b32BlockIso_law (cs bs : List UInt8) :
 def b32BlockIso : Iso (List UInt8) (List UInt8) :=
   { apply := b32BlockApply, unapply := b32BlockUnapply, law := b32BlockIso_law }
 
-/-- The base32 element: 8 base32 (or pad) chars grouped into 1–5 bytes. -/
-def b32Elem : Codec (List UInt8) := Codec.iso b32BlockIso (count 8 (Codec.satisfy b32OrPad))
+/-! ## The strict value type and the run triple
 
-/-- `b32Elem` is productive. -/
-theorem b32ConsumesByte : ConsumesByte b32Elem := by
-  unfold b32Elem
-  rw [← productive_iff_consumesByte (Codec.iso b32BlockIso (count 8 (Codec.satisfy b32OrPad)))]
-  apply Productive_iso b32BlockIso (count 8 (Codec.satisfy b32OrPad))
-  rw [show 8 = 7 + 1 by rfl]
-  exact Productive_count_satisfy_succ b32OrPad 7
+`B32` is the canonical base32 value: full 5-byte blocks, then at most one
+terminal tail of 1–4 bytes.  Tail constructors are terminal, so "data after a
+pad" is unrepresentable. -/
 
-/-- The base32 decoder (run of blocks). -/
-def decodeB32 {n : Nat} (s : Bytes n) : List (List (List UInt8) × Suffix n) :=
-  decodeRepeat b32Elem b32ConsumesByte n s
+/-- The canonical base32 value. -/
+inductive B32 where
+  | nil
+  | full (b0 b1 b2 b3 b4 : UInt8) (rest : B32)
+  | tail1 (b0 : UInt8)
+  | tail2 (b0 b1 : UInt8)
+  | tail3 (b0 b1 b2 : UInt8)
+  | tail4 (b0 b1 b2 b3 : UInt8)
 
-/-- The base32 encoder (run of blocks). -/
-def encodeB32 (bs : List (List UInt8)) : Option (Sigma fun n => Bytes n) :=
-  encodeRepeat b32Elem bs
+/-- The 8-character (no pad) encoding of a full 5-byte block. -/
+def b32FullChars (b0 b1 b2 b3 b4 : UInt8) : List UInt8 :=
+  [toByte (valToB32 (b0.toNat / 8)), toByte (valToB32 ((b0.toNat % 8) * 4 + b1.toNat / 64)),
+   toByte (valToB32 ((b1.toNat / 2) % 32)), toByte (valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16)),
+   toByte (valToB32 ((b2.toNat % 16) * 2 + b3.toNat / 128)), toByte (valToB32 ((b3.toNat / 4) % 32)),
+   toByte (valToB32 ((b3.toNat % 4) * 8 + b4.toNat / 32)), toByte (valToB32 (b4.toNat % 32))]
 
-/-- The base32 relation. -/
-def relB32 : List (List UInt8) → (n : Nat) → Bytes n → Prop :=
-  relRepeat (Rel b32Elem)
+/-- The `7 chars + "="` encoding of a 4-byte tail. -/
+def b32Tail4Chars (b0 b1 b2 b3 : UInt8) : List UInt8 :=
+  [toByte (valToB32 (b0.toNat / 8)), toByte (valToB32 ((b0.toNat % 8) * 4 + b1.toNat / 64)),
+   toByte (valToB32 ((b1.toNat / 2) % 32)), toByte (valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16)),
+   toByte (valToB32 ((b2.toNat % 16) * 2 + b3.toNat / 128)), toByte (valToB32 ((b3.toNat / 4) % 32)),
+   toByte (valToB32 ((b3.toNat % 4) * 8)), 61]
 
-/-! ## Unambiguity and the inherited roundtrip law -/
+/-- The `5 chars + "==="` encoding of a 3-byte tail. -/
+def b32Tail3Chars (b0 b1 b2 : UInt8) : List UInt8 :=
+  [toByte (valToB32 (b0.toNat / 8)), toByte (valToB32 ((b0.toNat % 8) * 4 + b1.toNat / 64)),
+   toByte (valToB32 ((b1.toNat / 2) % 32)), toByte (valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16)),
+   toByte (valToB32 ((b2.toNat % 16) * 2)), 61, 61, 61]
 
-/-- `b32Elem` is unambiguous. -/
-theorem b32Elem_unambiguous : Unambiguous b32Elem := by
-  unfold b32Elem
-  apply Unambiguous_iso b32BlockIso (count 8 (Codec.satisfy b32OrPad))
-  exact count_satisfy_unambiguous b32OrPad 8
+/-- The `4 chars + "===="` encoding of a 2-byte tail. -/
+def b32Tail2Chars (b0 b1 : UInt8) : List UInt8 :=
+  [toByte (valToB32 (b0.toNat / 8)), toByte (valToB32 ((b0.toNat % 8) * 4 + b1.toNat / 64)),
+   toByte (valToB32 ((b1.toNat / 2) % 32)), toByte (valToB32 ((b1.toNat % 2) * 16)), 61, 61, 61, 61]
 
-/-- `Rel b32Elem x s` pins the byte length: `n = 8`. -/
-theorem Rel_b32Elem_len (x : List UInt8) {n : Nat} (s : Bytes n) :
-    Rel b32Elem x s → n = 8 := by
-  intro h
-  unfold b32Elem at h
-  rw [Rel_iso] at h
-  rcases h with ⟨a, _, hc⟩
-  exact Rel_count_satisfy_len b32OrPad 8 a s hc
+/-- The `2 chars + "======"` encoding of a 1-byte tail. -/
+def b32Tail1Chars (b0 : UInt8) : List UInt8 :=
+  [toByte (valToB32 (b0.toNat / 8)), toByte (valToB32 ((b0.toNat % 8) * 4)), 61, 61, 61, 61, 61, 61]
 
-/-- The base32 relation is unambiguous. -/
-theorem relB32_unambiguous : relUnambiguous relB32 := by
-  intro a b n s ha hb
-  dsimp [relB32] at ha hb
-  induction a generalizing b n s with
-  | nil =>
-      rw [relRepeat_nil] at ha
-      subst n
-      cases b with
-      | nil => rfl
-      | cons y ys =>
-          rw [relRepeat_cons] at hb
-          rcases hb with ⟨m, hm, s₁, s₂, hs, hy, _⟩
-          have hlen : m = 8 := Rel_b32Elem_len y s₁ hy
-          have hm0 : m = 0 := by omega
-          omega
-  | cons x xs ih =>
-      cases b with
-      | nil =>
-          rw [relRepeat_nil] at hb
-          rw [relRepeat_cons] at ha
-          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
-          have hlen : mx = 8 := Rel_b32Elem_len x s₁x hx
-          subst n
-          have hm0 : mx = 0 := by omega
-          omega
-      | cons y ys =>
-          rw [relRepeat_cons] at ha hb
-          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
-          rcases hb with ⟨my, hmy, s₁y, s₂y, hsy, hy, hys⟩
-          have hlx : mx = 8 := Rel_b32Elem_len x s₁x hx
-          have hly : my = 8 := Rel_b32Elem_len y s₁y hy
-          subst mx
-          subst my
-          have hpre : s₁x = s₁y := by
-            apply Bytes.ext
-            intro i
-            have hin : i.val < n := Nat.lt_of_lt_of_le i.isLt hmx
-            have hx' : s ⟨i.val, hin⟩ = s₁x i := by
-              rw [hsx]
-              exact splice_prefix_read hmx s₁x s₂x ⟨i.val, hin⟩ i.isLt
-            have hy' : s ⟨i.val, hin⟩ = s₁y i := by
-              rw [hsy]
-              exact splice_prefix_read hmy s₁y s₂y ⟨i.val, hin⟩ i.isLt
-            exact hx'.symm.trans hy'
-          have htaily : s₂x = s₂y := by
-            rw [← bdrop_splice hmx s₁x s₂x, ← bdrop_splice hmy s₁y s₂y]
-            congr 1
-            rw [← hsx]
-            rw [hsy]
-          have hhead : x = y := by
-            exact b32Elem_unambiguous s₁x hx (by rw [hpre]; exact hy)
-          have htail : xs = ys := by
-            exact ih s₂x hxs (by simpa [htaily] using hys)
-          rw [hhead, htail]
+/-- The canonical character list of a `B32` value. -/
+def b32CharsOf : B32 → List UInt8
+  | B32.nil => []
+  | B32.full b0 b1 b2 b3 b4 rest => b32FullChars b0 b1 b2 b3 b4 ++ b32CharsOf rest
+  | B32.tail4 b0 b1 b2 b3 => b32Tail4Chars b0 b1 b2 b3
+  | B32.tail3 b0 b1 b2 => b32Tail3Chars b0 b1 b2
+  | B32.tail2 b0 b1 => b32Tail2Chars b0 b1
+  | B32.tail1 b0 => b32Tail1Chars b0
 
-/-- Full-consumption decode is unambiguous for `b32Elem`. -/
-theorem b32DecodeFull_unambiguous {x y : List (List UInt8)} {n : Nat} (s : Bytes n) :
-    (x, Suffix.empty n) ∈ decodeRepeat b32Elem b32ConsumesByte n s →
-    (y, Suffix.empty n) ∈ decodeRepeat b32Elem b32ConsumesByte n s → x = y := by
-  intro hx hy
-  rcases (decodeRepeat_spec b32Elem b32ConsumesByte x n s (Suffix.empty n)).1 hx with ⟨s₀x, hsx, hrx⟩
-  rcases (decodeRepeat_spec b32Elem b32ConsumesByte y n s (Suffix.empty n)).1 hy with ⟨s₀y, hsy, hry⟩
-  have hs₀ : s₀x = s₀y := by
-    have hpre : (Suffix.empty n).prepend s₀x = (Suffix.empty n).prepend s₀y := by
-      exact hsx.symm.trans hsy
-    exact prepend_prefix_eq (Suffix.empty n) s₀x s₀y hpre
-  exact relB32_unambiguous s₀x hrx (by rw [hs₀]; exact hry)
+/-- The strict base32 encoder: a structural fold over `B32`, always canonical. -/
+def encodeB32Strict : B32 → List UInt8 := b32CharsOf
 
-/-- The base32 roundtrip law. `[propext, Quot.sound]`-only. -/
-theorem roundtrip (bs : List (List UInt8)) {n : Nat} {s : Bytes n} :
-    encodeB32 bs = some ⟨n, s⟩ → decodeFull b32Elem b32ConsumesByte n s = some bs := by
-  intro he
-  have hrel : relRepeat (Rel b32Elem) bs n s := encodeRepeat_rel b32Elem bs he
-  have hmem : (bs, Suffix.empty n) ∈ decodeRepeat b32Elem b32ConsumesByte n s := by
-    refine (decodeRepeat_spec b32Elem b32ConsumesByte bs n s (Suffix.empty n)).2 ⟨
-      cast (congrArg Bytes (Nat.sub_zero n).symm) s, ?_, ?_⟩
-    · exact (prepend_empty_eq s).symm
-    · exact (relRepeat_cast (Rel b32Elem) bs (Nat.sub_zero n).symm s).2 hrel
-  exact (decodeFull_spec b32Elem b32ConsumesByte (fun {x y} {m} (t : Bytes m) =>
-    b32DecodeFull_unambiguous (s := t)) s bs).2 hmem
+/-- Strict (canonical) base32 parse: decode 8 chars via `b32BlockDecodeLenient`,
+map the block's byte-shape to a `B32` constructor (1..4 = tail, 5 = full/rec), and
+thread the remainder. -/
+def parseB32 : List UInt8 → Option (B32 × List UInt8)
+  | [] => some (B32.nil, [])
+  | c0 :: c1 :: c2 :: c3 :: c4 :: c5 :: c6 :: c7 :: rest =>
+      match b32BlockDecodeLenient [c0, c1, c2, c3, c4, c5, c6, c7] with
+      | some [b0] => some (B32.tail1 b0, rest)
+      | some [b0, b1] => some (B32.tail2 b0 b1, rest)
+      | some [b0, b1, b2] => some (B32.tail3 b0 b1 b2, rest)
+      | some [b0, b1, b2, b3] => some (B32.tail4 b0 b1 b2 b3, rest)
+      | some [b0, b1, b2, b3, b4] =>
+          match parseB32 rest with
+          | some (v, r) => some (B32.full b0 b1 b2 b3 b4 v, r)
+          | none => none
+      | some _ => none
+      | none => none
+  | _ => none
+
+/-- The strict base32 decoder over a `List UInt8` of input bytes. -/
+def decodeB32Strict (s : List UInt8) : Option B32 :=
+  match parseB32 s with
+  | some (v, []) => some v
+  | _ => none
+
+/-! ## Strict roundtrip and rejection (base32) -/
+
+/-- Full-block parse. -/
+private theorem parseB32_full (b0 b1 b2 b3 b4 : UInt8) (rest : List UInt8) :
+    parseB32 (b32FullChars b0 b1 b2 b3 b4 ++ rest) =
+      (match parseB32 rest with | some (v, r) => some (B32.full b0 b1 b2 b3 b4 v, r) | none => none) := by
+  simp [parseB32, b32FullChars, b32BlockDecodeLenient_unapply_quintet]
+
+private theorem parseB32_tail4 (b0 b1 b2 b3 : UInt8) (rest : List UInt8) :
+    parseB32 (b32Tail4Chars b0 b1 b2 b3 ++ rest) = some (B32.tail4 b0 b1 b2 b3, rest) := by
+  simp [parseB32, b32Tail4Chars, b32BlockDecodeLenient_unapply_quad]
+
+private theorem parseB32_tail3 (b0 b1 b2 : UInt8) (rest : List UInt8) :
+    parseB32 (b32Tail3Chars b0 b1 b2 ++ rest) = some (B32.tail3 b0 b1 b2, rest) := by
+  simp [parseB32, b32Tail3Chars, b32BlockDecodeLenient_unapply_triple]
+
+private theorem parseB32_tail2 (b0 b1 : UInt8) (rest : List UInt8) :
+    parseB32 (b32Tail2Chars b0 b1 ++ rest) = some (B32.tail2 b0 b1, rest) := by
+  simp [parseB32, b32Tail2Chars, b32BlockDecodeLenient_unapply_pair]
+
+private theorem parseB32_tail1 (b0 : UInt8) (rest : List UInt8) :
+    parseB32 (b32Tail1Chars b0 ++ rest) = some (B32.tail1 b0, rest) := by
+  simp [parseB32, b32Tail1Chars, b32BlockDecodeLenient_unapply_single]
+
+/-- The canonical chars of a `B32` value parse back to that value with empty
+remainder. -/
+private theorem parseB32_charsOf (v : B32) : parseB32 (b32CharsOf v) = some (v, []) := by
+  induction v with
+  | nil => rfl
+  | full b0 b1 b2 b3 b4 rest ih =>
+      unfold b32CharsOf
+      rw [parseB32_full b0 b1 b2 b3 b4 (b32CharsOf rest)]
+      rw [ih]
+  | tail4 b0 b1 b2 b3 =>
+      unfold b32CharsOf
+      rw [← List.append_nil (b32Tail4Chars b0 b1 b2 b3)]
+      rw [parseB32_tail4 b0 b1 b2 b3 []]
+  | tail3 b0 b1 b2 =>
+      unfold b32CharsOf
+      rw [← List.append_nil (b32Tail3Chars b0 b1 b2)]
+      rw [parseB32_tail3 b0 b1 b2 []]
+  | tail2 b0 b1 =>
+      unfold b32CharsOf
+      rw [← List.append_nil (b32Tail2Chars b0 b1)]
+      rw [parseB32_tail2 b0 b1 []]
+  | tail1 b0 =>
+      unfold b32CharsOf
+      rw [← List.append_nil (b32Tail1Chars b0)]
+      rw [parseB32_tail1 b0 []]
+
+/-- Strict roundtrip: encoding then strict-decoding a `B32` value returns it. -/
+theorem strict_roundtrip (v : B32) : decodeB32Strict (encodeB32Strict v) = some v := by
+  unfold encodeB32Strict decodeB32Strict
+  rw [parseB32_charsOf v]
+
+/-- The run-level rejection: `MY======AAAAAAAA` (a pad-terminated block followed by
+data) is `none`. -/
+theorem rejects_trailing :
+    decodeB32Strict [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41] = none := by
+  unfold decodeB32Strict parseB32
+  decide
 
 end BaseN.Base32

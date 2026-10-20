@@ -2,6 +2,7 @@
    SPDX-License-Identifier: AGPL-3.0-or-later -/
 
 import BaseN
+import Codec
 
 /-!
 # Byte-exact vector bench lane
@@ -12,15 +13,17 @@ Value-checks each base **byte-for-byte** against the authoritative vectors:
     `openspec/changes/lean-basen/rfc4648.md`).
   * base2/4/8/10 — hand vectors for this package's own spec (no RFC).
 
-Each base is now a `Codec` value over `satisfy`/`count`/`iso` plus the
-repetition layer, so the byte-exact checks are at the *block* level (the block
-`Iso`'s `unapply` direction, which computes the concrete char bytes), and the
-roundtrip laws are re-instantiated over the inherited `roundtrip` theorems.
+The fixed-width bases are `Codec` values over `satisfy`/`count`/`iso` + the
+repetition layer (value `List UInt8`); the padded bases (32/64) are **strict**
+over the terminal-tail value `B32`/`B64` (`encodeB32Strict`/`decodeB32Strict`,
+`encodeB64Strict`/`decodeB64Strict`), so the terminal-pad class is *rejected*
+structurally (`decode… = none`), not filtered.
 -/
 
 namespace Bench
 
 open BaseN
+open Codec
 
 /-- RFC 4648 §10 byte-strings. -/
 def f : List UInt8 := [0x66]
@@ -56,7 +59,7 @@ example : Base4.quartetBlockUnapply 0x66 = some [0x31, 0x32, 0x31, 0x32] := rfl 
 example : Base8.octBlockUnapply 0x66 = some [0x31, 0x34, 0x36] := rfl                     -- "146"
 example : Base10.digBlockUnapply 0x66 = some [0x31, 0x30, 0x32] := rfl                     -- "102"
 
--- Roundtrip laws, re-instantiated over the RFC byte-strings.
+-- Roundtrip laws, re-instantiated over the RFC byte-strings (fixed-width bases).
 
 example (n : Nat) (s : Bytes n) : Base16.encodeHex foobar = some ⟨n, s⟩ →
     Codec.decodeFull Base16.hexElem Base16.hexConsumesByte n s = some foobar :=
@@ -78,13 +81,30 @@ example (n : Nat) (s : Bytes n) : Base10.encodeDig foobar = some ⟨n, s⟩ →
     Codec.decodeFull Base10.digElem Base10.digConsumesByte n s = some foobar :=
   Base10.roundtrip foobar
 
-example (n : Nat) (s : Bytes n) : Base32.encodeB32 [[0x66, 0x6F, 0x6F, 0x62, 0x61], [0x72]] = some ⟨n, s⟩ →
-    Codec.decodeFull Base32.b32Elem Base32.b32ConsumesByte n s = some [[0x66, 0x6F, 0x6F, 0x62, 0x61], [0x72]] :=
-  Base32.roundtrip [[0x66, 0x6F, 0x6F, 0x62, 0x61], [0x72]]
+-- Strict base32/64: roundtrip, canonical encoding, and rejection vectors.
 
-example (n : Nat) (s : Bytes n) : Base64.encodeB64 [[0x66, 0x6F, 0x6F], [0x62, 0x61, 0x72]] = some ⟨n, s⟩ →
-    Codec.decodeFull Base64.b64Elem Base64.b64ConsumesByte n s = some [[0x66, 0x6F, 0x6F], [0x62, 0x61, 0x72]] :=
-  Base64.roundtrip [[0x66, 0x6F, 0x6F], [0x62, 0x61, 0x72]]
+example : Base64.decodeB64Strict (Base64.encodeB64Strict (Base64.B64.full 0x66 0x6F 0x6F Base64.B64.nil)) =
+    some (Base64.B64.full 0x66 0x6F 0x6F Base64.B64.nil) := rfl
+
+example : Base32.decodeB32Strict (Base32.encodeB32Strict (Base32.B32.full 0x66 0x6F 0x6F 0x62 0x61 Base32.B32.nil)) =
+    some (Base32.B32.full 0x66 0x6F 0x6F 0x62 0x61 Base32.B32.nil) := rfl
+
+-- Canonical encoding: the RFC vectors re-expressed over the strict surface.
+
+example : Base64.encodeB64Strict (Base64.B64.tail1 0x66) = [0x5A, 0x67, 0x3D, 0x3D] := rfl -- "Zg=="
+example : Base64.encodeB64Strict (Base64.B64.tail2 0x66 0x6F) = [0x5A, 0x6D, 0x38, 0x3D] := rfl -- "Zm8="
+example : Base64.encodeB64Strict (Base64.B64.full 0x66 0x6F 0x6F Base64.B64.nil) = [0x5A, 0x6D, 0x39, 0x76] := rfl -- "Zm9v"
+
+example : Base32.encodeB32Strict (Base32.B32.tail1 0x66) = [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] := rfl -- "MY======"
+example : Base32.encodeB32Strict (Base32.B32.full 0x66 0x6F 0x6F 0x62 0x61 Base32.B32.nil) = [0x4D, 0x5A, 0x58, 0x57, 0x36, 0x59, 0x54, 0x42] := rfl -- "MZXW6YTB"
+
+-- Rejection vectors: trailing data after a terminal `=` is `none` (structural).
+
+example : Base64.decodeB64Strict [0x5A, 0x67, 0x3D, 0x3D, 0x41, 0x41, 0x41, 0x41] = none :=
+  Base64.rejects_trailing
+
+example : Base32.decodeB32Strict [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41] = none :=
+  Base32.rejects_trailing
 
 end Bench
 
