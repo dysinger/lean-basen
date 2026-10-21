@@ -461,13 +461,15 @@ theorem b64FullChars_eq_unapply (b0 b1 b2 : UInt8) :
 /-- The strict base64 encoder: a structural fold over `B64`, always canonical. -/
 def encodeB64Strict : B64 → List UInt8 := b64CharsOf
 
-/-- Strict (canonical) base64 parse: decode 4 chars via the already-proved
-`b64BlockDecodeLenient`, map the block's byte-list shape to a `B64` constructor
-(1 byte = tail1, 2 = tail2, 3 = full/recursive), and thread the remainder. -/
+/-- Strict (canonical) base64 parse: decode 4 chars via the canonical
+`b64BlockApply` (which re-checks that the bytes re-encode to the input chars,
+so non-canonical dropped-bit blocks are rejected), map the block's byte-list
+shape to a `B64` constructor (1 byte = tail1, 2 = tail2, 3 = full/recursive),
+and thread the remainder. -/
 def parseB64 : List UInt8 → Option (B64 × List UInt8)
   | [] => some (B64.nil, [])
   | c0 :: c1 :: c2 :: c3 :: rest =>
-      match b64BlockDecodeLenient [c0, c1, c2, c3] with
+      match b64BlockApply [c0, c1, c2, c3] with
       | some [b0] => some (B64.tail1 b0, rest)
       | some [b0, b1] => some (B64.tail2 b0 b1, rest)
       | some [b0, b1, b2] =>
@@ -495,17 +497,17 @@ block-decode identities; rejection of trailing data is structural. -/
 private theorem parseB64_full (b0 b1 b2 : UInt8) (rest : List UInt8) :
     parseB64 (b64FullChars b0 b1 b2 ++ rest) =
       (match parseB64 rest with | some (v, r) => some (B64.full b0 b1 b2 v, r) | none => none) := by
-  simp [parseB64, b64FullChars, b64BlockDecodeLenient_unapply_triple]
+  simp [parseB64, b64FullChars, b64BlockApply, b64BlockUnapply, b64BlockDecodeLenient_unapply_triple]
 
 /-- 2-byte-tail parse: the canonical chars parse to the tail, threading `rest`. -/
 private theorem parseB64_tail2 (b0 b1 : UInt8) (rest : List UInt8) :
     parseB64 (b64Tail2Chars b0 b1 ++ rest) = some (B64.tail2 b0 b1, rest) := by
-  simp [parseB64, b64Tail2Chars, b64BlockDecodeLenient_unapply_pair]
+  simp [parseB64, b64Tail2Chars, b64BlockApply, b64BlockUnapply, b64BlockDecodeLenient_unapply_pair]
 
 /-- 1-byte-tail parse: the canonical chars parse to the tail, threading `rest`. -/
 private theorem parseB64_tail1 (b0 : UInt8) (rest : List UInt8) :
     parseB64 (b64Tail1Chars b0 ++ rest) = some (B64.tail1 b0, rest) := by
-  simp [parseB64, b64Tail1Chars, b64BlockDecodeLenient_unapply_single]
+  simp [parseB64, b64Tail1Chars, b64BlockApply, b64BlockUnapply, b64BlockDecodeLenient_unapply_single]
 
 /-- The canonical chars of a `B64` value parse back to that value with empty
 remainder. -/
@@ -536,6 +538,106 @@ theorem rejects_trailing :
     decodeB64Strict [0x5A, 0x67, 0x3D, 0x3D, 0x41, 0x41, 0x41, 0x41] = none := by
   unfold decodeB64Strict parseB64
   decide
+
+/-! ## Converse (decode → encode) -/
+
+/-- `b64BlockApply cs = some bs → b64BlockUnapply bs = some cs` — a successful
+canonical block decode re-encodes to exactly the input chars (the backward half
+of `b64BlockIso_law`). -/
+theorem b64BlockApply_canonical (cs bs : List UInt8) :
+    b64BlockApply cs = some bs → b64BlockUnapply bs = some cs :=
+  (b64BlockIso_law cs bs).1
+
+/-- Parse completeness: a successful `parseB64 s = some (v, r)` means `s` is the
+canonical chars of `v` followed by `r`.  Proved by structural recursion on `s`:
+the recursive full-block branch recurses on `rest`, which is four elements
+deeper, hence a strict subterm. -/
+private theorem parseB64_inv : (s : List UInt8) → (v : B64) → (r : List UInt8) →
+    parseB64 s = some (v, r) → b64CharsOf v ++ r = s
+  | [], v, r, h => by
+      simp [parseB64] at h
+      rcases h with ⟨hv, hr⟩
+      subst v; subst r; rfl
+  | [_], _, _, h => by simp [parseB64] at h
+  | [_, _], _, _, h => by simp [parseB64] at h
+  | [_, _, _], _, _, h => by simp [parseB64] at h
+  | c0 :: c1 :: c2 :: c3 :: rest, v, r, h => by
+      unfold parseB64 at h
+      cases hb : b64BlockApply [c0, c1, c2, c3] with
+      | none => simp [hb] at h
+      | some bs =>
+          cases bs with
+          | nil => simp [hb] at h
+          | cons b0 t =>
+            cases t with
+            | nil =>
+                -- single-byte tail: bs = [b0]
+                simp [hb] at h
+                rcases h with ⟨hv, hr⟩
+                subst v; subst r
+                have hun : b64BlockUnapply [b0] = some [c0, c1, c2, c3] :=
+                  b64BlockApply_canonical [c0, c1, c2, c3] [b0] hb
+                have hc : b64Tail1Chars b0 = [c0, c1, c2, c3] := by
+                  simpa [b64BlockUnapply, b64Tail1Chars] using hun
+                unfold b64CharsOf
+                rw [hc]
+                rfl
+            | cons b1 t =>
+              cases t with
+              | nil =>
+                  -- two-byte tail: bs = [b0, b1]
+                  simp [hb] at h
+                  rcases h with ⟨hv, hr⟩
+                  subst v; subst r
+                  have hun : b64BlockUnapply [b0, b1] = some [c0, c1, c2, c3] :=
+                    b64BlockApply_canonical [c0, c1, c2, c3] [b0, b1] hb
+                  have hc : b64Tail2Chars b0 b1 = [c0, c1, c2, c3] := by
+                    simpa [b64BlockUnapply, b64Tail2Chars] using hun
+                  unfold b64CharsOf
+                  rw [hc]
+                  rfl
+              | cons b2 t =>
+                cases t with
+                | nil =>
+                    -- full block: bs = [b0, b1, b2], recurse on rest
+                    simp [hb] at h
+                    cases hrest : parseB64 rest with
+                    | none => simp [hrest] at h
+                    | some pr' =>
+                        rcases pr' with ⟨v', r'⟩
+                        simp [hrest] at h
+                        rcases h with ⟨hv, hr⟩
+                        subst v; subst r
+                        have hun : b64BlockUnapply [b0, b1, b2] = some [c0, c1, c2, c3] :=
+                          b64BlockApply_canonical [c0, c1, c2, c3] [b0, b1, b2] hb
+                        have hc : b64FullChars b0 b1 b2 = [c0, c1, c2, c3] := by
+                          simpa [b64BlockUnapply, b64FullChars] using hun
+                        have ih : b64CharsOf v' ++ r' = rest :=
+                          parseB64_inv rest v' r' hrest
+                        unfold b64CharsOf
+                        rw [hc]
+                        rw [List.append_assoc]
+                        rw [ih]
+                        rfl
+                | cons _ _ => simp [hb] at h
+
+/-- Converse: a successful strict decode re-encodes to exactly the input bytes. -/
+theorem decodeB64Strict_inverse (s : List UInt8) (v : B64) :
+    decodeB64Strict s = some v → encodeB64Strict v = s := by
+  intro h
+  unfold decodeB64Strict at h
+  cases hp : parseB64 s with
+  | none => simp [hp] at h
+  | some pr =>
+      rcases pr with ⟨v', r⟩
+      cases r with
+      | nil =>
+          have hvr : v' = v := by simpa [hp] using h
+          have hcomp := parseB64_inv s v' [] (by simpa using hp)
+          unfold encodeB64Strict
+          rw [← hvr]
+          simpa using hcomp
+      | cons _ _ => simp [hp] at h
 
 /-! ## Conformance: canonical encoding, converse, injectivity (base64) -/
 

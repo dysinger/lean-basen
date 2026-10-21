@@ -652,13 +652,14 @@ def b32CharsOf : B32 → List UInt8
 /-- The strict base32 encoder: a structural fold over `B32`, always canonical. -/
 def encodeB32Strict : B32 → List UInt8 := b32CharsOf
 
-/-- Strict (canonical) base32 parse: decode 8 chars via `b32BlockDecodeLenient`,
-map the block's byte-shape to a `B32` constructor (1..4 = tail, 5 = full/rec), and
-thread the remainder. -/
+/-- Strict (canonical) base32 parse: decode 8 chars via the canonical
+`b32BlockApply` (which re-checks that the bytes re-encode to the input chars,
+so non-canonical dropped-bit blocks are rejected), map the block's byte-shape to
+a `B32` constructor (1..4 = tail, 5 = full/rec), and thread the remainder. -/
 def parseB32 : List UInt8 → Option (B32 × List UInt8)
   | [] => some (B32.nil, [])
   | c0 :: c1 :: c2 :: c3 :: c4 :: c5 :: c6 :: c7 :: rest =>
-      match b32BlockDecodeLenient [c0, c1, c2, c3, c4, c5, c6, c7] with
+      match b32BlockApply [c0, c1, c2, c3, c4, c5, c6, c7] with
       | some [b0] => some (B32.tail1 b0, rest)
       | some [b0, b1] => some (B32.tail2 b0 b1, rest)
       | some [b0, b1, b2] => some (B32.tail3 b0 b1 b2, rest)
@@ -683,23 +684,23 @@ def decodeB32Strict (s : List UInt8) : Option B32 :=
 private theorem parseB32_full (b0 b1 b2 b3 b4 : UInt8) (rest : List UInt8) :
     parseB32 (b32FullChars b0 b1 b2 b3 b4 ++ rest) =
       (match parseB32 rest with | some (v, r) => some (B32.full b0 b1 b2 b3 b4 v, r) | none => none) := by
-  simp [parseB32, b32FullChars, b32BlockDecodeLenient_unapply_quintet]
+  simp [parseB32, b32FullChars, b32BlockApply, b32BlockUnapply, b32BlockDecodeLenient_unapply_quintet]
 
 private theorem parseB32_tail4 (b0 b1 b2 b3 : UInt8) (rest : List UInt8) :
     parseB32 (b32Tail4Chars b0 b1 b2 b3 ++ rest) = some (B32.tail4 b0 b1 b2 b3, rest) := by
-  simp [parseB32, b32Tail4Chars, b32BlockDecodeLenient_unapply_quad]
+  simp [parseB32, b32Tail4Chars, b32BlockApply, b32BlockUnapply, b32BlockDecodeLenient_unapply_quad]
 
 private theorem parseB32_tail3 (b0 b1 b2 : UInt8) (rest : List UInt8) :
     parseB32 (b32Tail3Chars b0 b1 b2 ++ rest) = some (B32.tail3 b0 b1 b2, rest) := by
-  simp [parseB32, b32Tail3Chars, b32BlockDecodeLenient_unapply_triple]
+  simp [parseB32, b32Tail3Chars, b32BlockApply, b32BlockUnapply, b32BlockDecodeLenient_unapply_triple]
 
 private theorem parseB32_tail2 (b0 b1 : UInt8) (rest : List UInt8) :
     parseB32 (b32Tail2Chars b0 b1 ++ rest) = some (B32.tail2 b0 b1, rest) := by
-  simp [parseB32, b32Tail2Chars, b32BlockDecodeLenient_unapply_pair]
+  simp [parseB32, b32Tail2Chars, b32BlockApply, b32BlockUnapply, b32BlockDecodeLenient_unapply_pair]
 
 private theorem parseB32_tail1 (b0 : UInt8) (rest : List UInt8) :
     parseB32 (b32Tail1Chars b0 ++ rest) = some (B32.tail1 b0, rest) := by
-  simp [parseB32, b32Tail1Chars, b32BlockDecodeLenient_unapply_single]
+  simp [parseB32, b32Tail1Chars, b32BlockApply, b32BlockUnapply, b32BlockDecodeLenient_unapply_single]
 
 /-- The canonical chars of a `B32` value parse back to that value with empty
 remainder. -/
@@ -738,6 +739,137 @@ theorem rejects_trailing :
     decodeB32Strict [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41] = none := by
   unfold decodeB32Strict parseB32
   decide
+
+/-! ## Converse (decode → encode) -/
+
+/-- `b32BlockApply cs = some bs → b32BlockUnapply bs = some cs` — a successful
+canonical block decode re-encodes to exactly the input chars (the backward half
+of `b32BlockIso_law`). -/
+theorem b32BlockApply_canonical (cs bs : List UInt8) :
+    b32BlockApply cs = some bs → b32BlockUnapply bs = some cs :=
+  (b32BlockIso_law cs bs).1
+
+/-- Parse completeness: a successful `parseB32 s = some (v, r)` means `s` is the
+canonical chars of `v` followed by `r`.  Proved by structural recursion on `s`;
+the recursive full-block branch recurses on `rest` (eight elements deeper). -/
+private theorem parseB32_inv : (s : List UInt8) → (v : B32) → (r : List UInt8) →
+    parseB32 s = some (v, r) → b32CharsOf v ++ r = s
+  | [], v, r, h => by
+      simp [parseB32] at h
+      rcases h with ⟨hv, hr⟩
+      subst v; subst r; rfl
+  | [_], _, _, h => by simp [parseB32] at h
+  | [_, _], _, _, h => by simp [parseB32] at h
+  | [_, _, _], _, _, h => by simp [parseB32] at h
+  | [_, _, _, _], _, _, h => by simp [parseB32] at h
+  | [_, _, _, _, _], _, _, h => by simp [parseB32] at h
+  | [_, _, _, _, _, _], _, _, h => by simp [parseB32] at h
+  | [_, _, _, _, _, _, _], _, _, h => by simp [parseB32] at h
+  | c0 :: c1 :: c2 :: c3 :: c4 :: c5 :: c6 :: c7 :: rest, v, r, h => by
+      unfold parseB32 at h
+      cases hb : b32BlockApply [c0, c1, c2, c3, c4, c5, c6, c7] with
+      | none => simp [hb] at h
+      | some bs =>
+          cases bs with
+          | nil => simp [hb] at h
+          | cons b0 t =>
+            cases t with
+            | nil =>
+                -- single-byte tail: bs = [b0]
+                simp [hb] at h
+                rcases h with ⟨hv, hr⟩
+                subst v; subst r
+                have hun : b32BlockUnapply [b0] = some [c0, c1, c2, c3, c4, c5, c6, c7] :=
+                  b32BlockApply_canonical [c0, c1, c2, c3, c4, c5, c6, c7] [b0] hb
+                have hc : b32Tail1Chars b0 = [c0, c1, c2, c3, c4, c5, c6, c7] := by
+                  simpa [b32BlockUnapply, b32Tail1Chars] using hun
+                unfold b32CharsOf
+                rw [hc]
+                rfl
+            | cons b1 t =>
+              cases t with
+              | nil =>
+                  -- two-byte tail: bs = [b0, b1]
+                  simp [hb] at h
+                  rcases h with ⟨hv, hr⟩
+                  subst v; subst r
+                  have hun : b32BlockUnapply [b0, b1] = some [c0, c1, c2, c3, c4, c5, c6, c7] :=
+                    b32BlockApply_canonical [c0, c1, c2, c3, c4, c5, c6, c7] [b0, b1] hb
+                  have hc : b32Tail2Chars b0 b1 = [c0, c1, c2, c3, c4, c5, c6, c7] := by
+                    simpa [b32BlockUnapply, b32Tail2Chars] using hun
+                  unfold b32CharsOf
+                  rw [hc]
+                  rfl
+              | cons b2 t =>
+                cases t with
+                | nil =>
+                    -- three-byte tail: bs = [b0, b1, b2]
+                    simp [hb] at h
+                    rcases h with ⟨hv, hr⟩
+                    subst v; subst r
+                    have hun : b32BlockUnapply [b0, b1, b2] = some [c0, c1, c2, c3, c4, c5, c6, c7] :=
+                      b32BlockApply_canonical [c0, c1, c2, c3, c4, c5, c6, c7] [b0, b1, b2] hb
+                    have hc : b32Tail3Chars b0 b1 b2 = [c0, c1, c2, c3, c4, c5, c6, c7] := by
+                      simpa [b32BlockUnapply, b32Tail3Chars] using hun
+                    unfold b32CharsOf
+                    rw [hc]
+                    rfl
+                | cons b3 t =>
+                  cases t with
+                  | nil =>
+                      -- four-byte tail: bs = [b0, b1, b2, b3]
+                      simp [hb] at h
+                      rcases h with ⟨hv, hr⟩
+                      subst v; subst r
+                      have hun : b32BlockUnapply [b0, b1, b2, b3] = some [c0, c1, c2, c3, c4, c5, c6, c7] :=
+                        b32BlockApply_canonical [c0, c1, c2, c3, c4, c5, c6, c7] [b0, b1, b2, b3] hb
+                      have hc : b32Tail4Chars b0 b1 b2 b3 = [c0, c1, c2, c3, c4, c5, c6, c7] := by
+                        simpa [b32BlockUnapply, b32Tail4Chars] using hun
+                      unfold b32CharsOf
+                      rw [hc]
+                      rfl
+                  | cons b4 t =>
+                    cases t with
+                    | nil =>
+                        -- full block: bs = [b0, b1, b2, b3, b4], recurse on rest
+                        simp [hb] at h
+                        cases hrest : parseB32 rest with
+                        | none => simp [hrest] at h
+                        | some pr' =>
+                            rcases pr' with ⟨v', r'⟩
+                            simp [hrest] at h
+                            rcases h with ⟨hv, hr⟩
+                            subst v; subst r
+                            have hun : b32BlockUnapply [b0, b1, b2, b3, b4] = some [c0, c1, c2, c3, c4, c5, c6, c7] :=
+                              b32BlockApply_canonical [c0, c1, c2, c3, c4, c5, c6, c7] [b0, b1, b2, b3, b4] hb
+                            have hc : b32FullChars b0 b1 b2 b3 b4 = [c0, c1, c2, c3, c4, c5, c6, c7] := by
+                              simpa [b32BlockUnapply, b32FullChars] using hun
+                            have ih : b32CharsOf v' ++ r' = rest :=
+                              parseB32_inv rest v' r' hrest
+                            unfold b32CharsOf
+                            rw [hc]
+                            rw [List.append_assoc]
+                            rw [ih]
+                            rfl
+                    | cons _ _ => simp [hb] at h
+
+/-- Converse: a successful strict decode re-encodes to exactly the input bytes. -/
+theorem decodeB32Strict_inverse (s : List UInt8) (v : B32) :
+    decodeB32Strict s = some v → encodeB32Strict v = s := by
+  intro h
+  unfold decodeB32Strict at h
+  cases hp : parseB32 s with
+  | none => simp [hp] at h
+  | some pr =>
+      rcases pr with ⟨v', r⟩
+      cases r with
+      | nil =>
+          have hvr : v' = v := by simpa [hp] using h
+          have hcomp := parseB32_inv s v' [] (by simpa using hp)
+          unfold encodeB32Strict
+          rw [← hvr]
+          simpa using hcomp
+      | cons _ _ => simp [hp] at h
 
 /-! ## Conformance: canonical encoding, injectivity (base32) -/
 
