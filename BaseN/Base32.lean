@@ -973,4 +973,72 @@ theorem encodeB32Strict_injective {v v' : B32} :
   have h12 : some v = some v' := h1.symm.trans h2
   exact Option.some.inj h12
 
+/-! ## The uniform `List UInt8` transport (facade value type) -/
+
+/-- The decoded byte list of a `B32` value (full 5-byte blocks, then at most one
+1–4-byte terminal tail). -/
+def b32BytesOf : B32 → List UInt8
+  | B32.nil => []
+  | B32.full b0 b1 b2 b3 b4 rest => [b0, b1, b2, b3, b4] ++ b32BytesOf rest
+  | B32.tail1 b0 => [b0]
+  | B32.tail2 b0 b1 => [b0, b1]
+  | B32.tail3 b0 b1 b2 => [b0, b1, b2]
+  | B32.tail4 b0 b1 b2 b3 => [b0, b1, b2, b3]
+
+/-- Total split of a byte list into full 5-byte blocks plus a terminal 1–4-byte
+tail.  The reverse of `b32BytesOf`. -/
+def b32OfBytes : List UInt8 → B32
+  | [] => B32.nil
+  | [b0] => B32.tail1 b0
+  | [b0, b1] => B32.tail2 b0 b1
+  | [b0, b1, b2] => B32.tail3 b0 b1 b2
+  | [b0, b1, b2, b3] => B32.tail4 b0 b1 b2 b3
+  | b0 :: b1 :: b2 :: b3 :: b4 :: rest => B32.full b0 b1 b2 b3 b4 (b32OfBytes rest)
+
+/-- `b32BytesOf (b32OfBytes bs) = bs`. -/
+theorem b32BytesOf_ofBytes (bs : List UInt8) : b32BytesOf (b32OfBytes bs) = bs := by
+  exact go bs
+where
+  go : (l : List UInt8) → b32BytesOf (b32OfBytes l) = l
+  | [] => rfl
+  | [_] => rfl
+  | [_, _] => rfl
+  | [_, _, _] => rfl
+  | [_, _, _, _] => rfl
+  | b0 :: b1 :: b2 :: b3 :: b4 :: t => by
+      unfold b32OfBytes b32BytesOf
+      rw [go t]
+      rfl
+  termination_by l => l.length
+  decreasing_by simp +arith
+
+/-- `b32OfBytes (b32BytesOf v) = v`. -/
+theorem b32OfBytes_bytesOf (v : B32) : b32OfBytes (b32BytesOf v) = v := by
+  induction v with
+  | nil => rfl
+  | full b0 b1 b2 b3 b4 rest ih =>
+      change b32OfBytes ([b0, b1, b2, b3, b4] ++ b32BytesOf rest) = B32.full b0 b1 b2 b3 b4 rest
+      have hcons : [b0, b1, b2, b3, b4] ++ b32BytesOf rest = b0 :: b1 :: b2 :: b3 :: b4 :: b32BytesOf rest := rfl
+      rw [hcons]
+      unfold b32OfBytes
+      rw [ih]
+  | tail1 b0 => rfl
+  | tail2 b0 b1 => rfl
+  | tail3 b0 b1 b2 => rfl
+  | tail4 b0 b1 b2 b3 => rfl
+
+/-- The uniform `List UInt8 → Option (List UInt8)` decoder. -/
+def decodeBytes (s : List UInt8) : Option (List UInt8) :=
+  (decodeB32Strict s).map b32BytesOf
+
+/-- The uniform `List UInt8 → List UInt8` encoder. -/
+def encodeBytes (bs : List UInt8) : List UInt8 :=
+  encodeB32Strict (b32OfBytes bs)
+
+/-- The uniform roundtrip. -/
+theorem roundtripBytes (bs : List UInt8) : decodeBytes (encodeBytes bs) = some bs := by
+  unfold decodeBytes encodeBytes
+  rw [strict_roundtrip (b32OfBytes bs)]
+  simp [b32BytesOf_ofBytes bs]
+
 end BaseN.Base32

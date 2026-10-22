@@ -22,7 +22,7 @@ namespace BaseN.Bridge
 open Codec
 
 /-- The always-true byte predicate: accept every byte. -/
-def allBytes (b : UInt8) : Bool := true
+def allBytes (_b : UInt8) : Bool := true
 
 /-- Decode the whole finite `Bytes n` as a `List UInt8` (all-prefix enumeration
 over the always-true run). -/
@@ -32,5 +32,14 @@ def decodeAll {n : Nat} (s : Bytes n) : List (List UInt8 × Suffix n) :=
 /-- Encode a `List UInt8` back into a length-indexed `Bytes n`. -/
 def encodeAll (bs : List UInt8) : Option (Sigma fun n => Bytes n) :=
   encodeTakeWhile allBytes bs
+
+/-- Materialize a finite `Bytes n` as a `List UInt8` (the total, plain
+conversion — no run scanner, no `Option`). -/
+def bytesToList {n : Nat} (s : Bytes n) : List UInt8 :=
+  List.ofFn s
+
+/-- Lift a `List UInt8` into a length-indexed `Bytes (l.length)`. -/
+def listToBytes (l : List UInt8) : Bytes l.length :=
+  fun i => l[i]
 
 end BaseN.Bridge

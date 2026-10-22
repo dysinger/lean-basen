@@ -703,4 +703,75 @@ theorem encodeB64Strict_injective {v v' : B64} :
   have h12 : some v = some v' := h1.symm.trans h2
   exact Option.some.inj h12
 
+/-! ## The uniform `List UInt8` transport (facade value type)
+
+The base64 *value* is `B64` (terminal-tail, so illegal "data after `=`" is
+unrepresentable); the facade exposes the uniform `List UInt8` value type via
+this bijective byte flatten. -/
+
+/-- The decoded byte list of a `B64` value (full blocks 3 bytes each, then at
+most one 1/2-byte terminal tail). -/
+def b64BytesOf : B64 → List UInt8
+  | B64.nil => []
+  | B64.full b0 b1 b2 rest => [b0, b1, b2] ++ b64BytesOf rest
+  | B64.tail1 b0 => [b0]
+  | B64.tail2 b0 b1 => [b0, b1]
+
+/-- Total split of a byte list into full 3-byte blocks plus a terminal 1/2-byte
+tail.  Every byte list maps to a unique `B64` (the reverse of `b64BytesOf`); the
+empty tail is `nil`, a 1-byte tail is `tail1`, a 2-byte tail is `tail2`. -/
+def b64OfBytes : List UInt8 → B64
+  | [] => B64.nil
+  | [b0] => B64.tail1 b0
+  | [b0, b1] => B64.tail2 b0 b1
+  | b0 :: b1 :: b2 :: rest => B64.full b0 b1 b2 (b64OfBytes rest)
+
+/-- `b64BytesOf` is a left inverse of `b64OfBytes`: splitting then flattening is
+identity.  Proved by structural induction on the byte list (the 0/1/2-element
+cases are tails, the 3+-element case recurses three elements deeper). -/
+theorem b64BytesOf_ofBytes (bs : List UInt8) : b64BytesOf (b64OfBytes bs) = bs := by
+  exact go bs
+where
+  go : (l : List UInt8) → b64BytesOf (b64OfBytes l) = l
+  | [] => rfl
+  | [_] => rfl
+  | [_, _] => rfl
+  | b0 :: b1 :: b2 :: t2 => by
+      unfold b64OfBytes b64BytesOf
+      rw [go t2]
+      rfl
+  termination_by l => l.length
+  decreasing_by simp +arith
+
+/-- `b64OfBytes` is a left inverse of `b64BytesOf`: encoding then splitting a
+`B64` value is identity.  The terminal-tail constructors are disjoint, so the
+length class (0/1/2/3+) uniquely recovers the constructor. -/
+theorem b64OfBytes_bytesOf (v : B64) : b64OfBytes (b64BytesOf v) = v := by
+  induction v with
+  | nil => rfl
+  | full b0 b1 b2 rest ih =>
+      change b64OfBytes ([b0, b1, b2] ++ b64BytesOf rest) = B64.full b0 b1 b2 rest
+      have hcons : [b0, b1, b2] ++ b64BytesOf rest = b0 :: b1 :: b2 :: b64BytesOf rest := rfl
+      rw [hcons]
+      unfold b64OfBytes
+      rw [ih]
+  | tail1 b0 => rfl
+  | tail2 b0 b1 => rfl
+
+/-- The uniform `List UInt8 → Option (List UInt8)` decoder: strict-decode to
+`B64`, then flatten to the byte list. -/
+def decodeBytes (s : List UInt8) : Option (List UInt8) :=
+  (decodeB64Strict s).map b64BytesOf
+
+/-- The uniform `List UInt8 → List UInt8` encoder: split bytes to `B64`,
+then encode canonically.  Total (every byte list is a `B64`). -/
+def encodeBytes (bs : List UInt8) : List UInt8 :=
+  encodeB64Strict (b64OfBytes bs)
+
+/-- The uniform roundtrip: `decodeBytes (encodeBytes bs) = some bs`. -/
+theorem roundtripBytes (bs : List UInt8) : decodeBytes (encodeBytes bs) = some bs := by
+  unfold decodeBytes encodeBytes
+  rw [strict_roundtrip (b64OfBytes bs)]
+  simp [b64BytesOf_ofBytes bs]
+
 end BaseN.Base64

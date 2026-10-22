@@ -373,4 +373,50 @@ theorem consumesByte_count_satisfy_succ (p : UInt8 → Bool) (k : Nat) :
   rw [← productive_iff_consumesByte (count (k + 1) (Codec.satisfy p))]
   exact Productive_count_satisfy_succ p k
 
+/-! ## The first-class run value (`Run`)
+
+`many` is a *derived* combinator (the paper §3.4 derives `many p = nil $ pure ()
+| cons $ p ∗ many p`; F\* has no `many`, just `satisfy_many0`), realized by the
+already-proved `relRepeat`/`decodeRepeat`/`encodeRepeat` triple.  A concrete
+format surfaces unbounded repetition as a **first-class `Run` value** — a
+`structure` bundling the element description and its productivity witness, with
+the three interpretations *inherited* (never re-defined) — so a consumer holds
+one value and calls one `decode`/`encode`, never names a bespoke per-format
+function.
+
+`Run` is polymorphic in the element value type `α`: the fixed-width bases
+(2/4/8/10/16) have `α = UInt8` (one byte per element, a `Codec UInt8`); the
+cross-byte bit-packing bases (32/64) have `α = List UInt8` (a whole block per
+element, a `Codec (List UInt8)`).  The value of a `Run α` is `List α`, and the
+facade normalizes it to the uniform `List UInt8` value type (for the padded
+bases via a terminal-tail `B32`/`B64` transport). -/
+structure Run (α : Type) where
+  /-- The element (or block) description. -/
+  elem : Codec α
+  /-- The productivity witness: every element step consumes ≥ 1 byte, which is
+  the guard under which `decodeRepeat` is total. -/
+  step : ConsumesByte elem
+
+namespace Run
+
+/-- The inherited whole-input decoder: `decodeRepeat elem step` with
+full-consumption. Yields `Option (List α)` over a `Bytes n`. -/
+def decodeFull (r : Run α) {n : Nat} (s : Bytes n) : Option (List α) :=
+  Codec.decodeFull r.elem r.step n s
+
+/-- The inherited repetition decoder (all prefixes, for a `Bytes n`). -/
+def decode (r : Run α) {n : Nat} (s : Bytes n) : List (List α × Suffix n) :=
+  decodeRepeat r.elem r.step n s
+
+/-- The inherited encoder: `encodeRepeat elem`. Yields the concatenated
+length-indexed bytes. -/
+def encode (r : Run α) (xs : List α) : Option (Sigma fun n => Bytes n) :=
+  encodeRepeat r.elem xs
+
+/-- The inherited least-fixpoint relation: `relRepeat (Rel elem)`. -/
+def rel (r : Run α) : List α → (n : Nat) → Bytes n → Prop :=
+  relRepeat (Rel r.elem)
+
+end Run
+
 end BaseN.Common
