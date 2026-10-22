@@ -219,6 +219,9 @@ theorem valToB64_b64ToVal_of_valid (e : Nat) (h : b64Valid e = true) :
 
 -- pad predicate
 
+/-- Base64 alphabet character (no `=` pad). -/
+def b64Char (b : UInt8) : Bool := b64Valid b.toNat
+
 /-- Base64 alphabet character or the `=` pad. -/
 def b64OrPad (b : UInt8) : Bool := b64Valid b.toNat || (b.toNat = 61)
 
@@ -418,7 +421,298 @@ theorem b64BlockIso_law (cs bs : List UInt8) :
 def b64BlockIso : Iso (List UInt8) (List UInt8) :=
   { apply := b64BlockApply, unapply := b64BlockUnapply, law := b64BlockIso_law }
 
-/-! ## The strict value type and the run triple
+/-! ## The `Codec`-value full-block element
+
+The full block is the `Run`'s repetition step: `count 4 (satisfy b64Char)` reads
+four alphabet characters (no `=`; a pad-block is the terminal tail and is handled
+separately), and `b64BlockIso` maps them to the three recovered bytes.  The
+productivity witness is the inherited `Productive_iso`/`Productive_count_satisfy_succ`
+chain (a block consumes 4 ≥ 1 bytes, so `decodeRepeat` is total). -/
+
+/-- The full-block element: 4 alphabet chars → 3 bytes (no padding). -/
+def b64BlockElem : Codec (List UInt8) :=
+  iso b64BlockIso (count 4 (Codec.satisfy b64Char))
+
+/-- `b64BlockElem` consumes 4 bytes per block. -/
+theorem b64BlockConsumesByte : ConsumesByte b64BlockElem := by
+  rw [← productive_iff_consumesByte, b64BlockElem]
+  exact Productive_iso b64BlockIso (count 4 (Codec.satisfy b64Char))
+    (Productive_count_satisfy_succ b64Char 3)
+
+/-- `b64BlockElem` is functional (a block relates to a unique byte string). -/
+theorem b64BlockElem_functional : Functional b64BlockElem := by
+  unfold b64BlockElem
+  exact Functional_iso b64BlockIso (count 4 (Codec.satisfy b64Char))
+    (Functional_count_satisfy b64Char 4)
+
+/-- Every byte of a `b64BlockElem`-related string is a base64 alphabet character. -/
+theorem Rel_b64BlockElem_canonical {x : List UInt8} {m : Nat} {t : Bytes m} :
+    Rel b64BlockElem x t → ∀ i : Fin m, b64Char (t i) = true := by
+  intro ht
+  unfold b64BlockElem at ht
+  rw [Rel_iso] at ht
+  rcases ht with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_forall b64Char 4 a t hc
+
+/-! ## The terminal-tail element
+
+The terminal tail is a single *padded* block (2 or 3 chars + `=`), or the empty
+string.  It is decoded *after* the full-block run, so "data after `=`" has no
+shape: a full block (3 bytes, no `=`) is rejected by `b64TailIso` (only 1–2-byte
+outputs), and the recursive full-block repetition never produces a pad. -/
+
+/-- `b64TailApply cs` — decode 4 chars to 1 or 2 bytes only (padded blocks). -/
+def b64TailApply (cs : List UInt8) : Option (List UInt8) :=
+  match b64BlockApply cs with
+  | some [b0] => some [b0]
+  | some [b0, b1] => some [b0, b1]
+  | _ => none
+
+/-- `b64TailUnapply bs` — encode 1 or 2 bytes as a padded 4-char block. -/
+def b64TailUnapply (bs : List UInt8) : Option (List UInt8) :=
+  match bs with
+  | [b0] => b64BlockUnapply [b0]
+  | [b0, b1] => b64BlockUnapply [b0, b1]
+  | _ => none
+
+/-- `b64TailApply` and `b64TailUnapply` are mutual inverses. -/
+theorem b64TailIso_law (cs bs : List UInt8) :
+    b64TailApply cs = some bs ↔ b64TailUnapply bs = some cs := by
+  constructor
+  · intro h
+    cases hc : b64BlockApply cs with
+    | none => simp [b64TailApply, hc] at h
+    | some b =>
+        cases b with
+        | nil => simp [b64TailApply, hc] at h
+        | cons b0 t =>
+          cases t with
+          | nil =>
+              simp [b64TailApply, hc] at h
+              subst bs
+              simp [b64TailUnapply]
+              exact (b64BlockIso_law cs [b0]).1 (by simp [hc])
+          | cons b1 t2 =>
+            cases t2 with
+            | nil =>
+                simp [b64TailApply, hc] at h
+                subst bs
+                simp [b64TailUnapply]
+                exact (b64BlockIso_law cs [b0, b1]).1 (by simp [hc])
+            | cons _ _ => simp [b64TailApply, hc] at h
+  · intro h
+    cases bs with
+    | nil => simp [b64TailUnapply] at h
+    | cons b0 t =>
+      cases t with
+      | nil =>
+          simp [b64TailUnapply] at h
+          have hb : b64BlockUnapply [b0] = some cs := by simpa using h
+          have ha : b64BlockApply cs = some [b0] := (b64BlockIso_law cs [b0]).2 hb
+          simp [b64TailApply, ha]
+      | cons b1 t2 =>
+        cases t2 with
+        | nil =>
+            simp [b64TailUnapply] at h
+            have hb : b64BlockUnapply [b0, b1] = some cs := by simpa using h
+            have ha : b64BlockApply cs = some [b0, b1] := (b64BlockIso_law cs [b0, b1]).2 hb
+            simp [b64TailApply, ha]
+        | cons _ _ => simp [b64TailUnapply] at h
+
+/-- The terminal-tail block isomorphism (1–2 bytes ↔ padded 4-char block). -/
+def b64TailIso : Iso (List UInt8) (List UInt8) :=
+  { apply := b64TailApply, unapply := b64TailUnapply, law := b64TailIso_law }
+
+/-- The terminal-tail element (padded block → 1/2 bytes). -/
+def b64TailElem : Codec (List UInt8) :=
+  iso b64TailIso (count 4 (Codec.satisfy b64OrPad))
+
+/-- `b64TailElem` consumes 4 bytes per (padded) block; the empty input decodes to
+`[]` via `decodeFull_zero`, so the whole-input tail decoder needs no `pure` branch. -/
+theorem b64TailConsumesByte : ConsumesByte b64TailElem := by
+  rw [← productive_iff_consumesByte, b64TailElem]
+  exact Productive_iso b64TailIso (count 4 (Codec.satisfy b64OrPad))
+    (Productive_count_satisfy_succ b64OrPad 3)
+
+/-- `b64TailElem` is functional. -/
+theorem b64TailElem_functional : Functional b64TailElem := by
+  unfold b64TailElem
+  exact Functional_iso b64TailIso (count 4 (Codec.satisfy b64OrPad))
+    (Functional_count_satisfy b64OrPad 4)
+
+/-! ## Unambiguity (the gate to the inherited roundtrip)
+
+Each element must be `Unambiguous` at both the element level and the full
+`decodeRepeat` level, mirroring `Base16`'s `hexElem_unambiguous`/
+`hexDecodeFull_unambiguous` chain. -/
+
+/-- `b64BlockElem` is unambiguous. -/
+theorem b64BlockElem_unambiguous : Unambiguous b64BlockElem := by
+  unfold b64BlockElem
+  exact Unambiguous_iso b64BlockIso (count 4 (Codec.satisfy b64Char))
+    (count_satisfy_unambiguous b64Char 4)
+
+/-- `Rel b64BlockElem b bl` pins the byte length: `n = 4`. -/
+theorem Rel_b64BlockElem_len (bl : List UInt8) {n : Nat} (s : Bytes n) :
+    Rel b64BlockElem bl s → n = 4 := by
+  intro h
+  unfold b64BlockElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_len b64Char 4 a s hc
+
+/-- The full-block relation is unambiguous (element-level lifts to `relRepeat`). -/
+theorem relB64Block_unambiguous : relUnambiguous (relRepeat (Rel b64BlockElem)) := by
+  intro a b n s ha hb
+  induction a generalizing b n s with
+  | nil =>
+      rw [relRepeat_nil] at ha
+      subst n
+      cases b with
+      | nil => rfl
+      | cons y ys =>
+          rw [relRepeat_cons] at hb
+          rcases hb with ⟨m, hm, s₁, s₂, _, hy, _⟩
+          have hlen : m = 4 := Rel_b64BlockElem_len y s₁ hy
+          have hm0 : m = 0 := by omega
+          omega
+  | cons x xs ih =>
+      cases b with
+      | nil =>
+          rw [relRepeat_nil] at hb
+          rw [relRepeat_cons] at ha
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, _, hx, _⟩
+          have hlen : mx = 4 := Rel_b64BlockElem_len x s₁x hx
+          subst n
+          have hm0 : mx = 0 := by omega
+          omega
+      | cons y ys =>
+          rw [relRepeat_cons] at ha hb
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
+          rcases hb with ⟨my, hmy, s₁y, s₂y, hsy, hy, hys⟩
+          have hlx : mx = 4 := Rel_b64BlockElem_len x s₁x hx
+          have hly : my = 4 := Rel_b64BlockElem_len y s₁y hy
+          subst mx
+          subst my
+          have hpre : s₁x = s₁y := by
+            apply Bytes.ext
+            intro i
+            have hin : i.val < n := Nat.lt_of_lt_of_le i.isLt hmx
+            have hx' : s ⟨i.val, hin⟩ = s₁x i := by
+              rw [hsx]
+              exact splice_prefix_read hmx s₁x s₂x ⟨i.val, hin⟩ i.isLt
+            have hy' : s ⟨i.val, hin⟩ = s₁y i := by
+              rw [hsy]
+              exact splice_prefix_read hmy s₁y s₂y ⟨i.val, hin⟩ i.isLt
+            exact hx'.symm.trans hy'
+          have htaily : s₂x = s₂y := by
+            rw [← bdrop_splice hmx s₁x s₂x, ← bdrop_splice hmy s₁y s₂y]
+            congr 1
+            rw [← hsx]
+            rw [hsy]
+          have hhead : x = y := by
+            exact b64BlockElem_unambiguous s₁x hx (by rw [hpre]; exact hy)
+          have htail : xs = ys := by
+            exact ih s₂x hxs (by simpa [htaily] using hys)
+          rw [hhead, htail]
+
+/-- Full-consumption decode is unambiguous for `b64BlockElem`. -/
+theorem b64BlockDecodeFull_unambiguous {x y : List (List UInt8)} {n : Nat} (s : Bytes n) :
+    (x, Suffix.empty n) ∈ decodeRepeat b64BlockElem b64BlockConsumesByte n s →
+    (y, Suffix.empty n) ∈ decodeRepeat b64BlockElem b64BlockConsumesByte n s → x = y := by
+  intro hx hy
+  rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte x n s (Suffix.empty n)).1 hx with ⟨s₀x, hsx, hrx⟩
+  rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte y n s (Suffix.empty n)).1 hy with ⟨s₀y, hsy, hry⟩
+  have hs₀ : s₀x = s₀y := by
+    have hpre : (Suffix.empty n).prepend s₀x = (Suffix.empty n).prepend s₀y := by
+      exact hsx.symm.trans hsy
+    exact prepend_prefix_eq (Suffix.empty n) s₀x s₀y hpre
+  exact relB64Block_unambiguous s₀x hrx (by rw [hs₀]; exact hry)
+
+/-- `b64TailElem` is unambiguous. -/
+theorem b64TailElem_unambiguous : Unambiguous b64TailElem := by
+  unfold b64TailElem
+  exact Unambiguous_iso b64TailIso (count 4 (Codec.satisfy b64OrPad))
+    (count_satisfy_unambiguous b64OrPad 4)
+
+/-- `Rel b64TailElem t s` pins the byte length: `n = 4`. -/
+theorem Rel_b64TailElem_len (t : List UInt8) {n : Nat} (s : Bytes n) :
+    Rel b64TailElem t s → n = 4 := by
+  intro h
+  unfold b64TailElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, _, hc⟩
+  exact Rel_count_satisfy_len b64OrPad 4 a s hc
+
+/-- The tail relation is unambiguous. -/
+theorem relB64Tail_unambiguous : relUnambiguous (relRepeat (Rel b64TailElem)) := by
+  intro a b n s ha hb
+  induction a generalizing b n s with
+  | nil =>
+      rw [relRepeat_nil] at ha
+      subst n
+      cases b with
+      | nil => rfl
+      | cons y ys =>
+          rw [relRepeat_cons] at hb
+          rcases hb with ⟨m, hm, s₁, s₂, _, hy, _⟩
+          have hlen : m = 4 := Rel_b64TailElem_len y s₁ hy
+          have hm0 : m = 0 := by omega
+          omega
+  | cons x xs ih =>
+      cases b with
+      | nil =>
+          rw [relRepeat_nil] at hb
+          rw [relRepeat_cons] at ha
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, _, hx, _⟩
+          have hlen : mx = 4 := Rel_b64TailElem_len x s₁x hx
+          subst n
+          have hm0 : mx = 0 := by omega
+          omega
+      | cons y ys =>
+          rw [relRepeat_cons] at ha hb
+          rcases ha with ⟨mx, hmx, s₁x, s₂x, hsx, hx, hxs⟩
+          rcases hb with ⟨my, hmy, s₁y, s₂y, hsy, hy, hys⟩
+          have hlx : mx = 4 := Rel_b64TailElem_len x s₁x hx
+          have hly : my = 4 := Rel_b64TailElem_len y s₁y hy
+          subst mx
+          subst my
+          have hpre : s₁x = s₁y := by
+            apply Bytes.ext
+            intro i
+            have hin : i.val < n := Nat.lt_of_lt_of_le i.isLt hmx
+            have hx' : s ⟨i.val, hin⟩ = s₁x i := by
+              rw [hsx]
+              exact splice_prefix_read hmx s₁x s₂x ⟨i.val, hin⟩ i.isLt
+            have hy' : s ⟨i.val, hin⟩ = s₁y i := by
+              rw [hsy]
+              exact splice_prefix_read hmy s₁y s₂y ⟨i.val, hin⟩ i.isLt
+            exact hx'.symm.trans hy'
+          have htaily : s₂x = s₂y := by
+            rw [← bdrop_splice hmx s₁x s₂x, ← bdrop_splice hmy s₁y s₂y]
+            congr 1
+            rw [← hsx]
+            rw [hsy]
+          have hhead : x = y := by
+            exact b64TailElem_unambiguous s₁x hx (by rw [hpre]; exact hy)
+          have htail : xs = ys := by
+            exact ih s₂x hxs (by simpa [htaily] using hys)
+          rw [hhead, htail]
+
+/-- Full-consumption decode is unambiguous for `b64TailElem`. -/
+theorem b64TailDecodeFull_unambiguous {x y : List (List UInt8)} {n : Nat} (s : Bytes n) :
+    (x, Suffix.empty n) ∈ decodeRepeat b64TailElem b64TailConsumesByte n s →
+    (y, Suffix.empty n) ∈ decodeRepeat b64TailElem b64TailConsumesByte n s → x = y := by
+  intro hx hy
+  rcases (decodeRepeat_spec b64TailElem b64TailConsumesByte x n s (Suffix.empty n)).1 hx with ⟨s₀x, hsx, hrx⟩
+  rcases (decodeRepeat_spec b64TailElem b64TailConsumesByte y n s (Suffix.empty n)).1 hy with ⟨s₀y, hsy, hry⟩
+  have hs₀ : s₀x = s₀y := by
+    have hpre : (Suffix.empty n).prepend s₀x = (Suffix.empty n).prepend s₀y := by
+      exact hsx.symm.trans hsy
+    exact prepend_prefix_eq (Suffix.empty n) s₀x s₀y hpre
+  exact relB64Tail_unambiguous s₀x hrx (by rw [hs₀]; exact hry)
+
+/-! ## The canonical value type and its flatten
 
 `B64` is the canonical base64 value: full 3-byte blocks, then at most one
 terminal tail of 1 or 2 bytes.  Its tail constructors are terminal (no
@@ -773,5 +1067,149 @@ theorem roundtripBytes (bs : List UInt8) : decodeBytes (encodeBytes bs) = some b
   unfold decodeBytes encodeBytes
   rw [strict_roundtrip (b64OfBytes bs)]
   simp [b64BytesOf_ofBytes bs]
+
+/-! ## The `Run` for base64 (full-block repetition)
+
+Base64 is surfaced as a first-class run value: the full 3-byte block element is
+the repetition step (`Run.elem`), and the terminal tail is a separate bounded
+`Codec`.  The whole-input decoder/encoder are `Codec.decodeFull`/`decodeRepeat`/
+`encodeRepeat` over these elements (never a bespoke `parseB64`). -/
+
+/-- The base64 full-block run: value `List (List UInt8)`, one 3-byte block per step. -/
+def b64Run : Run (List UInt8) :=
+  { elem := b64BlockElem, step := b64BlockConsumesByte }
+
+/-- The terminal-tail run's element is `b64TailElem` (bounded, one padded block). -/
+def b64TailRun : Run (List UInt8) :=
+  { elem := b64TailElem, step := b64TailConsumesByte }
+
+/-! ## The uniform whole-input decoder/encoder
+
+The whole base64 decoder is the *backtracking composition* of the full-block
+run (`decodeRepeat b64BlockElem`) with the terminal tail (`decodeFull b64TailElem`)
+— never a bespoke `parseB64`.  The encoder splits the byte list into full blocks +
+a terminal tail and encodes each via the element encoders. -/
+
+/-- The whole-input base64 decoder over a length-indexed byte string. -/
+def decodeFullB64 {n : Nat} (s : Bytes n) : Option (List UInt8) :=
+  List.head? ((decodeRepeat b64BlockElem b64BlockConsumesByte n s).filterMap fun ⟨blocks, t⟩ =>
+    match decodeFull b64TailElem b64TailConsumesByte t.remaining t.bytes with
+    | some tail => some (blocks.flatten ++ tail.flatten)
+    | none => none)
+
+/-- Split a byte list into full 3-byte blocks plus a terminal 0/1/2-byte tail. -/
+def b64Split : List UInt8 → (List (List UInt8) × List UInt8)
+  | [] => ([], [])
+  | [b] => ([], [b])
+  | [a, b] => ([], [a, b])
+  | a :: b :: c :: rest =>
+      let (blocks, tail) := b64Split rest
+      ([a, b, c] :: blocks, tail)
+
+/-- `b64Split` relabels the `B64` structure as a full-block list + terminal tail. -/
+def b64Split_ofBytes (v : B64) : (List (List UInt8) × List UInt8) :=
+  match v with
+  | B64.nil => ([], [])
+  | B64.tail1 b => ([], [b])
+  | B64.tail2 a b => ([], [a, b])
+  | B64.full a b c rest =>
+      let (blocks, tail) := b64Split_ofBytes rest
+      ([a, b, c] :: blocks, tail)
+
+/-- Encode a terminal tail (0/1/2 bytes); empty tail → empty bytes. -/
+def encodeB64Tail (tail : List UInt8) : Option (Sigma fun m => Bytes m) :=
+  match tail with
+  | [] => some ⟨0, Codec.emptyBytes⟩
+  | [b] => Codec.encode b64TailElem [b]
+  | [a, b] => Codec.encode b64TailElem [a, b]
+  | _ => none
+
+/-- `b64Split_ofBytes` of a value gives blocks whose flatten, plus the tail, is
+exactly the byte list. -/
+private theorem b64Split_ofBytes_shape (v : B64) :
+    (b64Split_ofBytes v).1.flatten ++ (b64Split_ofBytes v).2 = b64BytesOf v := by
+  induction v with
+  | nil => rfl
+  | tail1 b => rfl
+  | tail2 a b => rfl
+  | full a b c rest ih =>
+      simp [b64Split_ofBytes, b64BytesOf]
+      rw [ih]
+
+/-- Encode the full blocks + terminal tail: `encodeRepeat` over the block element
+and the bounded tail element, concatenated into one byte string. -/
+def encodeB64' (blocks : List (List UInt8)) (tail : List UInt8) : Option (Sigma fun n => Bytes n) :=
+  match encodeRepeat b64BlockElem blocks, encodeB64Tail tail with
+  | some b, some t => some ⟨b.1 + t.1, Codec.concat b.2 t.2⟩
+  | _, _ => none
+
+/-- The whole-input base64 encoder (over the byte list). -/
+def encodeB64 (bs : List UInt8) : Option (Sigma fun n => Bytes n) :=
+  let p := b64Split_ofBytes (b64OfBytes bs)
+  encodeB64' p.1 p.2
+
+/-- `concat s emptyBytes` is `s` up to the `n + 0 = n` length cast. -/
+private theorem concat_empty_eq {n : Nat} (s : Bytes n) :
+    Codec.concat s (Codec.emptyBytes : Bytes 0) = cast (congrArg Bytes (Nat.add_zero n)) s := by
+  apply Bytes.ext
+  intro i
+  unfold Codec.concat
+  have hi : i.val < n := i.isLt
+  simp [hi]
+
+/-- Decoding an encoded tail with `decodeFull b64TailElem` recovers exactly one
+tail block (or none, for the empty tail). -/
+theorem decodeFull_b64Tail_of_encode (tail : List UInt8) {q : Nat} {st : Bytes q}
+    (ht : encodeB64Tail tail = some ⟨q, st⟩) :
+    decodeFull b64TailElem b64TailConsumesByte q st = (match tail with | [] => some [] | _ => some [tail]) := by
+  cases tail with
+  | nil =>
+      have hs : (⟨0, (Codec.emptyBytes : Bytes 0)⟩ : Sigma fun k => Bytes k) = ⟨q, st⟩ := by
+        simpa [encodeB64Tail] using ht
+      cases hs
+      exact decodeFull_zero b64TailElem b64TailConsumesByte Codec.emptyBytes
+  | cons b t =>
+    cases t with
+    | nil =>
+        have he : Codec.encode b64TailElem [b] = some ⟨q, st⟩ := by
+          simpa [encodeB64Tail] using ht
+        have hrep : encodeRepeat b64TailElem [[b]] = some ⟨q + 0, Codec.concat st (Codec.emptyBytes : Bytes 0)⟩ := by
+          simp [encodeRepeat, he]
+        have hrel2 : relRepeat (Rel b64TailElem) [[b]] (q + 0) (Codec.concat st (Codec.emptyBytes : Bytes 0)) :=
+          encodeRepeat_rel b64TailElem [[b]] hrep
+        have hc : Codec.concat st (Codec.emptyBytes : Bytes 0) = cast (congrArg Bytes (Nat.add_zero q)) st :=
+          concat_empty_eq st
+        have hrel : relRepeat (Rel b64TailElem) [[b]] q st := by
+          rw [hc] at hrel2
+          exact (relRepeat_cast (Rel b64TailElem) [[b]] (Nat.add_zero q) st).1 hrel2
+        have hmem : ([[b]], Suffix.empty q) ∈ decodeRepeat b64TailElem b64TailConsumesByte q st := by
+          refine (decodeRepeat_spec b64TailElem b64TailConsumesByte [[b]] q st (Suffix.empty q)).2 ⟨
+            cast (congrArg Bytes (Nat.sub_zero q).symm) st, ?_, ?_⟩
+          · exact (prepend_empty_eq st).symm
+          · exact (relRepeat_cast (Rel b64TailElem) [[b]] (Nat.sub_zero q).symm st).2 hrel
+        exact (decodeFull_spec b64TailElem b64TailConsumesByte
+          (fun {x y} {m} (tx : Bytes m) => b64TailDecodeFull_unambiguous (s := tx)) st [[b]]).2 hmem
+    | cons a t2 =>
+      cases t2 with
+      | nil =>
+          have he : Codec.encode b64TailElem [b, a] = some ⟨q, st⟩ := by
+            simpa [encodeB64Tail] using ht
+          have hrep : encodeRepeat b64TailElem [[b, a]] = some ⟨q + 0, Codec.concat st (Codec.emptyBytes : Bytes 0)⟩ := by
+            simp [encodeRepeat, he]
+          have hrel2 : relRepeat (Rel b64TailElem) [[b, a]] (q + 0) (Codec.concat st (Codec.emptyBytes : Bytes 0)) :=
+            encodeRepeat_rel b64TailElem [[b, a]] hrep
+          have hc : Codec.concat st (Codec.emptyBytes : Bytes 0) = cast (congrArg Bytes (Nat.add_zero q)) st :=
+            concat_empty_eq st
+          have hrel : relRepeat (Rel b64TailElem) [[b, a]] q st := by
+            rw [hc] at hrel2
+            exact (relRepeat_cast (Rel b64TailElem) [[b, a]] (Nat.add_zero q) st).1 hrel2
+          have hmem : ([[b, a]], Suffix.empty q) ∈ decodeRepeat b64TailElem b64TailConsumesByte q st := by
+            refine (decodeRepeat_spec b64TailElem b64TailConsumesByte [[b, a]] q st (Suffix.empty q)).2 ⟨
+              cast (congrArg Bytes (Nat.sub_zero q).symm) st, ?_, ?_⟩
+            · exact (prepend_empty_eq st).symm
+            · exact (relRepeat_cast (Rel b64TailElem) [[b, a]] (Nat.sub_zero q).symm st).2 hrel
+          exact (decodeFull_spec b64TailElem b64TailConsumesByte
+            (fun {x y} {m} (tx : Bytes m) => b64TailDecodeFull_unambiguous (s := tx)) st [[b, a]]).2 hmem
+      | cons _ _ => simp [encodeB64Tail] at ht
 
 end BaseN.Base64
