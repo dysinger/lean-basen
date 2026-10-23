@@ -430,7 +430,7 @@ prefix-match over the larger `concat sb st` — the same `xs` decode now leaves 
 suffix `st` (`Suffix.drop m₁ (concat sb st)`).  `[propext, Quot.sound]`-only. -/
 
 /-- Dropping the first `m₁` bytes of a `concat` recovers the second component. -/
-private theorem bdrop_concat {m₁ m₂ : Nat} (sb : Bytes m₁) (st : Bytes m₂) :
+theorem bdrop_concat {m₁ m₂ : Nat} (sb : Bytes m₁) (st : Bytes m₂) :
     bdrop m₁ (concat sb st) = cast (congrArg Bytes (Nat.add_sub_cancel_left m₁ m₂).symm) st := by
   apply Bytes.ext
   intro i

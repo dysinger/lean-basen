@@ -1212,4 +1212,95 @@ theorem decodeFull_b64Tail_of_encode (tail : List UInt8) {q : Nat} {st : Bytes q
             (fun {x y} {m} (tx : Bytes m) => b64TailDecodeFull_unambiguous (s := tx)) st [[b, a]]).2 hmem
       | cons _ _ => simp [encodeB64Tail] at ht
 
+/-! ## Whole-input roundtrip transport lemmas (base64)
+
+The whole-input roundtrip composes the full-block run with the terminal tail; the
+lemmas here are the `concat`/`Suffix.drop`/cast transport facts it needs
+(`[propext, Quot.sound]`-only). -/
+
+/-- `decodeFull` is insensitive to a length cast of its byte argument. -/
+theorem decodeFull_cast {α : Type} (p : Codec α) (h : ConsumesByte p) :
+    ∀ {n m : Nat} (e : n = m) (s : Bytes n),
+      decodeFull p h m (cast (congrArg Bytes e) s) = decodeFull p h n s := by
+  intro n m e s
+  subst e
+  rfl
+
+/-- Splitting a byte list into full blocks + a terminal tail reassembles it. -/
+theorem b64Split_shape (bs : List UInt8) :
+    (b64Split bs).1.flatten ++ (b64Split bs).2 = bs := by
+  exact go bs
+where
+  go : (l : List UInt8) → (b64Split l).1.flatten ++ (b64Split l).2 = l
+  | [] => rfl
+  | [_] => rfl
+  | [_, _] => rfl
+  | b0 :: b1 :: b2 :: rest => by
+      simp [b64Split, go rest]
+
+/-- `b64Split_ofBytes (b64OfBytes bs)` re-labels as the direct `b64Split bs`. -/
+theorem b64Split_ofBytes_ofBytes (bs : List UInt8) :
+    b64Split_ofBytes (b64OfBytes bs) = b64Split bs := by
+  exact go bs
+where
+  go : (l : List UInt8) → b64Split_ofBytes (b64OfBytes l) = b64Split l
+  | [] => rfl
+  | [_] => rfl
+  | [_, _] => rfl
+  | b0 :: b1 :: b2 :: rest => by
+      simp [b64OfBytes, b64Split_ofBytes, b64Split, go rest]
+
+/-- Decoding an encoded *empty* tail over a dropped suffix is `some []`. -/
+theorem decodeFull_b64Tail_suffix_nil {q m : Nat} {st : Bytes q} (sb : Bytes m)
+    (ht : encodeB64Tail [] = some ⟨q, st⟩) :
+    decodeFull b64TailElem b64TailConsumesByte (Suffix.drop m (concat sb st)).remaining (Suffix.drop m (concat sb st)).bytes
+      = some [] := by
+  unfold Suffix.drop
+  simp only []
+  rw [bdrop_concat sb st]
+  change decodeFull b64TailElem b64TailConsumesByte (m + q - m)
+      (cast (congrArg Bytes (Nat.add_sub_cancel_left m q).symm) st) = some []
+  rw [decodeFull_cast b64TailElem b64TailConsumesByte (Nat.add_sub_cancel_left m q).symm st]
+  simpa using decodeFull_b64Tail_of_encode [] ht
+
+/-- Decoding an encoded *non-empty* tail over a dropped suffix is `some [tail]`. -/
+theorem decodeFull_b64Tail_suffix_cons (tail : List UInt8) {q m : Nat} {st : Bytes q} (sb : Bytes m)
+    (ht : encodeB64Tail tail = some ⟨q, st⟩) (hne : tail ≠ []) :
+    decodeFull b64TailElem b64TailConsumesByte (Suffix.drop m (concat sb st)).remaining (Suffix.drop m (concat sb st)).bytes
+      = some [tail] := by
+  unfold Suffix.drop
+  simp only []
+  rw [bdrop_concat sb st]
+  change decodeFull b64TailElem b64TailConsumesByte (m + q - m)
+      (cast (congrArg Bytes (Nat.add_sub_cancel_left m q).symm) st) = some [tail]
+  rw [decodeFull_cast b64TailElem b64TailConsumesByte (Nat.add_sub_cancel_left m q).symm st]
+  have h := decodeFull_b64Tail_of_encode tail ht
+  cases tail with
+  | nil => exact False.elim (hne rfl)
+  | cons x t =>
+      cases t with
+      | nil => simpa using h
+      | cons y t2 =>
+          cases t2 with
+          | nil => simpa using h
+          | cons _ _ => simp [encodeB64Tail] at ht
+
+/-- A pad byte is not a base64 alphabet character. -/
+theorem b64Char_pad_false : b64Char (UInt8.ofNat 61) = false := by
+  unfold b64Char b64Valid b64ToVal
+  decide
+
+/-- A block element never relates to a byte string containing a pad byte. -/
+theorem not_rel_b64BlockElem_of_pad (x : List UInt8) {m : Nat} (s : Bytes m) :
+    (∃ i : Fin m, (s i).toNat = 61) → ¬ Rel b64BlockElem x s := by
+  intro hpad hrel
+  rcases hpad with ⟨i, hi⟩
+  have hcanon : b64Char (s i) = true := Rel_b64BlockElem_canonical hrel i
+  unfold b64Char at hcanon
+  rw [hi] at hcanon
+  -- hcanon : b64Valid 61 = true; but b64Valid 61 = false
+  have hfalse : b64Valid 61 = false := by decide
+  rw [hfalse] at hcanon
+  exact Bool.false_ne_true hcanon
+
 end BaseN.Base64
