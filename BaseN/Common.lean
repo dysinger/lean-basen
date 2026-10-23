@@ -419,4 +419,70 @@ def rel (r : Run α) : List α → (n : Nat) → Bytes n → Prop :=
 
 end Run
 
+/-! ## The prefix-transport lemma (full-block run + terminal tail)
+
+The whole-input roundtrip of the padded bases (32/64) composes the *full-block
+run* (an unbounded `decodeRepeat` over the non-padded block element) with the
+*terminal tail* (a bounded `decodeFull` over the padded tail element).  The one
+new transport fact that composition needs: a full-consumption decode of a prefix
+`sb : Bytes m₁` (`(xs, Suffix.empty m₁) ∈ decodeRepeat p h m₁ sb`) lifts to a
+prefix-match over the larger `concat sb st` — the same `xs` decode now leaves the
+suffix `st` (`Suffix.drop m₁ (concat sb st)`).  `[propext, Quot.sound]`-only. -/
+
+/-- Dropping the first `m₁` bytes of a `concat` recovers the second component. -/
+private theorem bdrop_concat {m₁ m₂ : Nat} (sb : Bytes m₁) (st : Bytes m₂) :
+    bdrop m₁ (concat sb st) = cast (congrArg Bytes (Nat.add_sub_cancel_left m₁ m₂).symm) st := by
+  apply Bytes.ext
+  intro i
+  rw [cast_bytes_val' (e := (Nat.add_sub_cancel_left m₁ m₂).symm)]
+  dsimp [bdrop, concat]
+  have hnot : ¬ i.val + m₁ < m₁ := by omega
+  simp [hnot]
+
+/-- `concat sb st` re-assembles from its own `Suffix.drop m₁` and the original prefix. -/
+theorem concat_eq_drop_prepend {m₁ m₂ : Nat} (sb : Bytes m₁) (st : Bytes m₂) :
+    concat sb st =
+      (Suffix.drop m₁ (concat sb st)).prepend
+        (cast (congrArg Bytes (show m₁ = (m₁ + m₂) - (Suffix.drop m₁ (concat sb st)).remaining by
+          dsimp [Suffix.drop]
+          exact (Nat.sub_sub_self (Nat.le.intro rfl : m₁ ≤ m₁ + m₂)).symm)) sb) := by
+  apply Bytes.ext
+  intro i
+  rw [prepend_apply]
+  dsimp [Suffix.drop]
+  rw [bdrop_concat sb st]
+  dsimp [concat]
+  rw [cast_fin_symm]
+  · by_cases hi : i.val < m₁ <;> simp [hi]
+  · omega
+
+/-- The prefix-transport lemma: a full-consumption `decodeRepeat` of a prefix lifts
+to a prefix-match over the concatenation (the freshly consumed suffix is `st`). -/
+theorem decodeRepeat_prefix_concat {α : Type} (p : Codec α) (h : ConsumesByte p) :
+    ∀ (xs : List α) {m₁ m₂ : Nat} (sb : Bytes m₁) (st : Bytes m₂),
+      (xs, Suffix.empty m₁) ∈ decodeRepeat p h m₁ sb →
+      (xs, Suffix.drop m₁ (concat sb st)) ∈ decodeRepeat p h (m₁ + m₂) (concat sb st) := by
+  intro xs m₁ m₂ sb st hmem
+  rcases (decodeRepeat_spec p h xs m₁ sb (Suffix.empty m₁)).1 hmem with ⟨s₀, hsb, hrel⟩
+  let srel : Bytes ((m₁ + m₂) - (Suffix.drop m₁ (concat sb st)).remaining) :=
+    cast (congrArg Bytes (show m₁ = (m₁ + m₂) - (Suffix.drop m₁ (concat sb st)).remaining by
+      dsimp [Suffix.drop]
+      exact (Nat.sub_sub_self (Nat.le.intro rfl : m₁ ≤ m₁ + m₂)).symm)) sb
+  refine (decodeRepeat_spec p h xs (m₁ + m₂) (concat sb st) (Suffix.drop m₁ (concat sb st))).2 ?_
+  refine ⟨srel, ?_, ?_⟩
+  · simpa [srel] using (concat_eq_drop_prepend sb st)
+  · have hidx : (m₁ + m₂) - (Suffix.drop m₁ (concat sb st)).remaining = m₁ := by
+      dsimp [Suffix.drop]
+      exact Nat.sub_sub_self (Nat.le.intro rfl : m₁ ≤ m₁ + m₂)
+    have hsb' : sb = s₀ := by
+      rw [hsb]
+      apply Bytes.ext
+      intro i
+      simp [Suffix.prepend, Suffix.empty, splice, concat]
+    have hsrel : srel = cast (congrArg Bytes hidx.symm) s₀ := by
+      dsimp [srel]
+      rw [hsb']
+    rw [hsrel]
+    exact (relRepeat_cast (Rel p) xs hidx.symm s₀).2 hrel
+
 end BaseN.Common
