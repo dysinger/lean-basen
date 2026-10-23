@@ -241,6 +241,9 @@ theorem hexConsumesByte : ConsumesByte hexElem := by
   rw [show 2 = 1 + 1 by rfl]
   exact Productive_count_satisfy_succ hexDigit 1
 
+/-- The base16 run value: the element + productivity witness. -/
+def hexRun : Run UInt8 := { elem := hexElem, step := hexConsumesByte }
+
 /-- The base16 decoder. -/
 def decodeHex {n : Nat} (s : Bytes n) : List (List UInt8 × Suffix n) :=
   decodeRepeat hexElem hexConsumesByte n s
