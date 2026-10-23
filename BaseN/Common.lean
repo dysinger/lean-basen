@@ -211,10 +211,96 @@ theorem Rel_count_satisfy_forall (p : UInt8 → Bool) (k : Nat) (xs : List UInt8
         rw [hbv]
         exact ih a.2 s₂ hr₂ ⟨i.val - 1, by omega⟩
 
-/-- A byte predicate `p` propagates through `relRepeat` when every *step* string
-satisfies it pointwise (`hstep`). This is the lemma that lifts an element-level
-alphabet-only fact (`Rel <elem> x s → ∀ i, p (s i)`) to the whole encoded run, and it
-is what the canonical-encoding theorems (`encode{X}` alphabet-only) close with. -/
+/-- `Rel (count k (satisfy p)) xs s` forces `xs.length = k` (the mirror of
+`Rel_count_satisfy_len`, which pins the byte length `n = k`). Together they give
+`n = xs.length`, the fact the content-extraction lemma needs for `List` indexing. -/
+theorem Rel_count_satisfy_length (p : UInt8 → Bool) (k : Nat) (xs : List UInt8)
+    {n : Nat} (s : Bytes n) :
+    Rel (count k (Codec.satisfy p)) xs s → xs.length = k := by
+  intro h
+  induction k generalizing xs n s with
+  | zero =>
+      rw [Rel_count_zero] at h
+      rcases h with ⟨hxs, _⟩
+      rw [hxs]
+      rfl
+  | succ k ih =>
+      rw [count] at h
+      rw [Rel_iso] at h
+      rcases h with ⟨a, ha, hseq⟩
+      have hxssplit : a.1 :: a.2 = xs := by
+        unfold Iso.cons at ha
+        cases ha
+        rfl
+      rw [Rel_seq] at hseq
+      rcases hseq with ⟨m, _hm, s₁, s₂, _hs, _hr₁, hr₂⟩
+      rw [← hxssplit]
+      simp
+      exact ih a.2 s₂ hr₂
+
+/-- **Content extraction**: `Rel (count k (satisfy p)) xs s` pins `s` to the byte image
+of `xs` exactly (`List.ofFn s = xs`). The `Rel_count_satisfy_forall` predicate form
+only gives `p (s i) = true`; this sharper form recovers the actual bytes, which is
+what the padded-base block/tail split needs to separate a full-block run from a
+terminal tail at the pad boundary. `[propext, Quot.sound]`-only. -/
+theorem Rel_count_satisfy_ofFn (p : UInt8 → Bool) (k : Nat) (xs : List UInt8)
+    {n : Nat} (s : Bytes n)
+    (h : Rel (count k (Codec.satisfy p)) xs s) :
+    List.ofFn s = xs := by
+  induction k generalizing xs n s with
+  | zero =>
+      rw [Rel_count_zero] at h
+      rcases h with ⟨hxs, hn⟩
+      subst xs
+      subst n
+      simp
+  | succ k ih =>
+      rw [count] at h
+      rw [Rel_iso] at h
+      rcases h with ⟨a, ha, hseq⟩
+      have hxssplit : a.1 :: a.2 = xs := by
+        unfold Iso.cons at ha
+        cases ha
+        rfl
+      rw [Rel_seq] at hseq
+      rcases hseq with ⟨m, hm, s₁, s₂, hs, hr₁, hr₂⟩
+      rw [Rel_satisfy] at hr₁
+      rcases hr₁ with ⟨_hp, hn1, hs1⟩
+      cases hn1
+      have hs1' : s₁ = single a.1 := by simpa using hs1
+      have htail : List.ofFn s₂ = a.2 := ih a.2 s₂ hr₂
+      rw [← hxssplit]
+      rw [hs]
+      change List.ofFn (splice hm s₁ s₂) = a.1 :: a.2
+      rw [← htail]
+      rw [hs1']
+      change List.ofFn (splice hm (single a.1) s₂) = a.1 :: List.ofFn s₂
+      apply List.ext_getElem?
+      intro i
+      simp only [List.getElem?_ofFn]
+      by_cases hi : i < n
+      · simp [hi]
+        by_cases h1 : i < 1
+        · have hb : (splice hm (single a.1) s₂) ⟨i, hi⟩ = a.1 := by
+            rw [splice_prefix_read hm (single a.1) s₂ ⟨i, hi⟩ (by omega)]
+            rfl
+          have iz : i = 0 := by omega
+          subst i
+          simp
+          exact hb
+        · have hb : (splice hm (single a.1) s₂) ⟨i, hi⟩ = s₂ ⟨i - 1, by omega⟩ := by
+            rw [splice_apply]
+            unfold concat
+            rw [cast_fin_symm]
+            · dsimp
+              simp [show ¬ i < 1 by omega]
+            · omega
+          rw [hb]
+          rw [List.getElem?_cons]
+          have hne : i ≠ 0 := by omega
+          simp [hne, show i - 1 < n - 1 by omega]
+      · simp [hi]
+        omega
 theorem relRepeat_forall {α : Type} {R : α → {m : Nat} → Bytes m → Prop}
     (p : UInt8 → Bool)
     (hstep : ∀ x {m : Nat} (s : Bytes m), R x s → ∀ i : Fin m, p (s i) = true) :
