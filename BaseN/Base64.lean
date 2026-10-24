@@ -1303,4 +1303,70 @@ theorem not_rel_b64BlockElem_of_pad (x : List UInt8) {m : Nat} (s : Bytes m) :
   rw [hfalse] at hcanon
   exact Bool.false_ne_true hcanon
 
+/-! ## Whole-input roundtrip (base64)
+
+`decodeFullB64 (encodeB64 bs) = some bs`.  `[propext, Quot.sound]`-only. -/
+
+/-- A `relRepeat (Rel b64BlockElem)` consumes `4 · length` bytes (each block is a
+4-char element). -/
+theorem relB64Block_len {xs : List (List UInt8)} {n : Nat} (s : Bytes n) :
+    relRepeat (Rel b64BlockElem) xs n s → n = 4 * xs.length := by
+  intro h
+  induction xs generalizing n with
+  | nil =>
+      rw [relRepeat_nil] at h
+      subst n
+      rfl
+  | cons x rest ih =>
+      rw [relRepeat_cons] at h
+      rcases h with ⟨m, _hm, s₁, s₂, _hs, hrel₁, hrelRest⟩
+      have h4 : m = 4 := Rel_b64BlockElem_len x s₁ hrel₁
+      subst m
+      have hrest : n - 4 = 4 * rest.length := ih s₂ hrelRest
+      rw [List.length_cons, Nat.mul_add, Nat.mul_one]
+      omega
+
+/-- A `relRepeat (Rel b64TailElem)` consumes `4 · length` bytes. -/
+theorem relB64Tail_len {xs : List (List UInt8)} {n : Nat} (s : Bytes n) :
+    relRepeat (Rel b64TailElem) xs n s → n = 4 * xs.length := by
+  intro h
+  induction xs generalizing n with
+  | nil =>
+      rw [relRepeat_nil] at h
+      subst n
+      rfl
+  | cons x rest ih =>
+      rw [relRepeat_cons] at h
+      rcases h with ⟨m, _hm, s₁, s₂, _hs, hrel₁, hrelRest⟩
+      have h4 : m = 4 := Rel_b64TailElem_len x s₁ hrel₁
+      subst m
+      have hrest : n - 4 = 4 * rest.length := ih s₂ hrelRest
+      rw [List.length_cons, Nat.mul_add, Nat.mul_one]
+      omega
+
+/-- A `Rel b64TailElem` value is a 1- or 2-byte list (a padded block). -/
+theorem Rel_b64TailElem_size (x : List UInt8) {n : Nat} (s : Bytes n) :
+    Rel b64TailElem x s → x.length = 1 ∨ x.length = 2 := by
+  intro h
+  unfold b64TailElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, ha, _⟩
+  have hsz : x.length = 1 ∨ x.length = 2 := by
+    unfold b64TailIso at ha
+    change b64TailApply a = some x at ha
+    unfold b64TailApply at ha
+    cases hb : b64BlockApply a with
+    | none => simp [hb] at ha
+    | some bl =>
+        cases bl with
+        | nil => simp [hb] at ha
+        | cons b0 t =>
+            cases t with
+            | nil => simp [hb] at ha; cases ha; left; rfl
+            | cons b1 t2 =>
+                cases t2 with
+                | nil => simp [hb] at ha; cases ha; right; rfl
+                | cons _ _ => simp [hb] at ha
+  exact hsz
+
 end BaseN.Base64
