@@ -1584,4 +1584,29 @@ theorem prepend_concat_prefix_cast {m₁ m₂ : Nat} (a : Bytes m₁) (b : Bytes
     unfold concat
     simp [show i.val < m₁ by omega]
   rw [hs₀, hpre]
+
+/-- From `t'.prepend s₀ = concat a b` and `t'.remaining = m₂` (so the consumed
+prefix has length `m₁`), the remaining suffix `t'.bytes` is exactly `b` (up to the
+length cast).  Dropping the consumed prefix `s₀` from `t'.prepend s₀` recovers
+`t'.bytes` (via `bdrop_prepend`), and from `concat a b` recovers `b` (via
+`bdrop_concat`), so the two agree.  This is the suffix half of the block/tail
+boundary-pin. -/
+theorem prepend_concat_suffix {m₁ m₂ : Nat} (a : Bytes m₁) (b : Bytes m₂)
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (hrem : t'.remaining = m₂)
+    (h : t'.prepend s₀ = concat a b) :
+    cast (congrArg Bytes (Nat.sub_sub_self t'.hle).symm) t'.bytes =
+      cast (congrArg Bytes (by omega : m₂ = (m₁ + m₂) - ((m₁ + m₂) - t'.remaining))) b := by
+  have hdrop := congrArg (bdrop (m₁ + m₂ - t'.remaining)) h
+  rw [bdrop_prepend t' s₀] at hdrop
+  have hrhs : bdrop (m₁ + m₂ - t'.remaining) (concat a b) =
+      cast (congrArg Bytes (by omega : m₂ = (m₁ + m₂) - ((m₁ + m₂) - t'.remaining))) b := by
+    apply Bytes.ext
+    intro i
+    rw [cast_bytes_val' (e := (by omega : m₂ = (m₁ + m₂) - ((m₁ + m₂) - t'.remaining)))]
+    dsimp [bdrop, concat]
+    have hk : m₁ + m₂ - t'.remaining = m₁ := by omega
+    have hnot : ¬ i.val + m₁ < m₁ := by omega
+    simp [hk, hnot]
+  rw [hdrop, hrhs]
 end BaseN.Base64
