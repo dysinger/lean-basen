@@ -1609,4 +1609,208 @@ theorem prepend_concat_suffix {m₁ m₂ : Nat} (a : Bytes m₁) (b : Bytes m₂
     have hnot : ¬ i.val + m₁ < m₁ := by omega
     simp [hk, hnot]
   rw [hdrop, hrhs]
+
+/-! ## The block/tail boundary pin
+
+The one genuinely new step of the padded-base roundtrip: pin the split between
+the full-block run and the terminal tail.  Given the committed `concat blkBytes
+tailBytes` (with `blkBytes` alphabet-only and `tailBytes` empty or one padded
+block) and the decoded block prefix `s₀` / remaining suffix `t'.bytes`, the
+block run cannot stop before (`t'.remaining > m₂`) or after (`t'.remaining < m₂`)
+the `m₁`-boundary — the `=` pad byte would have to be read as an alphabet byte
+by `s₀` or by the first decoded tail block, contradicting the pad dichotomy.
+`[propext, Quot.sound]`-only. -/
+
+/-- Reading the consumed prefix of a `prepend`-reassembly: `s₀` is the prefix of
+`t'.prepend s₀`. -/
+private theorem prepend_prefix_read {m₁ m₂ : Nat} (t' : Suffix (m₁ + m₂))
+    (s₀ : Bytes (m₁ + m₂ - t'.remaining)) (i : Fin (m₁ + m₂ - t'.remaining)) :
+    s₀ i = (t'.prepend s₀) ⟨i.val, (by omega : i.val < m₁ + m₂)⟩ := by
+  rw [prepend_apply]
+  unfold concat
+  rw [cast_fin_symm]
+  · simp [i.isLt]
+  · omega
+
+/-- Reading the remaining suffix of a `prepend`-reassembly against the committed
+`concat`: `t'.bytes` is the suffix of `concat blkBytes tailBytes` at offset
+`m₁ + m₂ - t'.remaining`. -/
+private theorem prepend_suffix_read {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (h : t'.prepend s₀ = concat blkBytes tailBytes)
+    (i : Fin t'.remaining) :
+    t'.bytes i =
+      (concat blkBytes tailBytes) ⟨i.val + (m₁ + m₂ - t'.remaining), (by
+        have hi : i.val < t'.remaining := i.isLt
+        have hle : t'.remaining ≤ m₁ + m₂ := t'.hle
+        omega)⟩ := by
+  have hdrop := congrArg (bdrop (m₁ + m₂ - t'.remaining)) h
+  rw [bdrop_prepend t' s₀] at hdrop
+  have hread := congrArg (fun (s : Bytes ((m₁ + m₂) - (m₁ + m₂ - t'.remaining))) =>
+    s ⟨i.val, (by
+      have hi : i.val < t'.remaining := i.isLt
+      have hsub : (m₁ + m₂) - (m₁ + m₂ - t'.remaining) = t'.remaining := Nat.sub_sub_self t'.hle
+      omega)⟩) hdrop
+  rw [cast_bytes_val' (e := (Nat.sub_sub_self t'.hle).symm)] at hread
+  dsimp [bdrop] at hread
+  simpa using hread
+
+/-- Reading a committed `concat` at a tail index: position `m₁ + i.val` is the
+tail byte `tailBytes i`. -/
+private theorem concat_tail_read {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
+    (i : Fin m₂) :
+    (concat blkBytes tailBytes) ⟨m₁ + i.val, (by omega : m₁ + i.val < m₁ + m₂)⟩ = tailBytes i := by
+  unfold concat
+  have hnot : ¬ (m₁ + i.val) < m₁ := by omega
+  simp [hnot, Nat.add_sub_cancel_left]
+
+/-- The first decoded tail block cannot sit inside the alphabet-only block
+region: its first 4 bytes are `blkBytes`-region bytes (no `=`), but a tail block
+always contains a `=` pad byte. -/
+private theorem b64_first_tail_block_not_alphabet
+    {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
+    (t : List UInt8) (rest : List (List UInt8))
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (htail : relRepeat (Rel b64TailElem) (t :: rest) t'.remaining t'.bytes)
+    (h : t'.prepend s₀ = concat blkBytes tailBytes)
+    (hblk : ∀ i : Fin m₁, b64Char (blkBytes i) = true)
+    (hL4 : (m₁ + m₂ - t'.remaining) + 4 ≤ m₁) :
+    False := by
+  rw [relRepeat_cons] at htail
+  rcases htail with ⟨m, hm, s₁, s₂, hs, ht₁, _⟩
+  have hm4 : m = 4 := Rel_b64TailElem_len t s₁ ht₁
+  have hpad₁ : ∃ i : Fin m, (s₁ i).toNat = 61 := Rel_b64TailElem_has_pad t s₁ ht₁
+  rcases hpad₁ with ⟨i, hi⟩
+  have hi_lt_m : i.val < m := i.isLt
+  have hi_lt_t' : i.val < t'.remaining := by omega
+  -- the first tail block is a prefix of `t'.bytes`
+  have hs₁read : s₁ i = t'.bytes ⟨i.val, hi_lt_t'⟩ := by
+    rw [hs]
+    simpa using (splice_prefix_read hm s₁ s₂ ⟨i.val, hi_lt_t'⟩ hi_lt_m).symm
+  have ht'pad : (t'.bytes ⟨i.val, hi_lt_t'⟩).toNat = 61 := by
+    rw [← hs₁read]
+    exact hi
+  -- the remaining suffix reads back through the committed `concat` into `blkBytes`
+  have htsuffix : t'.bytes ⟨i.val, hi_lt_t'⟩ =
+      (concat blkBytes tailBytes) ⟨i.val + (m₁ + m₂ - t'.remaining), (by
+        have hle : t'.remaining ≤ m₁ + m₂ := t'.hle
+        omega : i.val + (m₁ + m₂ - t'.remaining) < m₁ + m₂)⟩ :=
+    prepend_suffix_read blkBytes tailBytes t' s₀ h ⟨i.val, hi_lt_t'⟩
+  have hconcatpad : ((concat blkBytes tailBytes) ⟨i.val + (m₁ + m₂ - t'.remaining), (by
+        have hle : t'.remaining ≤ m₁ + m₂ := t'.hle
+        omega : i.val + (m₁ + m₂ - t'.remaining) < m₁ + m₂)⟩).toNat = 61 := by
+    rw [← htsuffix]
+    exact ht'pad
+  have hconcat_read : (concat blkBytes tailBytes) ⟨i.val + (m₁ + m₂ - t'.remaining), (by
+        have hle : t'.remaining ≤ m₁ + m₂ := t'.hle
+        omega : i.val + (m₁ + m₂ - t'.remaining) < m₁ + m₂)⟩ =
+      blkBytes ⟨i.val + (m₁ + m₂ - t'.remaining), (by omega : i.val + (m₁ + m₂ - t'.remaining) < m₁)⟩ := by
+    unfold concat
+    have hi4 : i.val < 4 := by omega
+    have hlt : i.val + (m₁ + m₂ - t'.remaining) < m₁ := by omega
+    simp [hlt]
+  have hblkpad : (blkBytes ⟨i.val + (m₁ + m₂ - t'.remaining), (by omega : i.val + (m₁ + m₂ - t'.remaining) < m₁)⟩).toNat = 61 := by
+    rw [← hconcat_read]
+    exact hconcatpad
+  have hcanon := hblk ⟨i.val + (m₁ + m₂ - t'.remaining), (by omega : i.val + (m₁ + m₂ - t'.remaining) < m₁)⟩
+  unfold b64Char at hcanon
+  rw [hblkpad] at hcanon
+  have hfalse : b64Valid 61 = false := by decide
+  rw [hfalse] at hcanon
+  exact Bool.false_ne_true hcanon
+
+/-- `4 * a < 4 * b → a < b` — the constructive (`omega`) spelling of the
+multiplication-cancellation the boundary-pin needs (the stdlib
+`Nat.lt_of_mul_lt_mul_left` is `Classical.choice`-dependent). -/
+private theorem four_mul_lt_of_lt {a b : Nat} (h : 4 * a < 4 * b) : a < b := by
+  omega
+
+/-- The block/tail boundary pin: the full-block run of a padded base consumes
+exactly `m₁` bytes, leaving exactly the terminal tail `m₂`.  Inputs are the
+committed block encode (`henc`), the decoded block prefix (`hblock`), the
+decoded tail (`htail`), the reassembly `t'.prepend s₀ = concat blkBytes tailBytes`,
+and the tail's `m₂ ∈ {0,4}`-plus-pad structure (`hm₂`, `hpad`). -/
+theorem b64_boundary_pin
+    {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
+    (blocks blocks' : List (List UInt8)) (tail'' : List (List UInt8))
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (henc : relRepeat (Rel b64BlockElem) blocks m₁ blkBytes)
+    (hblock : relRepeat (Rel b64BlockElem) blocks' (m₁ + m₂ - t'.remaining) s₀)
+    (htail : relRepeat (Rel b64TailElem) tail'' t'.remaining t'.bytes)
+    (h : t'.prepend s₀ = concat blkBytes tailBytes)
+    (hm₂ : m₂ = 0 ∨ m₂ = 4)
+    (hpad : m₂ ≠ 0 → ∃ i : Fin m₂, (tailBytes i).toNat = 61) :
+    t'.remaining = m₂ := by
+  have hs₀ : ∀ i : Fin (m₁ + m₂ - t'.remaining), b64Char (s₀ i) = true :=
+    relRepeat_forall b64Char (fun x {m} t ht => Rel_b64BlockElem_canonical (t := t) ht) blocks' (m₁ + m₂ - t'.remaining) s₀ hblock
+  have hblk : ∀ i : Fin m₁, b64Char (blkBytes i) = true :=
+    relRepeat_forall b64Char (fun x {m} t ht => Rel_b64BlockElem_canonical (t := t) ht) blocks m₁ blkBytes henc
+  have hL : m₁ + m₂ - t'.remaining = 4 * blocks'.length := relB64Block_len s₀ hblock
+  have hm₁len : m₁ = 4 * blocks.length := relB64Block_len blkBytes henc
+  have ht' : t'.remaining = 4 * tail''.length := relB64Tail_len t'.bytes htail
+  rcases hm₂ with hm₂0 | hm₂4
+  · -- m₂ = 0 (empty tail): the block run must consume everything
+    cases tail'' with
+    | nil =>
+        have ht'0 : t'.remaining = 0 := by simpa using ht'
+        omega
+    | cons t rest =>
+        have ht'pos : 4 ≤ t'.remaining := by
+          rw [ht']
+          simp only [List.length_cons]
+          omega
+        have hL4 : (m₁ + m₂ - t'.remaining) + 4 ≤ m₁ := by
+          have ht'le : t'.remaining ≤ m₁ := by simpa [hm₂0] using t'.hle
+          omega
+        exact False.elim (b64_first_tail_block_not_alphabet blkBytes tailBytes t rest t' s₀ htail h hblk hL4)
+  · -- m₂ = 4 (padded tail): the block run must stop exactly at m₁
+    have hpad' : ∃ i : Fin m₂, (tailBytes i).toNat = 61 := hpad (by omega : m₂ ≠ 0)
+    rcases hpad' with ⟨ip, hip⟩
+    have hconcat_tail : (concat blkBytes tailBytes) ⟨m₁ + ip.val, (by omega : m₁ + ip.val < m₁ + m₂)⟩ = tailBytes ip :=
+      concat_tail_read blkBytes tailBytes ip
+    have hnot : ¬ (m₁ + ip.val) < (m₁ + m₂ - t'.remaining) := by
+      intro hjlt
+      have hs₀read : s₀ ⟨m₁ + ip.val, hjlt⟩ = (concat blkBytes tailBytes) ⟨m₁ + ip.val, (by omega : m₁ + ip.val < m₁ + m₂)⟩ := by
+        rw [prepend_prefix_read t' s₀ ⟨m₁ + ip.val, hjlt⟩]
+        rw [h]
+      have hs₀pad : (s₀ ⟨m₁ + ip.val, hjlt⟩).toNat = 61 := by
+        rw [hs₀read, hconcat_tail]
+        exact hip
+      have hcanon := hs₀ ⟨m₁ + ip.val, hjlt⟩
+      unfold b64Char at hcanon
+      rw [hs₀pad] at hcanon
+      have hfalse : b64Valid 61 = false := by decide
+      rw [hfalse] at hcanon
+      exact Bool.false_ne_true hcanon
+    have hL_le_j : m₁ + m₂ - t'.remaining ≤ m₁ + ip.val := Nat.le_of_not_gt hnot
+    have hL_le_m₁3 : m₁ + m₂ - t'.remaining ≤ m₁ + 3 := by omega
+    have hlen_le : blocks'.length ≤ blocks.length := by omega
+    have hL_le_m₁ : m₁ + m₂ - t'.remaining ≤ m₁ := by omega
+    cases tail'' with
+    | nil =>
+        have ht'0 : t'.remaining = 0 := by simpa using ht'
+        have hcontra : m₁ + m₂ ≤ m₁ := by
+          rw [ht'0] at hL_le_m₁
+          simpa using hL_le_m₁
+        omega
+    | cons t rest =>
+        by_cases hL_eq : m₁ + m₂ - t'.remaining = m₁
+        · have hsub : (m₁ + m₂ - t'.remaining) + t'.remaining = m₁ + m₂ := Nat.sub_add_cancel t'.hle
+          have hsub' : m₁ + t'.remaining = m₁ + m₂ := by
+            rw [hL_eq] at hsub
+            exact hsub
+          exact Nat.add_left_cancel hsub'
+        · have hL_lt : m₁ + m₂ - t'.remaining < m₁ := Nat.lt_of_le_of_ne hL_le_m₁ hL_eq
+          have hlen_lt : blocks'.length < blocks.length := by
+            have h1 : 4 * blocks'.length < 4 * blocks.length := by
+              rw [← hL, ← hm₁len]
+              exact hL_lt
+            exact four_mul_lt_of_lt h1
+          have hL4 : (m₁ + m₂ - t'.remaining) + 4 ≤ m₁ := by
+            have hlen_succ : blocks'.length + 1 ≤ blocks.length := Nat.succ_le_of_lt hlen_lt
+            have h4 : 4 * blocks'.length + 4 ≤ 4 * blocks.length := by
+              have h := Nat.mul_le_mul_left 4 hlen_succ
+              simpa [Nat.mul_add] using h
+            omega
+          exact False.elim (b64_first_tail_block_not_alphabet blkBytes tailBytes t rest t' s₀ htail h hblk hL4)
 end BaseN.Base64
