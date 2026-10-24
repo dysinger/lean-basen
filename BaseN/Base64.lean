@@ -561,6 +561,57 @@ theorem Rel_b64BlockElem_len (bl : List UInt8) {n : Nat} (s : Bytes n) :
   rcases h with ⟨a, _, hc⟩
   exact Rel_count_satisfy_len b64Char 4 a s hc
 
+/-- A `b64BlockElem`-related value is a 3-byte list: the full block's four
+characters are all alphabet (no `=`), so `b64BlockUnapply x = some a` (via
+`b64BlockIso_law`) cannot be a 1- or 2-byte encoding (those put a `61` pad at a
+tail position), leaving only the 3-byte shape.  This is the block side of the
+pad dichotomy the block/tail split-uniqueness lemma needs. -/
+theorem Rel_b64BlockElem_size (x : List UInt8) {n : Nat} (s : Bytes n) :
+    Rel b64BlockElem x s → x.length = 3 := by
+  intro h
+  unfold b64BlockElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, ha, hr⟩
+  have hofn : List.ofFn s = a := Rel_count_satisfy_ofFn b64Char 4 a s hr
+  -- The decoded chars `a` contain no `=` pad: each is a `b64Char` byte of `s`.
+  have hnopad : ∀ c ∈ a, c.toNat ≠ 61 := by
+    intro c hc
+    have hmem : c ∈ List.ofFn s := by rwa [hofn]
+    rcases List.mem_iff_getElem.mp hmem with ⟨i, hi, hi'⟩
+    have hc_eq : c = s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩ := hi'.symm.trans (List.getElem_ofFn hi)
+    have hbc : b64Char c = true := by
+      rw [hc_eq]
+      exact Rel_count_satisfy_forall b64Char 4 a s hr ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩
+    unfold b64Char at hbc
+    intro heq
+    rw [heq] at hbc
+    have hpf : b64Valid 61 = false := by decide
+    rw [hpf] at hbc
+    exact Bool.false_ne_true hbc
+  -- `b64BlockApply a = some x` gives the backward `b64BlockUnapply x = some a`.
+  have hun : b64BlockUnapply x = some a := (b64BlockIso_law a x).1 ha
+  -- Size case split: 1- and 2-byte shapes embed a `61` pad, violating `hnopad`.
+  cases x with
+  | nil => simp [b64BlockUnapply] at hun
+  | cons x0 xs =>
+      cases xs with
+      | nil =>
+          simp [b64BlockUnapply] at hun
+          have hmem : (UInt8.ofNat 61) ∈ a := by
+            rw [← hun]; simp
+          exact False.elim (hnopad (UInt8.ofNat 61) hmem rfl)
+      | cons x1 xs1 =>
+          cases xs1 with
+          | nil =>
+              simp [b64BlockUnapply] at hun
+              have hmem : (UInt8.ofNat 61) ∈ a := by
+                rw [← hun]; simp
+              exact False.elim (hnopad (UInt8.ofNat 61) hmem rfl)
+          | cons x2 xs2 =>
+              cases xs2 with
+              | nil => rfl
+              | cons _ _ => simp [b64BlockUnapply] at hun
+
 /-- The full-block relation is unambiguous (element-level lifts to `relRepeat`). -/
 theorem relB64Block_unambiguous : relUnambiguous (relRepeat (Rel b64BlockElem)) := by
   intro a b n s ha hb
@@ -1368,5 +1419,18 @@ theorem Rel_b64TailElem_size (x : List UInt8) {n : Nat} (s : Bytes n) :
                 | nil => simp [hb] at ha; cases ha; right; rfl
                 | cons _ _ => simp [hb] at ha
   exact hsz
+
+/-- The pad-dichotomy rejection: a value cannot be both a full block (3 bytes,
+no pad) and a terminal tail (1–2 bytes, padded).  `Rel_b64BlockElem_size` pins
+the former to `x.length = 3`, `Rel_b64TailElem_size` the latter to a 1- or
+2-byte list — disjoint length classes, so exactly one boundary class holds.  This
+is the "no-pad 4-char block vs. padded tail" disjunction the block/tail
+split-uniqueness lemma depends on. -/
+theorem Rel_b64BlockElem_not_tail (x : List UInt8) {n m : Nat} (s : Bytes n) (t : Bytes m) :
+    Rel b64BlockElem x s → Rel b64TailElem x t → False := by
+  intro hb ht
+  have h3 : x.length = 3 := Rel_b64BlockElem_size x s hb
+  have h12 := Rel_b64TailElem_size x t ht
+  rcases h12 with h1 | h2 <;> omega
 
 end BaseN.Base64
