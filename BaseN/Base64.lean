@@ -1433,4 +1433,61 @@ theorem Rel_b64BlockElem_not_tail (x : List UInt8) {n m : Nat} (s : Bytes n) (t 
   have h12 := Rel_b64TailElem_size x t ht
   rcases h12 with h1 | h2 <;> omega
 
+/-- A `Rel b64TailElem`-related string contains a `=` pad byte: the tail value
+`x` is 1–2 bytes, so `b64TailApply`/`b64BlockApply` recover it from a block whose
+`b64BlockUnapply` puts a `61` at a terminal position, and the content-extraction
+lemma pins those chars to actual bytes of `s`.  This is the tail side of the pad
+dichotomy: a padded block must contain `=`, so it cannot be confused with a
+full (no-pad) block. -/
+theorem Rel_b64TailElem_has_pad (x : List UInt8) {n : Nat} (s : Bytes n) :
+    Rel b64TailElem x s → (∃ i : Fin n, (s i).toNat = 61) := by
+  intro h
+  unfold b64TailElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, ha, hr⟩
+  have hofn : List.ofFn s = a := Rel_count_satisfy_ofFn b64OrPad 4 a s hr
+  -- `b64TailApply a = some x` forces `b64BlockUnapply` of a 1- or 2-byte list,
+  -- whose char list has a `61` at a terminal position.
+  unfold b64TailIso at ha
+  change b64TailApply a = some x at ha
+  unfold b64TailApply at ha
+  cases hb : b64BlockApply a with
+  | none => simp [hb] at ha
+  | some bl =>
+      cases bl with
+      | nil => simp [hb] at ha
+      | cons b0 bl1 =>
+        cases bl1 with
+        | nil =>
+            -- 1-byte tail: bl = [b0]
+            have hun : b64BlockUnapply [b0] = some a := (b64BlockIso_law a [b0]).1 (by simpa using hb)
+            simp [b64BlockUnapply] at hun
+            have hmem : (UInt8.ofNat 61) ∈ a := by rw [← hun]; simp
+            rw [← hofn] at hmem
+            rcases List.mem_iff_getElem.mp hmem with ⟨i, hi, hi'⟩
+            refine ⟨⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩, ?_⟩
+            have hbyte : s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩ = (UInt8.ofNat 61) := by
+              exact (List.getElem_ofFn hi).symm.trans hi'
+            have hval : (s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩).toNat = 61 := by
+              simpa using congrArg UInt8.toNat hbyte
+            exact hval
+        | cons b1 bl2 =>
+          cases bl2 with
+          | nil =>
+            -- 2-byte tail: bl = [b0, b1]
+            have hun : b64BlockUnapply [b0, b1] = some a := (b64BlockIso_law a [b0, b1]).1 (by simpa using hb)
+            simp [b64BlockUnapply] at hun
+            have hmem : (UInt8.ofNat 61) ∈ a := by rw [← hun]; simp
+            rw [← hofn] at hmem
+            rcases List.mem_iff_getElem.mp hmem with ⟨i, hi, hi'⟩
+            refine ⟨⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩, ?_⟩
+            have hbyte : s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩ = (UInt8.ofNat 61) := by
+              exact (List.getElem_ofFn hi).symm.trans hi'
+            have hval : (s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩).toNat = 61 := by
+              simpa using congrArg UInt8.toNat hbyte
+            exact hval
+          | cons _ _ =>
+            -- 3 bytes: b64TailApply rejects (returns none)
+            simp [hb] at ha
+
 end BaseN.Base64
