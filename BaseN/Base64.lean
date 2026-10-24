@@ -1490,4 +1490,38 @@ theorem Rel_b64TailElem_has_pad (x : List UInt8) {n : Nat} (s : Bytes n) :
             -- 3 bytes: b64TailApply rejects (returns none)
             simp [hb] at ha
 
+/-! ## Encoded-output structure (inputs to the boundary-pin)
+
+`encodeRepeat b64BlockElem blocks` produces alphabet-only (no-pad) bytes, and a
+non-empty `encodeB64Tail` produces a padded block containing `=`.  Together with
+the pad-dichotomy primitives these pin the block/tail boundary at `m₁`. -/
+
+/-- The full-block encoding is alphabet-only: every byte of `encodeRepeat
+b64BlockElem blocks = some ⟨n, s⟩` is a `b64Char` (never `=`). -/
+theorem encodeB64Block_nopad (blocks : List (List UInt8)) {n : Nat} {s : Bytes n}
+    (he : encodeRepeat b64BlockElem blocks = some ⟨n, s⟩) :
+    ∀ i : Fin n, b64Char (s i) = true := by
+  have hrel : relRepeat (Rel b64BlockElem) blocks n s := encodeRepeat_rel b64BlockElem blocks he
+  exact relRepeat_forall b64Char (fun x {m} t ht => Rel_b64BlockElem_canonical (t := t) ht) blocks n s hrel
+
+/-- A non-empty terminal-tail encoding contains a `=` pad byte. -/
+theorem encodeB64Tail_has_pad (tail : List UInt8) {n : Nat} {s : Bytes n}
+    (hne : tail ≠ []) (he : encodeB64Tail tail = some ⟨n, s⟩) :
+    ∃ i : Fin n, (s i).toNat = 61 := by
+  cases tail with
+  | nil => exact False.elim (hne rfl)
+  | cons b t =>
+      cases t with
+      | nil =>
+          have henc : Codec.encode b64TailElem [b] = some ⟨n, s⟩ := by simpa [encodeB64Tail] using he
+          have hrel : Rel b64TailElem [b] s := encode_rel b64TailElem [b] henc
+          exact Rel_b64TailElem_has_pad [b] s hrel
+      | cons b1 t1 =>
+          cases t1 with
+          | nil =>
+              have henc : Codec.encode b64TailElem [b, b1] = some ⟨n, s⟩ := by simpa [encodeB64Tail] using he
+              have hrel : Rel b64TailElem [b, b1] s := encode_rel b64TailElem [b, b1] henc
+              exact Rel_b64TailElem_has_pad [b, b1] s hrel
+          | cons _ _ => simp [encodeB64Tail] at he
+
 end BaseN.Base64
