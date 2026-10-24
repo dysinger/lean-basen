@@ -1524,4 +1524,32 @@ theorem encodeB64Tail_has_pad (tail : List UInt8) {n : Nat} {s : Bytes n}
               exact Rel_b64TailElem_has_pad [b, b1] s hrel
           | cons _ _ => simp [encodeB64Tail] at he
 
+/-- `encodeB64Tail tail = some ⟨n, s⟩` pins the encoded length to `0` (empty
+tail) or `4` (one padded block). This is the input to the boundary-pin's
+`m₂ ∈ {0, 4}` fact. -/
+theorem encodeB64Tail_len (tail : List UInt8) {n : Nat} {s : Bytes n}
+    (he : encodeB64Tail tail = some ⟨n, s⟩) :
+    n = 0 ∨ n = 4 := by
+  cases tail with
+  | nil =>
+      have hs : (⟨0, (Codec.emptyBytes : Bytes 0)⟩ : Sigma fun k => Bytes k) = ⟨n, s⟩ := by
+        simpa [encodeB64Tail] using he
+      cases hs
+      left; rfl
+  | cons b t =>
+      cases t with
+      | nil =>
+          have henc : Codec.encode b64TailElem [b] = some ⟨n, s⟩ := by simpa [encodeB64Tail] using he
+          have hrel : Rel b64TailElem [b] s := encode_rel b64TailElem [b] henc
+          have hlen : n = 4 := Rel_b64TailElem_len [b] s hrel
+          right; exact hlen
+      | cons b1 t1 =>
+          cases t1 with
+          | nil =>
+              have henc : Codec.encode b64TailElem [b, b1] = some ⟨n, s⟩ := by simpa [encodeB64Tail] using he
+              have hrel : Rel b64TailElem [b, b1] s := encode_rel b64TailElem [b, b1] henc
+              have hlen : n = 4 := Rel_b64TailElem_len [b, b1] s hrel
+              right; exact hlen
+          | cons _ _ => simp [encodeB64Tail] at he
+
 end BaseN.Base64
