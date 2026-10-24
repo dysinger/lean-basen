@@ -571,4 +571,20 @@ theorem decodeRepeat_prefix_concat {α : Type} (p : Codec α) (h : ConsumesByte 
     rw [hsrel]
     exact (relRepeat_cast (Rel p) xs hidx.symm s₀).2 hrel
 
+/-! ## `head?`-of-`filterMap` singleton
+
+For the padded-base whole-input roundtrip, the decoder is `head?` of the
+`filterMap` over the all-prefix `decodeRepeat`.  When a value `b` is in the
+filtered list and every filtered element equals `b`, the head is `some b`. -/
+
+/-- If `b` is a member of `L` and every element of `L` equals `b`, then
+`L.head? = some b`. -/
+theorem head?_eq_some_of_mem_eq {α : Type} (b : α) (L : List α)
+    (hmem : b ∈ L) (hall : ∀ x ∈ L, x = b) : L.head? = some b := by
+  induction L with
+  | nil => cases hmem
+  | cons hd tl ih =>
+      simp [List.head?_cons]
+      rw [hall hd (by simp)]
+
 end BaseN.Common

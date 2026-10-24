@@ -1552,4 +1552,36 @@ theorem encodeB64Tail_len (tail : List UInt8) {n : Nat} {s : Bytes n}
               right; exact hlen
           | cons _ _ => simp [encodeB64Tail] at he
 
+/-! ## Whole-input roundtrip transport: prefix/suffix extraction
+
+The whole-input roundtrip `decodeFullB64 (encodeB64 bs) = some bs` composes the
+full-block run with the terminal tail.  Its one new step is the *block/tail
+split-uniqueness* lemma, whose boundary pin rests on extracting the decoded
+consumed-prefix / remaining bytes back to the committed `blkBytes`/`tailBytes`.
+`[propext, Quot.sound]`-only. -/
+
+/-- From `t'.prepend s₀ = concat a b` and `m₁ + m₂ - t'.remaining = m₁` (so the
+consumed prefix has length `m₁`), the consumed prefix `s₀` is exactly `a`. -/
+theorem prepend_concat_prefix_cast {m₁ m₂ : Nat} (a : Bytes m₁) (b : Bytes m₂)
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (e : m₁ + m₂ - t'.remaining = m₁)
+    (h : t'.prepend s₀ = concat a b) :
+    cast (congrArg Bytes e) s₀ = a := by
+  apply Bytes.ext
+  intro i
+  have hi' : i.val < m₁ + m₂ - t'.remaining := by
+    rw [e]
+    exact i.isLt
+  rw [cast_bytes_val' (e := e)]
+  have hs₀ : s₀ ⟨i.val, hi'⟩ = (t'.prepend s₀) ⟨i.val, (by omega : i.val < m₁ + m₂)⟩ := by
+    rw [prepend_apply]
+    unfold concat
+    rw [cast_fin_symm]
+    · simp [hi']
+    · omega
+  have hpre : (t'.prepend s₀) ⟨i.val, (by omega : i.val < m₁ + m₂)⟩ = a ⟨i.val, by omega⟩ := by
+    rw [h]
+    unfold concat
+    simp [show i.val < m₁ by omega]
+  rw [hs₀, hpre]
 end BaseN.Base64
