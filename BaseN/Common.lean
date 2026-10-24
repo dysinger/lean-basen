@@ -473,9 +473,10 @@ function.
 `Run` is polymorphic in the element value type `α`: the fixed-width bases
 (2/4/8/10/16) have `α = UInt8` (one byte per element, a `Codec UInt8`); the
 cross-byte bit-packing bases (32/64) have `α = List UInt8` (a whole block per
-element, a `Codec (List UInt8)`).  The value of a `Run α` is `List α`, and the
-facade normalizes it to the uniform `List UInt8` value type (for the padded
-bases via a terminal-tail `B32`/`B64` transport). -/
+element, a `Codec (List UInt8)`).  The value of a `Run α` is `List α`; there is
+**no** facade, so the padded bases `Codec (List UInt8)` value stays `List (List UInt8)`
+(a list of blocks) and the whole-input surface flattens it to `List UInt8` via the
+`B32`/`B64` canonical block/tail spine. -/
 structure Run (α : Type) where
   /-- The element (or block) description. -/
   elem : Codec α

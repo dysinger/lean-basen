@@ -765,9 +765,10 @@ theorem b64TailDecodeFull_unambiguous {x y : List (List UInt8)} {n : Nat} (s : B
 
 /-! ## The canonical value type and its flatten
 
-`B64` is the canonical base64 value: full 3-byte blocks, then at most one
-terminal tail of 1 or 2 bytes.  Its tail constructors are terminal (no
-continuation), so "data after a pad" is unrepresentable by construction.
+`B64` is the canonical base64 block/tail spine: full 3-byte blocks, then at most
+one terminal tail of 1 or 2 bytes.  Its tail constructors are terminal (no
+continuation), so the split is well-scoped; the *rejection* of data after a pad
+is the `decodeFullB64 = none` inequation over the composition, not a type-level fact.
 -/
 
 /-- The canonical base64 value. -/
@@ -833,9 +834,9 @@ def decodeB64Strict (s : List UInt8) : Option B64 :=
 
 /-! ## Strict roundtrip and rejection (base64)
 
-The strict decoder is total and returns `B64`; the malformed shape has no
-inhabitant.  Roundtrip is an induction over `B64` using the per-shape
-block-decode identities; rejection of trailing data is structural. -/
+The strict decoder is total and returns `B64` (the canonical block/tail spine).
+Roundtrip is an induction over `B64` using the per-shape block-decode identities;
+rejection of trailing data is by the block/tail size dichotomy. -/
 
 /-- Full-block parse: the canonical chars of a full block parse to it, threading
 `rest`. -/
@@ -1048,11 +1049,11 @@ theorem encodeB64Strict_injective {v v' : B64} :
   have h12 : some v = some v' := h1.symm.trans h2
   exact Option.some.inj h12
 
-/-! ## The uniform `List UInt8` transport (facade value type)
+/-! ## The `B64` ↔ `List UInt8` canonical block/tail spine
 
-The base64 *value* is `B64` (terminal-tail, so illegal "data after `=`" is
-unrepresentable); the facade exposes the uniform `List UInt8` value type via
-this bijective byte flatten. -/
+The base64 value is the whole `List UInt8`; `B64` is the canonical block/tail
+spine (a proved total bijective relabeling) used to specify the full-block +
+terminal-tail split. This section is that relabeling. -/
 
 /-- The decoded byte list of a `B64` value (full blocks 3 bytes each, then at
 most one 1/2-byte terminal tail). -/

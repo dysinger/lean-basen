@@ -598,9 +598,10 @@ def b32BlockIso : Iso (List UInt8) (List UInt8) :=
 
 /-! ## The strict value type and the run triple
 
-`B32` is the canonical base32 value: full 5-byte blocks, then at most one
-terminal tail of 1–4 bytes.  Tail constructors are terminal, so "data after a
-pad" is unrepresentable. -/
+`B32` is the canonical base32 block/tail spine: full 5-byte blocks, then at most
+one terminal tail of 1–4 bytes.  Tail constructors are terminal, so the split is
+well-scoped; the *rejection* of data after a pad is the `decodeFullB32 = none`
+inequation over the composition, not a type-level fact. -/
 
 /-- The canonical base32 value. -/
 inductive B32 where
@@ -973,7 +974,7 @@ theorem encodeB32Strict_injective {v v' : B32} :
   have h12 : some v = some v' := h1.symm.trans h2
   exact Option.some.inj h12
 
-/-! ## The uniform `List UInt8` transport (facade value type) -/
+/-! ## The `B32` ↔ `List UInt8` canonical block/tail spine -/
 
 /-- The decoded byte list of a `B32` value (full 5-byte blocks, then at most one
 1–4-byte terminal tail). -/

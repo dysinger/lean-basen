@@ -19,9 +19,10 @@ Each base is a `Codec` value (fixed-width `Codec UInt8`, padded a full-block
 
 There is **no** `Base` enum and **no** `encode (b : Base)` / `decode (b : Base)`
 facade: the radix lives in the value the caller already holds, never on a
-dispatch index.  The value type stays the base's natural type — `UInt8` for the
-fixed-width bases, `B32`/`B64` for the padded bases, so that illegal padded
-states ("data after `=`") are *unrepresentable* and the rejection is structural.
+dispatch index.  The value type is `List UInt8` (the whole byte list); `B32`/`B64`
+is the canonical block/tail spine used only to specify the full-block +
+terminal-tail split, and rejection is a `decodeFullB64`/`decodeFullB32 = none`
+inequation over the composition.
 
   * `BaseN.Base2`  — one bit per `0`/`1` char, 8 chars per byte, MSB-first
   * `BaseN.Base4`  — one quartet per `0`-`3` char, 4 chars per byte
