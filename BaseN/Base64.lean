@@ -1813,4 +1813,28 @@ theorem b64_boundary_pin
               simpa [Nat.mul_add] using h
             omega
           exact False.elim (b64_first_tail_block_not_alphabet blkBytes tailBytes t rest t' s₀ htail h hblk hL4)
+
+/-- The block run extracted by the whole-input decoder is the committed block
+run: once the boundary pin fixes `t'.remaining = m₂` (so the block prefix
+consumes exactly `m₁` bytes), the decoded block prefix `s₀` is exactly `blkBytes`
+(via `prepend_concat_prefix_cast`), and `relB64Block_unambiguous` pins
+`blocks' = blocks`.  This is substep (3) of the whole-input roundtrip: the
+block-run/tail split is unique, so the decoded full blocks are the committed
+full blocks.  `[propext, Quot.sound]`-only. -/
+theorem b64_block_run_of_boundary
+    {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
+    (blocks blocks' : List (List UInt8))
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (henc : relRepeat (Rel b64BlockElem) blocks m₁ blkBytes)
+    (hblock : relRepeat (Rel b64BlockElem) blocks' (m₁ + m₂ - t'.remaining) s₀)
+    (h : t'.prepend s₀ = concat blkBytes tailBytes)
+    (hrem : t'.remaining = m₂) :
+    blocks' = blocks := by
+  have he : m₁ + m₂ - t'.remaining = m₁ := by omega
+  have hblock' : relRepeat (Rel b64BlockElem) blocks' m₁ (cast (congrArg Bytes he) s₀) :=
+    (relRepeat_cast (Rel b64BlockElem) blocks' he s₀).2 hblock
+  have hs₀ : cast (congrArg Bytes he) s₀ = blkBytes :=
+    prepend_concat_prefix_cast blkBytes tailBytes t' s₀ he h
+  rw [hs₀] at hblock'
+  exact relB64Block_unambiguous blkBytes hblock' henc
 end BaseN.Base64
