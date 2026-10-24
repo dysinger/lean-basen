@@ -1837,4 +1837,201 @@ theorem b64_block_run_of_boundary
     prepend_concat_prefix_cast blkBytes tailBytes t' s₀ he h
   rw [hs₀] at hblock'
   exact relB64Block_unambiguous blkBytes hblock' henc
+
+/-! ## Whole-input roundtrip assembly (base64)
+
+The roundtrip `decodeFullB64 (encodeB64 bs) = some bs`: the committed encode
+splits `bs` into full blocks `blocks` + a terminal `tail`; the decoder's
+`head?`-of-`filterMap` returns that committed result, and every other candidate
+is equal to it (the block run is unique by `b64_block_run_of_boundary`, the
+tail by `b64TailDecodeFull_unambiguous`).  `[propext, Quot.sound]`-only. -/
+
+/-- The committed encode of `bs` produces a `decodeFullB64`-candidate: the block
+run `blocks` decodes over the concatenation at the `m₁` boundary, and its
+tail decodes to the committed terminal tail. -/
+theorem decodeFullB64_mem_encode (bs : List UInt8) {n : Nat} {s : Bytes n}
+    (he : encodeB64 bs = some ⟨n, s⟩) :
+    bs ∈ (decodeRepeat b64BlockElem b64BlockConsumesByte n s).filterMap
+      (fun ⟨blocks, t⟩ =>
+        match decodeFull b64TailElem b64TailConsumesByte t.remaining t.bytes with
+        | some tail => some (blocks.flatten ++ tail.flatten)
+        | none => none) := by
+  let blocks := (b64Split_ofBytes (b64OfBytes bs)).1
+  let tail := (b64Split_ofBytes (b64OfBytes bs)).2
+  cases heb : encodeRepeat b64BlockElem blocks with
+  | none =>
+      unfold encodeB64 encodeB64' at he
+      simp [blocks, heb] at he
+  | some b =>
+      cases het : encodeB64Tail tail with
+      | none =>
+          unfold encodeB64 encodeB64' at he
+          simp [blocks, tail, heb, het] at he
+      | some t =>
+          rcases b with ⟨m₁, blkBytes⟩
+          rcases t with ⟨m₂, tailBytes⟩
+          have hpair : (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = ⟨n, s⟩ := by
+            have he' : some (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = some ⟨n, s⟩ := by
+              unfold encodeB64 encodeB64' at he
+              simpa [blocks, tail, heb, het] using he
+            exact Option.some.inj he'
+          cases hpair
+          have hblkmem : (blocks, Suffix.empty m₁) ∈ decodeRepeat b64BlockElem b64BlockConsumesByte m₁ blkBytes :=
+            (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks m₁ blkBytes (Suffix.empty m₁)).2
+              ⟨cast (congrArg Bytes (Nat.sub_zero m₁).symm) blkBytes, (prepend_empty_eq blkBytes).symm,
+                (relRepeat_cast (Rel b64BlockElem) blocks (Nat.sub_zero m₁).symm blkBytes).2
+                  (encodeRepeat_rel b64BlockElem blocks heb)⟩
+          have hblkpre : (blocks, Suffix.drop m₁ (Codec.concat blkBytes tailBytes)) ∈
+              decodeRepeat b64BlockElem b64BlockConsumesByte (m₁ + m₂) (Codec.concat blkBytes tailBytes) :=
+            decodeRepeat_prefix_concat b64BlockElem b64BlockConsumesByte blocks blkBytes tailBytes hblkmem
+          have hflat : blocks.flatten ++ tail = bs := by
+            dsimp [blocks, tail]
+            rw [b64Split_ofBytes_shape (b64OfBytes bs), b64BytesOf_ofBytes bs]
+          rw [List.mem_filterMap]
+          refine ⟨(blocks, Suffix.drop m₁ (Codec.concat blkBytes tailBytes)), hblkpre, ?_⟩
+          by_cases hne : tail = []
+          · -- empty tail: `tail = []`
+            rw [hne] at het
+            have ht : decodeFull b64TailElem b64TailConsumesByte
+                (Suffix.drop m₁ (Codec.concat blkBytes tailBytes)).remaining
+                (Suffix.drop m₁ (Codec.concat blkBytes tailBytes)).bytes = some [] :=
+              decodeFull_b64Tail_suffix_nil (sb := blkBytes) (st := tailBytes) het
+            simp [ht]
+            rw [hne] at hflat
+            simpa using hflat
+          · -- non-empty tail
+            have ht : decodeFull b64TailElem b64TailConsumesByte
+                (Suffix.drop m₁ (Codec.concat blkBytes tailBytes)).remaining
+                (Suffix.drop m₁ (Codec.concat blkBytes tailBytes)).bytes = some [tail] :=
+              decodeFull_b64Tail_suffix_cons tail (sb := blkBytes) (st := tailBytes) het hne
+            simp [ht]
+            rw [hflat]
+
+/-- The whole-input roundtrip: `decodeFullB64 (encodeB64 bs) = some bs`. The
+membership half is `decodeFullB64_mem_encode`; the singleton half pins every
+`head?`-of-`filterMap` candidate to `bs` via the boundary pin + block/tail
+uniqueness.  `[propext, Quot.sound]`-only. -/
+theorem decodeFullB64_roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n}
+    (he : encodeB64 bs = some ⟨n, s⟩) :
+    decodeFullB64 s = some bs := by
+  unfold decodeFullB64
+  apply head?_eq_some_of_mem_eq bs
+  · exact decodeFullB64_mem_encode bs he
+  · intro x hx
+    rw [List.mem_filterMap] at hx
+    rcases hx with ⟨pr, hmem, hfx⟩
+    rcases pr with ⟨blocks', t'⟩
+    cases htaildec : decodeFull b64TailElem b64TailConsumesByte t'.remaining t'.bytes with
+    | none =>
+        simp [htaildec] at hfx
+    | some tail' =>
+        -- recover the committed encode components
+        let blocks := (b64Split_ofBytes (b64OfBytes bs)).1
+        let tail := (b64Split_ofBytes (b64OfBytes bs)).2
+        cases heb : encodeRepeat b64BlockElem blocks with
+        | none =>
+            unfold encodeB64 encodeB64' at he
+            simp [blocks, heb] at he
+        | some b =>
+            cases het : encodeB64Tail tail with
+            | none =>
+                unfold encodeB64 encodeB64' at he
+                simp [blocks, tail, heb, het] at he
+            | some t =>
+                rcases b with ⟨m₁, blkBytes⟩
+                rcases t with ⟨m₂, tailBytes⟩
+                have hpair : (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = ⟨n, s⟩ := by
+                  have he' : some (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = some ⟨n, s⟩ := by
+                    unfold encodeB64 encodeB64' at he
+                    simpa [blocks, tail, heb, het] using he
+                  exact Option.some.inj he'
+                cases hpair
+                have hflat : blocks.flatten ++ tail = bs := by
+                  dsimp [blocks, tail]
+                  rw [b64Split_ofBytes_shape (b64OfBytes bs), b64BytesOf_ofBytes bs]
+                -- recover the block-run relation from the decoded candidate
+                rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks'
+                    (m₁ + m₂) (Codec.concat blkBytes tailBytes) t').1 hmem with ⟨s₀, hs, hblocks'⟩
+                -- recover the tail-run relation from the decoded tail
+                have htailmem : (tail', Suffix.empty t'.remaining) ∈
+                    decodeRepeat b64TailElem b64TailConsumesByte t'.remaining t'.bytes :=
+                  decodeFull_some b64TailElem b64TailConsumesByte t'.bytes tail' htaildec
+                rcases (decodeRepeat_spec b64TailElem b64TailConsumesByte tail'
+                    t'.remaining t'.bytes (Suffix.empty t'.remaining)).1 htailmem with ⟨s₀t, htbs, htail⟩
+                -- the decoded tail list relates to t'.bytes (bridging the `- 0` length)
+                have htailn : relRepeat (Rel b64TailElem) tail' t'.remaining t'.bytes := by
+                  have hs₀t : cast (congrArg Bytes (Nat.sub_zero t'.remaining)) s₀t = t'.bytes := by
+                    rw [prepend_empty s₀t] at htbs
+                    exact htbs.symm
+                  have htailcast : relRepeat (Rel b64TailElem) tail' t'.remaining
+                      (cast (congrArg Bytes (Nat.sub_zero t'.remaining)) s₀t) :=
+                    (relRepeat_cast (Rel b64TailElem) tail' (Nat.sub_zero t'.remaining) s₀t).2 htail
+                  rw [hs₀t] at htailcast
+                  exact htailcast
+                -- the boundary pin inputs
+                have henc : relRepeat (Rel b64BlockElem) blocks m₁ blkBytes :=
+                  encodeRepeat_rel b64BlockElem blocks heb
+                have hm₂ : m₂ = 0 ∨ m₂ = 4 := encodeB64Tail_len tail het
+                have htail_ne_of_m₂ : m₂ ≠ 0 → tail ≠ [] := by
+                  intro hm₂ne htnil
+                  rw [htnil] at het
+                  have hge := Option.some.inj het
+                  have hm₂zero : m₂ = 0 := (congrArg Sigma.fst hge).symm
+                  exact hm₂ne hm₂zero
+                have hpad : m₂ ≠ 0 → ∃ i : Fin m₂, (tailBytes i).toNat = 61 := by
+                  intro hm₂ne
+                  exact encodeB64Tail_has_pad tail (htail_ne_of_m₂ hm₂ne) het
+                -- the boundary pin
+                have hbnd : t'.remaining = m₂ :=
+                  b64_boundary_pin blkBytes tailBytes blocks blocks' tail' t' s₀ henc hblocks' htailn
+                    hs.symm hm₂ hpad
+                -- block-run uniqueness
+                have hblocks_eq : blocks' = blocks :=
+                  b64_block_run_of_boundary blkBytes tailBytes blocks blocks' t' s₀ henc hblocks'
+                    hs.symm hbnd
+                -- extract x from the filter step
+                have hx : x = blocks'.flatten ++ tail'.flatten := by
+                  simp [htaildec] at hfx
+                  exact hfx.symm
+                rw [hblocks_eq] at hx
+                -- tail pin: the decoded tail flattens to the committed tail
+                have htailflat : tail'.flatten = tail := by
+                  -- bridge t'.bytes to tailBytes via the boundary (prepend_concat_suffix)
+                  have hbytescast : cast (congrArg Bytes hbnd) t'.bytes = tailBytes := by
+                    apply Bytes.ext
+                    intro i
+                    rw [cast_bytes_val' (e := hbnd)]
+                    have hread := prepend_suffix_read blkBytes tailBytes t' s₀ hs.symm
+                        ⟨i.val, Nat.lt_of_lt_of_eq i.isLt hbnd.symm⟩
+                    rw [hread]
+                    have hk : m₁ + m₂ - t'.remaining = m₁ := by rw [hbnd]; omega
+                    simpa [hk, Nat.add_comm, Nat.add_left_comm] using (concat_tail_read blkBytes tailBytes i)
+                  -- the decoded tail on m₂/(cast t'.bytes) equals some tail'
+                  have htaildec' : decodeFull b64TailElem b64TailConsumesByte m₂
+                      (cast (congrArg Bytes hbnd) t'.bytes) = some tail' := by
+                    have hc := decodeFull_cast b64TailElem b64TailConsumesByte hbnd t'.bytes
+                    rw [← hc] at htaildec
+                    exact htaildec
+                  have htaildec'' : decodeFull b64TailElem b64TailConsumesByte m₂ tailBytes = some tail' := by
+                    rw [hbytescast] at htaildec'
+                    exact htaildec'
+                  cases htailc : tail with
+                  | nil =>
+                      have het' : encodeB64Tail [] = some ⟨m₂, tailBytes⟩ := by
+                        simpa [htailc] using het
+                      have htail_enc' : decodeFull b64TailElem b64TailConsumesByte m₂ tailBytes = some [] := by
+                        simpa using (decodeFull_b64Tail_of_encode [] het')
+                      have htail' : tail' = [] := (Option.some.inj (htail_enc'.symm.trans htaildec'')).symm
+                      rw [htail']
+                      rfl
+                  | cons b rest =>
+                      have het' : encodeB64Tail (b :: rest) = some ⟨m₂, tailBytes⟩ := by
+                        simpa [htailc] using het
+                      have htail_enc' : decodeFull b64TailElem b64TailConsumesByte m₂ tailBytes = some [b :: rest] := by
+                        simpa using (decodeFull_b64Tail_of_encode (b :: rest) het')
+                      have htail' : tail' = [b :: rest] := (Option.some.inj (htail_enc'.symm.trans htaildec'')).symm
+                      rw [htail']
+                      simp
+                rw [hx, htailflat]
+                exact hflat
 end BaseN.Base64
