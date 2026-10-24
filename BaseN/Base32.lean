@@ -1547,4 +1547,837 @@ theorem decodeFull_b32Tail_of_encode (tail : List UInt8) {q : Nat} {st : Bytes q
                 (fun {x y} {m} (tx : Bytes m) => b32TailDecodeFull_unambiguous (s := tx)) st [[b, a, c, d]]).2 hmem
           | cons _ _ => simp [encodeB32Tail] at ht
 
+/-! ## Whole-input roundtrip transport: prefix/suffix extraction (base32 mirror)
+
+The whole-input roundtrip `decodeFullB32 (encodeB32 bs) = some bs` composes the
+full-block run with the terminal tail.  The block/tail *split-uniqueness* lemma
+needs the same pad-dichotomy and transport family base64 landed.
+`[propext, Quot.sound]`-only. -/
+
+/-- `decodeFull` is insensitive to a length cast of its byte argument. -/
+theorem decodeFull_cast {α : Type} (p : Codec α) (h : ConsumesByte p) :
+    ∀ {n m : Nat} (e : n = m) (s : Bytes n),
+      decodeFull p h m (cast (congrArg Bytes e) s) = decodeFull p h n s := by
+  intro n m e s
+  subst e
+  rfl
+
+/-- Splitting a byte list into full 5-byte blocks + a terminal tail reassembles it. -/
+theorem b32Split_shape (bs : List UInt8) :
+    (b32Split bs).1.flatten ++ (b32Split bs).2 = bs := by
+  exact go bs
+where
+  go : (l : List UInt8) → (b32Split l).1.flatten ++ (b32Split l).2 = l
+  | [] => rfl
+  | [_] => rfl
+  | [_, _] => rfl
+  | [_, _, _] => rfl
+  | [_, _, _, _] => rfl
+  | b0 :: b1 :: b2 :: b3 :: b4 :: rest => by
+      simp [b32Split, go rest]
+
+/-- `b32Split_ofBytes (b32OfBytes bs)` is the direct `b32Split bs`. -/
+theorem b32Split_ofBytes_ofBytes (bs : List UInt8) :
+    b32Split_ofBytes (b32OfBytes bs) = b32Split bs := by
+  exact go bs
+where
+  go : (l : List UInt8) → b32Split_ofBytes (b32OfBytes l) = b32Split l
+  | [] => rfl
+  | [_] => rfl
+  | [_, _] => rfl
+  | [_, _, _] => rfl
+  | [_, _, _, _] => rfl
+  | b0 :: b1 :: b2 :: b3 :: b4 :: rest => by
+      simp [b32OfBytes, b32Split_ofBytes, b32Split, go rest]
+
+/-- Decoding an encoded *empty* tail over a dropped suffix is `some []`. -/
+theorem decodeFull_b32Tail_suffix_nil {q m : Nat} {st : Bytes q} (sb : Bytes m)
+    (ht : encodeB32Tail [] = some ⟨q, st⟩) :
+    decodeFull b32TailElem b32TailConsumesByte (Suffix.drop m (concat sb st)).remaining (Suffix.drop m (concat sb st)).bytes
+      = some [] := by
+  unfold Suffix.drop
+  simp only []
+  rw [bdrop_concat sb st]
+  change decodeFull b32TailElem b32TailConsumesByte (m + q - m)
+      (cast (congrArg Bytes (Nat.add_sub_cancel_left m q).symm) st) = some []
+  rw [decodeFull_cast b32TailElem b32TailConsumesByte (Nat.add_sub_cancel_left m q).symm st]
+  simpa using decodeFull_b32Tail_of_encode [] ht
+
+/-- Decoding an encoded *non-empty* tail over a dropped suffix is `some [tail]`. -/
+theorem decodeFull_b32Tail_suffix_cons (tail : List UInt8) {q m : Nat} {st : Bytes q} (sb : Bytes m)
+    (ht : encodeB32Tail tail = some ⟨q, st⟩) (hne : tail ≠ []) :
+    decodeFull b32TailElem b32TailConsumesByte (Suffix.drop m (concat sb st)).remaining (Suffix.drop m (concat sb st)).bytes
+      = some [tail] := by
+  unfold Suffix.drop
+  simp only []
+  rw [bdrop_concat sb st]
+  change decodeFull b32TailElem b32TailConsumesByte (m + q - m)
+      (cast (congrArg Bytes (Nat.add_sub_cancel_left m q).symm) st) = some [tail]
+  rw [decodeFull_cast b32TailElem b32TailConsumesByte (Nat.add_sub_cancel_left m q).symm st]
+  have h := decodeFull_b32Tail_of_encode tail ht
+  cases tail with
+  | nil => exact False.elim (hne rfl)
+  | cons x t =>
+      cases t with
+      | nil => simpa using h
+      | cons y t2 =>
+          cases t2 with
+          | nil => simpa using h
+          | cons z t3 =>
+              cases t3 with
+              | nil => simpa using h
+              | cons w t4 =>
+                  cases t4 with
+                  | nil => simpa using h
+                  | cons _ _ => simp [encodeB32Tail] at ht
+
+/-- A pad byte is not a base32 alphabet character. -/
+theorem b32Char_pad_false : b32Char (UInt8.ofNat 61) = false := by
+  unfold b32Char b32Valid b32ToVal
+  decide
+
+/-- A block element never relates to a byte string containing a pad byte. -/
+theorem not_rel_b32BlockElem_of_pad (x : List UInt8) {m : Nat} (s : Bytes m) :
+    (∃ i : Fin m, (s i).toNat = 61) → ¬ Rel b32BlockElem x s := by
+  intro hpad hrel
+  rcases hpad with ⟨i, hi⟩
+  have hcanon : b32Char (s i) = true := Rel_b32BlockElem_canonical hrel i
+  unfold b32Char at hcanon
+  rw [hi] at hcanon
+  have hfalse : b32Valid 61 = false := by decide
+  rw [hfalse] at hcanon
+  exact Bool.false_ne_true hcanon
+
+/-- A `Rel b32BlockElem` value is a 5-byte list (a full alphabet block). -/
+theorem Rel_b32BlockElem_size (x : List UInt8) {n : Nat} (s : Bytes n) :
+    Rel b32BlockElem x s → x.length = 5 := by
+  intro h
+  unfold b32BlockElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, ha, hr⟩
+  have hofn : List.ofFn s = a := Rel_count_satisfy_ofFn b32Char 8 a s hr
+  have hnopad : ∀ c ∈ a, c.toNat ≠ 61 := by
+    intro c hc
+    have hmem : c ∈ List.ofFn s := by rwa [hofn]
+    rcases List.mem_iff_getElem.mp hmem with ⟨i, hi, hi'⟩
+    have hc_eq : c = s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩ := hi'.symm.trans (List.getElem_ofFn hi)
+    have hbc : b32Char c = true := by
+      rw [hc_eq]
+      exact Rel_count_satisfy_forall b32Char 8 a s hr ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩
+    unfold b32Char at hbc
+    intro heq
+    rw [heq] at hbc
+    have hpf : b32Valid 61 = false := by decide
+    rw [hpf] at hbc
+    exact Bool.false_ne_true hbc
+  have hun : b32BlockUnapply x = some a := (b32BlockIso_law a x).1 ha
+  cases x with
+  | nil => simp [b32BlockUnapply] at hun
+  | cons x0 xs =>
+      cases xs with
+      | nil =>
+          simp [b32BlockUnapply] at hun
+          have hmem : (UInt8.ofNat 61) ∈ a := by rw [← hun]; simp
+          exact False.elim (hnopad (UInt8.ofNat 61) hmem rfl)
+      | cons x1 xs1 =>
+          cases xs1 with
+          | nil =>
+              simp [b32BlockUnapply] at hun
+              have hmem : (UInt8.ofNat 61) ∈ a := by rw [← hun]; simp
+              exact False.elim (hnopad (UInt8.ofNat 61) hmem rfl)
+          | cons x2 xs2 =>
+              cases xs2 with
+              | nil =>
+                  simp [b32BlockUnapply] at hun
+                  have hmem : (UInt8.ofNat 61) ∈ a := by rw [← hun]; simp
+                  exact False.elim (hnopad (UInt8.ofNat 61) hmem rfl)
+              | cons x3 xs3 =>
+                  cases xs3 with
+                  | nil =>
+                      simp [b32BlockUnapply] at hun
+                      have hmem : (UInt8.ofNat 61) ∈ a := by rw [← hun]; simp
+                      exact False.elim (hnopad (UInt8.ofNat 61) hmem rfl)
+                  | cons x4 xs4 =>
+                      cases xs4 with
+                      | nil => rfl
+                      | cons _ _ => simp [b32BlockUnapply] at hun
+
+/-- A `Rel b32TailElem` value is a 1- to 4-byte list (a padded block). -/
+theorem Rel_b32TailElem_size (x : List UInt8) {n : Nat} (s : Bytes n) :
+    Rel b32TailElem x s → x.length = 1 ∨ x.length = 2 ∨ x.length = 3 ∨ x.length = 4 := by
+  intro h
+  unfold b32TailElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, ha, _⟩
+  unfold b32TailIso at ha
+  change b32TailApply a = some x at ha
+  unfold b32TailApply at ha
+  cases hb : b32BlockApply a with
+  | none => simp [hb] at ha
+  | some bl =>
+      cases bl with
+      | nil => simp [hb] at ha
+      | cons b0 t =>
+          cases t with
+          | nil => simp [hb] at ha; cases ha; left; rfl
+          | cons b1 t2 =>
+              cases t2 with
+              | nil => simp [hb] at ha; cases ha; right; left; rfl
+              | cons b2 t3 =>
+                  cases t3 with
+                  | nil => simp [hb] at ha; cases ha; right; right; left; rfl
+                  | cons b3 t4 =>
+                      cases t4 with
+                      | nil => simp [hb] at ha; cases ha; right; right; right; rfl
+                      | cons _ _ => simp [hb] at ha
+
+/-- The pad-dichotomy rejection: a value cannot be both a full block (5 bytes,
+no pad) and a terminal tail (1–4 bytes, padded). -/
+theorem Rel_b32BlockElem_not_tail (x : List UInt8) {n m : Nat} (s : Bytes n) (t : Bytes m) :
+    Rel b32BlockElem x s → Rel b32TailElem x t → False := by
+  intro hb ht
+  have h5 : x.length = 5 := Rel_b32BlockElem_size x s hb
+  have h14 := Rel_b32TailElem_size x t ht
+  rcases h14 with h1 | h2 | h3 | h4 <;> omega
+
+/-- A `Rel b32TailElem`-related string contains a `=` pad byte. -/
+theorem Rel_b32TailElem_has_pad (x : List UInt8) {n : Nat} (s : Bytes n) :
+    Rel b32TailElem x s → (∃ i : Fin n, (s i).toNat = 61) := by
+  intro h
+  unfold b32TailElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, ha, hr⟩
+  have hofn : List.ofFn s = a := Rel_count_satisfy_ofFn b32OrPad 8 a s hr
+  unfold b32TailIso at ha
+  change b32TailApply a = some x at ha
+  unfold b32TailApply at ha
+  cases hb : b32BlockApply a with
+  | none => simp [hb] at ha
+  | some bl =>
+      cases bl with
+      | nil => simp [hb] at ha
+      | cons b0 bl1 =>
+        cases bl1 with
+        | nil =>
+            have hun : b32BlockUnapply [b0] = some a := (b32BlockIso_law a [b0]).1 (by simpa using hb)
+            simp [b32BlockUnapply] at hun
+            have hmem : (UInt8.ofNat 61) ∈ a := by rw [← hun]; simp
+            rw [← hofn] at hmem
+            rcases List.mem_iff_getElem.mp hmem with ⟨i, hi, hi'⟩
+            refine ⟨⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩, ?_⟩
+            have hbyte : s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩ = (UInt8.ofNat 61) := by
+              exact (List.getElem_ofFn hi).symm.trans hi'
+            have hval : (s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩).toNat = 61 := by
+              simpa using congrArg UInt8.toNat hbyte
+            exact hval
+        | cons b1 bl2 =>
+          cases bl2 with
+          | nil =>
+            have hun : b32BlockUnapply [b0, b1] = some a := (b32BlockIso_law a [b0, b1]).1 (by simpa using hb)
+            simp [b32BlockUnapply] at hun
+            have hmem : (UInt8.ofNat 61) ∈ a := by rw [← hun]; simp
+            rw [← hofn] at hmem
+            rcases List.mem_iff_getElem.mp hmem with ⟨i, hi, hi'⟩
+            refine ⟨⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩, ?_⟩
+            have hbyte : s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩ = (UInt8.ofNat 61) := by
+              exact (List.getElem_ofFn hi).symm.trans hi'
+            have hval : (s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩).toNat = 61 := by
+              simpa using congrArg UInt8.toNat hbyte
+            exact hval
+          | cons b2 bl3 =>
+            cases bl3 with
+            | nil =>
+              have hun : b32BlockUnapply [b0, b1, b2] = some a := (b32BlockIso_law a [b0, b1, b2]).1 (by simpa using hb)
+              simp [b32BlockUnapply] at hun
+              have hmem : (UInt8.ofNat 61) ∈ a := by rw [← hun]; simp
+              rw [← hofn] at hmem
+              rcases List.mem_iff_getElem.mp hmem with ⟨i, hi, hi'⟩
+              refine ⟨⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩, ?_⟩
+              have hbyte : s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩ = (UInt8.ofNat 61) := by
+                exact (List.getElem_ofFn hi).symm.trans hi'
+              have hval : (s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩).toNat = 61 := by
+                simpa using congrArg UInt8.toNat hbyte
+              exact hval
+            | cons b3 bl4 =>
+              cases bl4 with
+              | nil =>
+                have hun : b32BlockUnapply [b0, b1, b2, b3] = some a := (b32BlockIso_law a [b0, b1, b2, b3]).1 (by simpa using hb)
+                simp [b32BlockUnapply] at hun
+                have hmem : (UInt8.ofNat 61) ∈ a := by rw [← hun]; simp
+                rw [← hofn] at hmem
+                rcases List.mem_iff_getElem.mp hmem with ⟨i, hi, hi'⟩
+                refine ⟨⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩, ?_⟩
+                have hbyte : s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩ = (UInt8.ofNat 61) := by
+                  exact (List.getElem_ofFn hi).symm.trans hi'
+                have hval : (s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩).toNat = 61 := by
+                  simpa using congrArg UInt8.toNat hbyte
+                exact hval
+              | cons _ _ =>
+                -- 5 bytes: b32TailApply rejects (returns none)
+                simp [hb] at ha
+
+/-! ## Whole-input roundtrip (base32 mirror)
+
+`decodeFullB32 (encodeB32 bs) = some bs`.  `[propext, Quot.sound]`-only. -/
+
+/-- A `relRepeat (Rel b32BlockElem)` consumes `8 · length` bytes (each block is an
+8-char element). -/
+theorem relB32Block_len {xs : List (List UInt8)} {n : Nat} (s : Bytes n) :
+    relRepeat (Rel b32BlockElem) xs n s → n = 8 * xs.length := by
+  intro h
+  induction xs generalizing n with
+  | nil =>
+      rw [relRepeat_nil] at h
+      subst n
+      rfl
+  | cons x rest ih =>
+      rw [relRepeat_cons] at h
+      rcases h with ⟨m, _hm, s₁, s₂, _hs, hrel₁, hrelRest⟩
+      have h8 : m = 8 := Rel_b32BlockElem_len x s₁ hrel₁
+      subst m
+      have hrest : n - 8 = 8 * rest.length := ih s₂ hrelRest
+      rw [List.length_cons, Nat.mul_add, Nat.mul_one]
+      omega
+
+/-- A `relRepeat (Rel b32TailElem)` consumes `8 · length` bytes. -/
+theorem relB32Tail_len {xs : List (List UInt8)} {n : Nat} (s : Bytes n) :
+    relRepeat (Rel b32TailElem) xs n s → n = 8 * xs.length := by
+  intro h
+  induction xs generalizing n with
+  | nil =>
+      rw [relRepeat_nil] at h
+      subst n
+      rfl
+  | cons x rest ih =>
+      rw [relRepeat_cons] at h
+      rcases h with ⟨m, _hm, s₁, s₂, _hs, hrel₁, hrelRest⟩
+      have h8 : m = 8 := Rel_b32TailElem_len x s₁ hrel₁
+      subst m
+      have hrest : n - 8 = 8 * rest.length := ih s₂ hrelRest
+      rw [List.length_cons, Nat.mul_add, Nat.mul_one]
+      omega
+
+/-! ## Encoded-output structure (inputs to the boundary-pin)
+
+`encodeRepeat b32BlockElem blocks` produces alphabet-only (no-pad) bytes, and a
+non-empty `encodeB32Tail` produces a padded block containing `=`. -/
+
+/-- The full-block encoding is alphabet-only. -/
+theorem encodeB32Block_nopad (blocks : List (List UInt8)) {n : Nat} {s : Bytes n}
+    (he : encodeRepeat b32BlockElem blocks = some ⟨n, s⟩) :
+    ∀ i : Fin n, b32Char (s i) = true := by
+  have hrel : relRepeat (Rel b32BlockElem) blocks n s := encodeRepeat_rel b32BlockElem blocks he
+  exact relRepeat_forall b32Char (fun x {m} t ht => Rel_b32BlockElem_canonical (t := t) ht) blocks n s hrel
+
+/-- A non-empty terminal-tail encoding contains a `=` pad byte. -/
+theorem encodeB32Tail_has_pad (tail : List UInt8) {n : Nat} {s : Bytes n}
+    (hne : tail ≠ []) (he : encodeB32Tail tail = some ⟨n, s⟩) :
+    ∃ i : Fin n, (s i).toNat = 61 := by
+  cases tail with
+  | nil => exact False.elim (hne rfl)
+  | cons b t =>
+      cases t with
+      | nil =>
+          have henc : Codec.encode b32TailElem [b] = some ⟨n, s⟩ := by simpa [encodeB32Tail] using he
+          have hrel : Rel b32TailElem [b] s := encode_rel b32TailElem [b] henc
+          exact Rel_b32TailElem_has_pad [b] s hrel
+      | cons b1 t1 =>
+          cases t1 with
+          | nil =>
+              have henc : Codec.encode b32TailElem [b, b1] = some ⟨n, s⟩ := by simpa [encodeB32Tail] using he
+              have hrel : Rel b32TailElem [b, b1] s := encode_rel b32TailElem [b, b1] henc
+              exact Rel_b32TailElem_has_pad [b, b1] s hrel
+          | cons b2 t2 =>
+              cases t2 with
+              | nil =>
+                  have henc : Codec.encode b32TailElem [b, b1, b2] = some ⟨n, s⟩ := by simpa [encodeB32Tail] using he
+                  have hrel : Rel b32TailElem [b, b1, b2] s := encode_rel b32TailElem [b, b1, b2] henc
+                  exact Rel_b32TailElem_has_pad [b, b1, b2] s hrel
+              | cons b3 t3 =>
+                  cases t3 with
+                  | nil =>
+                      have henc : Codec.encode b32TailElem [b, b1, b2, b3] = some ⟨n, s⟩ := by simpa [encodeB32Tail] using he
+                      have hrel : Rel b32TailElem [b, b1, b2, b3] s := encode_rel b32TailElem [b, b1, b2, b3] henc
+                      exact Rel_b32TailElem_has_pad [b, b1, b2, b3] s hrel
+                  | cons _ _ => simp [encodeB32Tail] at he
+
+/-- `encodeB32Tail tail = some ⟨n, s⟩` pins the encoded length to `0` (empty
+tail) or `8` (one padded block). -/
+theorem encodeB32Tail_len (tail : List UInt8) {n : Nat} {s : Bytes n}
+    (he : encodeB32Tail tail = some ⟨n, s⟩) :
+    n = 0 ∨ n = 8 := by
+  cases tail with
+  | nil =>
+      have hs : (⟨0, (Codec.emptyBytes : Bytes 0)⟩ : Sigma fun k => Bytes k) = ⟨n, s⟩ := by
+        simpa [encodeB32Tail] using he
+      cases hs
+      left; rfl
+  | cons b t =>
+      cases t with
+      | nil =>
+          have henc : Codec.encode b32TailElem [b] = some ⟨n, s⟩ := by simpa [encodeB32Tail] using he
+          have hrel : Rel b32TailElem [b] s := encode_rel b32TailElem [b] henc
+          have hlen : n = 8 := Rel_b32TailElem_len [b] s hrel
+          right; exact hlen
+      | cons b1 t1 =>
+          cases t1 with
+          | nil =>
+              have henc : Codec.encode b32TailElem [b, b1] = some ⟨n, s⟩ := by simpa [encodeB32Tail] using he
+              have hrel : Rel b32TailElem [b, b1] s := encode_rel b32TailElem [b, b1] henc
+              have hlen : n = 8 := Rel_b32TailElem_len [b, b1] s hrel
+              right; exact hlen
+          | cons b2 t2 =>
+              cases t2 with
+              | nil =>
+                  have henc : Codec.encode b32TailElem [b, b1, b2] = some ⟨n, s⟩ := by simpa [encodeB32Tail] using he
+                  have hrel : Rel b32TailElem [b, b1, b2] s := encode_rel b32TailElem [b, b1, b2] henc
+                  have hlen : n = 8 := Rel_b32TailElem_len [b, b1, b2] s hrel
+                  right; exact hlen
+              | cons b3 t3 =>
+                  cases t3 with
+                  | nil =>
+                      have henc : Codec.encode b32TailElem [b, b1, b2, b3] = some ⟨n, s⟩ := by simpa [encodeB32Tail] using he
+                      have hrel : Rel b32TailElem [b, b1, b2, b3] s := encode_rel b32TailElem [b, b1, b2, b3] henc
+                      have hlen : n = 8 := Rel_b32TailElem_len [b, b1, b2, b3] s hrel
+                      right; exact hlen
+                  | cons _ _ => simp [encodeB32Tail] at he
+
+/-! ## Whole-input roundtrip transport: prefix/suffix extraction (base32 mirror)
+
+The block/tail split-uniqueness lemma's boundary pin rests on extracting the
+decoded consumed-prefix / remaining bytes back to the committed block/tail.
+`[propext, Quot.sound]`-only. -/
+
+/-- From `t'.prepend s₀ = concat a b` and `m₁ + m₂ - t'.remaining = m₁`, the
+consumed prefix `s₀` is exactly `a`. -/
+theorem prepend_concat_prefix_cast {m₁ m₂ : Nat} (a : Bytes m₁) (b : Bytes m₂)
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (e : m₁ + m₂ - t'.remaining = m₁)
+    (h : t'.prepend s₀ = concat a b) :
+    cast (congrArg Bytes e) s₀ = a := by
+  apply Bytes.ext
+  intro i
+  have hi' : i.val < m₁ + m₂ - t'.remaining := by
+    rw [e]
+    exact i.isLt
+  rw [cast_bytes_val' (e := e)]
+  have hs₀ : s₀ ⟨i.val, hi'⟩ = (t'.prepend s₀) ⟨i.val, (by omega : i.val < m₁ + m₂)⟩ := by
+    rw [prepend_apply]
+    unfold concat
+    rw [cast_fin_symm]
+    · simp [hi']
+    · omega
+  have hpre : (t'.prepend s₀) ⟨i.val, (by omega : i.val < m₁ + m₂)⟩ = a ⟨i.val, by omega⟩ := by
+    rw [h]
+    unfold concat
+    simp [show i.val < m₁ by omega]
+  rw [hs₀, hpre]
+
+/-- From `t'.prepend s₀ = concat a b` and `t'.remaining = m₂`, the remaining
+suffix `t'.bytes` is exactly `b` (up to the length cast). -/
+theorem prepend_concat_suffix {m₁ m₂ : Nat} (a : Bytes m₁) (b : Bytes m₂)
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (hrem : t'.remaining = m₂)
+    (h : t'.prepend s₀ = concat a b) :
+    cast (congrArg Bytes (Nat.sub_sub_self t'.hle).symm) t'.bytes =
+      cast (congrArg Bytes (by omega : m₂ = (m₁ + m₂) - ((m₁ + m₂) - t'.remaining))) b := by
+  have hdrop := congrArg (bdrop (m₁ + m₂ - t'.remaining)) h
+  rw [bdrop_prepend t' s₀] at hdrop
+  have hrhs : bdrop (m₁ + m₂ - t'.remaining) (concat a b) =
+      cast (congrArg Bytes (by omega : m₂ = (m₁ + m₂) - ((m₁ + m₂) - t'.remaining))) b := by
+    apply Bytes.ext
+    intro i
+    rw [cast_bytes_val' (e := (by omega : m₂ = (m₁ + m₂) - ((m₁ + m₂) - t'.remaining)))]
+    dsimp [bdrop, concat]
+    have hk : m₁ + m₂ - t'.remaining = m₁ := by omega
+    have hnot : ¬ i.val + m₁ < m₁ := by omega
+    simp [hk, hnot]
+  rw [hdrop, hrhs]
+
+/-! ## The block/tail boundary pin
+
+The one genuinely new step of the padded-base roundtrip: pin the split between
+the full-block run and the terminal tail.  `[propext, Quot.sound]`-only. -/
+
+/-- Reading the consumed prefix of a `prepend`-reassembly. -/
+private theorem prepend_prefix_read {m₁ m₂ : Nat} (t' : Suffix (m₁ + m₂))
+    (s₀ : Bytes (m₁ + m₂ - t'.remaining)) (i : Fin (m₁ + m₂ - t'.remaining)) :
+    s₀ i = (t'.prepend s₀) ⟨i.val, (by omega : i.val < m₁ + m₂)⟩ := by
+  rw [prepend_apply]
+  unfold concat
+  rw [cast_fin_symm]
+  · simp [i.isLt]
+  · omega
+
+/-- Reading the remaining suffix of a `prepend`-reassembly against the committed
+`concat`. -/
+private theorem prepend_suffix_read {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (h : t'.prepend s₀ = concat blkBytes tailBytes)
+    (i : Fin t'.remaining) :
+    t'.bytes i =
+      (concat blkBytes tailBytes) ⟨i.val + (m₁ + m₂ - t'.remaining), (by
+        have hi : i.val < t'.remaining := i.isLt
+        have hle : t'.remaining ≤ m₁ + m₂ := t'.hle
+        omega)⟩ := by
+  have hdrop := congrArg (bdrop (m₁ + m₂ - t'.remaining)) h
+  rw [bdrop_prepend t' s₀] at hdrop
+  have hread := congrArg (fun (s : Bytes ((m₁ + m₂) - (m₁ + m₂ - t'.remaining))) =>
+    s ⟨i.val, (by
+      have hi : i.val < t'.remaining := i.isLt
+      have hsub : (m₁ + m₂) - (m₁ + m₂ - t'.remaining) = t'.remaining := Nat.sub_sub_self t'.hle
+      omega)⟩) hdrop
+  rw [cast_bytes_val' (e := (Nat.sub_sub_self t'.hle).symm)] at hread
+  dsimp [bdrop] at hread
+  simpa using hread
+
+/-- Reading a committed `concat` at a tail index: position `m₁ + i.val` is the
+tail byte `tailBytes i`. -/
+private theorem concat_tail_read {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
+    (i : Fin m₂) :
+    (concat blkBytes tailBytes) ⟨m₁ + i.val, (by omega : m₁ + i.val < m₁ + m₂)⟩ = tailBytes i := by
+  unfold concat
+  have hnot : ¬ (m₁ + i.val) < m₁ := by omega
+  simp [hnot, Nat.add_sub_cancel_left]
+
+/-- The first decoded tail block cannot sit inside the alphabet-only block
+region: its first 8 bytes are `blkBytes`-region bytes (no `=`), but a tail block
+always contains a `=` pad byte. -/
+private theorem b32_first_tail_block_not_alphabet
+    {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
+    (t : List UInt8) (rest : List (List UInt8))
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (htail : relRepeat (Rel b32TailElem) (t :: rest) t'.remaining t'.bytes)
+    (h : t'.prepend s₀ = concat blkBytes tailBytes)
+    (hblk : ∀ i : Fin m₁, b32Char (blkBytes i) = true)
+    (hL8 : (m₁ + m₂ - t'.remaining) + 8 ≤ m₁) :
+    False := by
+  rw [relRepeat_cons] at htail
+  rcases htail with ⟨m, hm, s₁, s₂, hs, ht₁, _⟩
+  have hm8 : m = 8 := Rel_b32TailElem_len t s₁ ht₁
+  have hpad₁ : ∃ i : Fin m, (s₁ i).toNat = 61 := Rel_b32TailElem_has_pad t s₁ ht₁
+  rcases hpad₁ with ⟨i, hi⟩
+  have hi_lt_m : i.val < m := i.isLt
+  have hi_lt_t' : i.val < t'.remaining := by omega
+  have hs₁read : s₁ i = t'.bytes ⟨i.val, hi_lt_t'⟩ := by
+    rw [hs]
+    simpa using (splice_prefix_read hm s₁ s₂ ⟨i.val, hi_lt_t'⟩ hi_lt_m).symm
+  have ht'pad : (t'.bytes ⟨i.val, hi_lt_t'⟩).toNat = 61 := by
+    rw [← hs₁read]
+    exact hi
+  have htsuffix : t'.bytes ⟨i.val, hi_lt_t'⟩ =
+      (concat blkBytes tailBytes) ⟨i.val + (m₁ + m₂ - t'.remaining), (by
+        have hle : t'.remaining ≤ m₁ + m₂ := t'.hle
+        omega : i.val + (m₁ + m₂ - t'.remaining) < m₁ + m₂)⟩ :=
+    prepend_suffix_read blkBytes tailBytes t' s₀ h ⟨i.val, hi_lt_t'⟩
+  have hconcatpad : ((concat blkBytes tailBytes) ⟨i.val + (m₁ + m₂ - t'.remaining), (by
+        have hle : t'.remaining ≤ m₁ + m₂ := t'.hle
+        omega : i.val + (m₁ + m₂ - t'.remaining) < m₁ + m₂)⟩).toNat = 61 := by
+    rw [← htsuffix]
+    exact ht'pad
+  have hconcat_read : (concat blkBytes tailBytes) ⟨i.val + (m₁ + m₂ - t'.remaining), (by
+        have hle : t'.remaining ≤ m₁ + m₂ := t'.hle
+        omega : i.val + (m₁ + m₂ - t'.remaining) < m₁ + m₂)⟩ =
+      blkBytes ⟨i.val + (m₁ + m₂ - t'.remaining), (by omega : i.val + (m₁ + m₂ - t'.remaining) < m₁)⟩ := by
+    unfold concat
+    have hi8 : i.val < 8 := by omega
+    have hlt : i.val + (m₁ + m₂ - t'.remaining) < m₁ := by omega
+    simp [hlt]
+  have hblkpad : (blkBytes ⟨i.val + (m₁ + m₂ - t'.remaining), (by omega : i.val + (m₁ + m₂ - t'.remaining) < m₁)⟩).toNat = 61 := by
+    rw [← hconcat_read]
+    exact hconcatpad
+  have hcanon := hblk ⟨i.val + (m₁ + m₂ - t'.remaining), (by omega : i.val + (m₁ + m₂ - t'.remaining) < m₁)⟩
+  unfold b32Char at hcanon
+  rw [hblkpad] at hcanon
+  have hfalse : b32Valid 61 = false := by decide
+  rw [hfalse] at hcanon
+  exact Bool.false_ne_true hcanon
+
+/-- `8 * a < 8 * b → a < b`. -/
+private theorem eight_mul_lt_of_lt {a b : Nat} (h : 8 * a < 8 * b) : a < b := by
+  omega
+
+/-- The block/tail boundary pin: the full-block run of a padded base consumes
+exactly `m₁` bytes, leaving exactly the terminal tail `m₂`. -/
+theorem b32_boundary_pin
+    {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
+    (blocks blocks' : List (List UInt8)) (tail'' : List (List UInt8))
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (henc : relRepeat (Rel b32BlockElem) blocks m₁ blkBytes)
+    (hblock : relRepeat (Rel b32BlockElem) blocks' (m₁ + m₂ - t'.remaining) s₀)
+    (htail : relRepeat (Rel b32TailElem) tail'' t'.remaining t'.bytes)
+    (h : t'.prepend s₀ = concat blkBytes tailBytes)
+    (hm₂ : m₂ = 0 ∨ m₂ = 8)
+    (hpad : m₂ ≠ 0 → ∃ i : Fin m₂, (tailBytes i).toNat = 61) :
+    t'.remaining = m₂ := by
+  have hs₀ : ∀ i : Fin (m₁ + m₂ - t'.remaining), b32Char (s₀ i) = true :=
+    relRepeat_forall b32Char (fun x {m} t ht => Rel_b32BlockElem_canonical (t := t) ht) blocks' (m₁ + m₂ - t'.remaining) s₀ hblock
+  have hblk : ∀ i : Fin m₁, b32Char (blkBytes i) = true :=
+    relRepeat_forall b32Char (fun x {m} t ht => Rel_b32BlockElem_canonical (t := t) ht) blocks m₁ blkBytes henc
+  have hL : m₁ + m₂ - t'.remaining = 8 * blocks'.length := relB32Block_len s₀ hblock
+  have hm₁len : m₁ = 8 * blocks.length := relB32Block_len blkBytes henc
+  have ht' : t'.remaining = 8 * tail''.length := relB32Tail_len t'.bytes htail
+  rcases hm₂ with hm₂0 | hm₂8
+  · -- m₂ = 0 (empty tail): the block run must consume everything
+    cases tail'' with
+    | nil =>
+        have ht'0 : t'.remaining = 0 := by simpa using ht'
+        omega
+    | cons t rest =>
+        have ht'pos : 8 ≤ t'.remaining := by
+          rw [ht']
+          simp only [List.length_cons]
+          omega
+        have hL8 : (m₁ + m₂ - t'.remaining) + 8 ≤ m₁ := by
+          have ht'le : t'.remaining ≤ m₁ := by simpa [hm₂0] using t'.hle
+          omega
+        exact False.elim (b32_first_tail_block_not_alphabet blkBytes tailBytes t rest t' s₀ htail h hblk hL8)
+  · -- m₂ = 8 (padded tail): the block run must stop exactly at m₁
+    have hpad' : ∃ i : Fin m₂, (tailBytes i).toNat = 61 := hpad (by omega : m₂ ≠ 0)
+    rcases hpad' with ⟨ip, hip⟩
+    have hconcat_tail : (concat blkBytes tailBytes) ⟨m₁ + ip.val, (by omega : m₁ + ip.val < m₁ + m₂)⟩ = tailBytes ip :=
+      concat_tail_read blkBytes tailBytes ip
+    have hnot : ¬ (m₁ + ip.val) < (m₁ + m₂ - t'.remaining) := by
+      intro hjlt
+      have hs₀read : s₀ ⟨m₁ + ip.val, hjlt⟩ = (concat blkBytes tailBytes) ⟨m₁ + ip.val, (by omega : m₁ + ip.val < m₁ + m₂)⟩ := by
+        rw [prepend_prefix_read t' s₀ ⟨m₁ + ip.val, hjlt⟩]
+        rw [h]
+      have hs₀pad : (s₀ ⟨m₁ + ip.val, hjlt⟩).toNat = 61 := by
+        rw [hs₀read, hconcat_tail]
+        exact hip
+      have hcanon := hs₀ ⟨m₁ + ip.val, hjlt⟩
+      unfold b32Char at hcanon
+      rw [hs₀pad] at hcanon
+      have hfalse : b32Valid 61 = false := by decide
+      rw [hfalse] at hcanon
+      exact Bool.false_ne_true hcanon
+    have hL_le_j : m₁ + m₂ - t'.remaining ≤ m₁ + ip.val := Nat.le_of_not_gt hnot
+    have hL_le_m₁7 : m₁ + m₂ - t'.remaining ≤ m₁ + 7 := by omega
+    have hlen_le : blocks'.length ≤ blocks.length := by omega
+    have hL_le_m₁ : m₁ + m₂ - t'.remaining ≤ m₁ := by omega
+    cases tail'' with
+    | nil =>
+        have ht'0 : t'.remaining = 0 := by simpa using ht'
+        have hcontra : m₁ + m₂ ≤ m₁ := by
+          rw [ht'0] at hL_le_m₁
+          simpa using hL_le_m₁
+        omega
+    | cons t rest =>
+        by_cases hL_eq : m₁ + m₂ - t'.remaining = m₁
+        · have hsub : (m₁ + m₂ - t'.remaining) + t'.remaining = m₁ + m₂ := Nat.sub_add_cancel t'.hle
+          have hsub' : m₁ + t'.remaining = m₁ + m₂ := by
+            rw [hL_eq] at hsub
+            exact hsub
+          exact Nat.add_left_cancel hsub'
+        · have hL_lt : m₁ + m₂ - t'.remaining < m₁ := Nat.lt_of_le_of_ne hL_le_m₁ hL_eq
+          have hlen_lt : blocks'.length < blocks.length := by
+            have h1 : 8 * blocks'.length < 8 * blocks.length := by
+              rw [← hL, ← hm₁len]
+              exact hL_lt
+            exact eight_mul_lt_of_lt h1
+          have hL8 : (m₁ + m₂ - t'.remaining) + 8 ≤ m₁ := by
+            have hlen_succ : blocks'.length + 1 ≤ blocks.length := Nat.succ_le_of_lt hlen_lt
+            have h8 : 8 * blocks'.length + 8 ≤ 8 * blocks.length := by
+              have h := Nat.mul_le_mul_left 8 hlen_succ
+              simpa [Nat.mul_add] using h
+            omega
+          exact False.elim (b32_first_tail_block_not_alphabet blkBytes tailBytes t rest t' s₀ htail h hblk hL8)
+
+/-- The block run extracted by the whole-input decoder is the committed block
+run: once the boundary pin fixes `t'.remaining = m₂`, the decoded block prefix
+`s₀` is exactly `blkBytes`, and `relB32Block_unambiguous` pins `blocks' = blocks`. -/
+theorem b32_block_run_of_boundary
+    {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
+    (blocks blocks' : List (List UInt8))
+    (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
+    (henc : relRepeat (Rel b32BlockElem) blocks m₁ blkBytes)
+    (hblock : relRepeat (Rel b32BlockElem) blocks' (m₁ + m₂ - t'.remaining) s₀)
+    (h : t'.prepend s₀ = concat blkBytes tailBytes)
+    (hrem : t'.remaining = m₂) :
+    blocks' = blocks := by
+  have he : m₁ + m₂ - t'.remaining = m₁ := by omega
+  have hblock' : relRepeat (Rel b32BlockElem) blocks' m₁ (cast (congrArg Bytes he) s₀) :=
+    (relRepeat_cast (Rel b32BlockElem) blocks' he s₀).2 hblock
+  have hs₀ : cast (congrArg Bytes he) s₀ = blkBytes :=
+    prepend_concat_prefix_cast blkBytes tailBytes t' s₀ he h
+  rw [hs₀] at hblock'
+  exact relB32Block_unambiguous blkBytes hblock' henc
+
+/-! ## Whole-input roundtrip assembly (base32 mirror)
+
+The roundtrip `decodeFullB32 (encodeB32 bs) = some bs`.  `[propext, Quot.sound]`-only. -/
+
+/-- The committed encode of `bs` produces a `decodeFullB32`-candidate. -/
+theorem decodeFullB32_mem_encode (bs : List UInt8) {n : Nat} {s : Bytes n}
+    (he : encodeB32 bs = some ⟨n, s⟩) :
+    bs ∈ (decodeRepeat b32BlockElem b32BlockConsumesByte n s).filterMap
+      (fun ⟨blocks, t⟩ =>
+        match decodeFull b32TailElem b32TailConsumesByte t.remaining t.bytes with
+        | some tail => some (blocks.flatten ++ tail.flatten)
+        | none => none) := by
+  let blocks := (b32Split_ofBytes (b32OfBytes bs)).1
+  let tail := (b32Split_ofBytes (b32OfBytes bs)).2
+  cases heb : encodeRepeat b32BlockElem blocks with
+  | none =>
+      unfold encodeB32 encodeB32' at he
+      simp [blocks, heb] at he
+  | some b =>
+      cases het : encodeB32Tail tail with
+      | none =>
+          unfold encodeB32 encodeB32' at he
+          simp [blocks, tail, heb, het] at he
+      | some t =>
+          rcases b with ⟨m₁, blkBytes⟩
+          rcases t with ⟨m₂, tailBytes⟩
+          have hpair : (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = ⟨n, s⟩ := by
+            have he' : some (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = some ⟨n, s⟩ := by
+              unfold encodeB32 encodeB32' at he
+              simpa [blocks, tail, heb, het] using he
+            exact Option.some.inj he'
+          cases hpair
+          have hblkmem : (blocks, Suffix.empty m₁) ∈ decodeRepeat b32BlockElem b32BlockConsumesByte m₁ blkBytes :=
+            (decodeRepeat_spec b32BlockElem b32BlockConsumesByte blocks m₁ blkBytes (Suffix.empty m₁)).2
+              ⟨cast (congrArg Bytes (Nat.sub_zero m₁).symm) blkBytes, (prepend_empty_eq blkBytes).symm,
+                (relRepeat_cast (Rel b32BlockElem) blocks (Nat.sub_zero m₁).symm blkBytes).2
+                  (encodeRepeat_rel b32BlockElem blocks heb)⟩
+          have hblkpre : (blocks, Suffix.drop m₁ (Codec.concat blkBytes tailBytes)) ∈
+              decodeRepeat b32BlockElem b32BlockConsumesByte (m₁ + m₂) (Codec.concat blkBytes tailBytes) :=
+            decodeRepeat_prefix_concat b32BlockElem b32BlockConsumesByte blocks blkBytes tailBytes hblkmem
+          have hflat : blocks.flatten ++ tail = bs := by
+            dsimp [blocks, tail]
+            rw [b32Split_ofBytes_shape (b32OfBytes bs), b32BytesOf_ofBytes bs]
+          rw [List.mem_filterMap]
+          refine ⟨(blocks, Suffix.drop m₁ (Codec.concat blkBytes tailBytes)), hblkpre, ?_⟩
+          by_cases hne : tail = []
+          · -- empty tail: `tail = []`
+            rw [hne] at het
+            have ht : decodeFull b32TailElem b32TailConsumesByte
+                (Suffix.drop m₁ (Codec.concat blkBytes tailBytes)).remaining
+                (Suffix.drop m₁ (Codec.concat blkBytes tailBytes)).bytes = some [] :=
+              decodeFull_b32Tail_suffix_nil (sb := blkBytes) (st := tailBytes) het
+            simp [ht]
+            rw [hne] at hflat
+            simpa using hflat
+          · -- non-empty tail
+            have ht : decodeFull b32TailElem b32TailConsumesByte
+                (Suffix.drop m₁ (Codec.concat blkBytes tailBytes)).remaining
+                (Suffix.drop m₁ (Codec.concat blkBytes tailBytes)).bytes = some [tail] :=
+              decodeFull_b32Tail_suffix_cons tail (sb := blkBytes) (st := tailBytes) het hne
+            simp [ht]
+            rw [hflat]
+
+/-- The whole-input roundtrip: `decodeFullB32 (encodeB32 bs) = some bs`. -/
+theorem decodeFullB32_roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n}
+    (he : encodeB32 bs = some ⟨n, s⟩) :
+    decodeFullB32 s = some bs := by
+  unfold decodeFullB32
+  apply head?_eq_some_of_mem_eq bs
+  · exact decodeFullB32_mem_encode bs he
+  · intro x hx
+    rw [List.mem_filterMap] at hx
+    rcases hx with ⟨pr, hmem, hfx⟩
+    rcases pr with ⟨blocks', t'⟩
+    cases htaildec : decodeFull b32TailElem b32TailConsumesByte t'.remaining t'.bytes with
+    | none =>
+        simp [htaildec] at hfx
+    | some tail' =>
+        let blocks := (b32Split_ofBytes (b32OfBytes bs)).1
+        let tail := (b32Split_ofBytes (b32OfBytes bs)).2
+        cases heb : encodeRepeat b32BlockElem blocks with
+        | none =>
+            unfold encodeB32 encodeB32' at he
+            simp [blocks, heb] at he
+        | some b =>
+            cases het : encodeB32Tail tail with
+            | none =>
+                unfold encodeB32 encodeB32' at he
+                simp [blocks, tail, heb, het] at he
+            | some t =>
+                rcases b with ⟨m₁, blkBytes⟩
+                rcases t with ⟨m₂, tailBytes⟩
+                have hpair : (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = ⟨n, s⟩ := by
+                  have he' : some (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = some ⟨n, s⟩ := by
+                    unfold encodeB32 encodeB32' at he
+                    simpa [blocks, tail, heb, het] using he
+                  exact Option.some.inj he'
+                cases hpair
+                have hflat : blocks.flatten ++ tail = bs := by
+                  dsimp [blocks, tail]
+                  rw [b32Split_ofBytes_shape (b32OfBytes bs), b32BytesOf_ofBytes bs]
+                rcases (decodeRepeat_spec b32BlockElem b32BlockConsumesByte blocks'
+                    (m₁ + m₂) (Codec.concat blkBytes tailBytes) t').1 hmem with ⟨s₀, hs, hblocks'⟩
+                have htailmem : (tail', Suffix.empty t'.remaining) ∈
+                    decodeRepeat b32TailElem b32TailConsumesByte t'.remaining t'.bytes :=
+                  decodeFull_some b32TailElem b32TailConsumesByte t'.bytes tail' htaildec
+                rcases (decodeRepeat_spec b32TailElem b32TailConsumesByte tail'
+                    t'.remaining t'.bytes (Suffix.empty t'.remaining)).1 htailmem with ⟨s₀t, htbs, htail⟩
+                have htailn : relRepeat (Rel b32TailElem) tail' t'.remaining t'.bytes := by
+                  have hs₀t : cast (congrArg Bytes (Nat.sub_zero t'.remaining)) s₀t = t'.bytes := by
+                    rw [prepend_empty s₀t] at htbs
+                    exact htbs.symm
+                  have htailcast : relRepeat (Rel b32TailElem) tail' t'.remaining
+                      (cast (congrArg Bytes (Nat.sub_zero t'.remaining)) s₀t) :=
+                    (relRepeat_cast (Rel b32TailElem) tail' (Nat.sub_zero t'.remaining) s₀t).2 htail
+                  rw [hs₀t] at htailcast
+                  exact htailcast
+                have henc : relRepeat (Rel b32BlockElem) blocks m₁ blkBytes :=
+                  encodeRepeat_rel b32BlockElem blocks heb
+                have hm₂ : m₂ = 0 ∨ m₂ = 8 := encodeB32Tail_len tail het
+                have htail_ne_of_m₂ : m₂ ≠ 0 → tail ≠ [] := by
+                  intro hm₂ne htnil
+                  rw [htnil] at het
+                  have hge := Option.some.inj het
+                  have hm₂zero : m₂ = 0 := (congrArg Sigma.fst hge).symm
+                  exact hm₂ne hm₂zero
+                have hpad : m₂ ≠ 0 → ∃ i : Fin m₂, (tailBytes i).toNat = 61 := by
+                  intro hm₂ne
+                  exact encodeB32Tail_has_pad tail (htail_ne_of_m₂ hm₂ne) het
+                have hbnd : t'.remaining = m₂ :=
+                  b32_boundary_pin blkBytes tailBytes blocks blocks' tail' t' s₀ henc hblocks' htailn
+                    hs.symm hm₂ hpad
+                have hblocks_eq : blocks' = blocks :=
+                  b32_block_run_of_boundary blkBytes tailBytes blocks blocks' t' s₀ henc hblocks'
+                    hs.symm hbnd
+                have hx : x = blocks'.flatten ++ tail'.flatten := by
+                  simp [htaildec] at hfx
+                  exact hfx.symm
+                rw [hblocks_eq] at hx
+                have htailflat : tail'.flatten = tail := by
+                  have hbytescast : cast (congrArg Bytes hbnd) t'.bytes = tailBytes := by
+                    apply Bytes.ext
+                    intro i
+                    rw [cast_bytes_val' (e := hbnd)]
+                    have hread := prepend_suffix_read blkBytes tailBytes t' s₀ hs.symm
+                        ⟨i.val, Nat.lt_of_lt_of_eq i.isLt hbnd.symm⟩
+                    rw [hread]
+                    have hk : m₁ + m₂ - t'.remaining = m₁ := by rw [hbnd]; omega
+                    simpa [hk, Nat.add_comm, Nat.add_left_comm] using (concat_tail_read blkBytes tailBytes i)
+                  have htaildec' : decodeFull b32TailElem b32TailConsumesByte m₂
+                      (cast (congrArg Bytes hbnd) t'.bytes) = some tail' := by
+                    have hc := decodeFull_cast b32TailElem b32TailConsumesByte hbnd t'.bytes
+                    rw [← hc] at htaildec
+                    exact htaildec
+                  have htaildec'' : decodeFull b32TailElem b32TailConsumesByte m₂ tailBytes = some tail' := by
+                    rw [hbytescast] at htaildec'
+                    exact htaildec'
+                  cases htailc : tail with
+                  | nil =>
+                      have het' : encodeB32Tail [] = some ⟨m₂, tailBytes⟩ := by
+                        simpa [htailc] using het
+                      have htail_enc' : decodeFull b32TailElem b32TailConsumesByte m₂ tailBytes = some [] := by
+                        simpa using (decodeFull_b32Tail_of_encode [] het')
+                      have htail' : tail' = [] := (Option.some.inj (htail_enc'.symm.trans htaildec'')).symm
+                      rw [htail']
+                      rfl
+                  | cons b rest =>
+                      have het' : encodeB32Tail (b :: rest) = some ⟨m₂, tailBytes⟩ := by
+                        simpa [htailc] using het
+                      have htail_enc' : decodeFull b32TailElem b32TailConsumesByte m₂ tailBytes = some [b :: rest] := by
+                        simpa using (decodeFull_b32Tail_of_encode (b :: rest) het')
+                      have htail' : tail' = [b :: rest] := (Option.some.inj (htail_enc'.symm.trans htaildec'')).symm
+                      rw [htail']
+                      simp
+                rw [hx, htailflat]
+                exact hflat
+
 end BaseN.Base32
