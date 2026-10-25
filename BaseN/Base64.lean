@@ -2276,4 +2276,270 @@ theorem encodeB64_canonical (bs : List UInt8) {n : Nat} {s : Bytes n}
               · exact hc1
               · exact hc2
 
+/-! ## Converse (task 4.3) and injectivity (task 4.4)
+
+`decodeFullB64 s = some v → encodeB64 v = some ⟨n, s⟩` (the decode→encode
+converse: a successful decode re-encodes to the exact input) and
+`encodeB64 v = encodeB64 v' = some ⟨n, s⟩ → v = v'` (injectivity).  Both
+`[propext, Quot.sound]`-only. -/
+
+/-- A `b64BlockElem`-related value is a 3-byte list (already in
+`Rel_b64BlockElem_size`); lifted to a `relRepeat`, every block of a block-run is
+exactly 3 bytes.  Proved by induction on the block list: each `cons` step's head
+relates via `Rel b64BlockElem` over a 4-byte window, so `Rel_b64BlockElem_size`
+pins its value to length 3, and the tail is handled by the IH. -/
+theorem relB64Block_all_size3 :
+    ∀ {blocks : List (List UInt8)} {m : Nat} (s : Bytes m),
+      relRepeat (Rel b64BlockElem) blocks m s → ∀ b ∈ blocks, b.length = 3 := by
+  intro blocks m s hrel
+  induction blocks generalizing m s with
+  | nil =>
+      intro b hb
+      simp at hb
+  | cons x xs ih =>
+      intro b hb
+      rw [relRepeat_cons] at hrel
+      rcases hrel with ⟨m₁, hm₁, s₁, s₂, _hs, hx, hxs⟩
+      rw [List.mem_cons] at hb
+      rcases hb with hbeq | hbmem
+      · subst b
+        exact Rel_b64BlockElem_size x s₁ hx
+      · exact ih s₂ hxs b hbmem
+
+/-- `b64Split` reconstructs a run of 3-byte blocks plus a ≤ 2-byte tail: given
+`blocks` all length-3 and `tail.length ≤ 2`, splitting `blocks.flatten ++ tail`
+recovers exactly `(blocks, tail)`.  This is the split-back fact the converse needs
+to turn a decoded value `blocks.flatten ++ tail.flatten` back into the same
+`blocks`/`tail` the encoder will re-emit. -/
+theorem b64Split_blocks_tail (blocks : List (List UInt8)) (tail : List UInt8)
+    (hblocks : ∀ b ∈ blocks, b.length = 3) (htail : tail.length ≤ 2) :
+    b64Split (blocks.flatten ++ tail) = (blocks, tail) := by
+  induction blocks generalizing tail with
+  | nil =>
+      cases tail with
+      | nil => rfl
+      | cons a t =>
+          cases t with
+          | nil => rfl
+          | cons b t2 =>
+              cases t2 with
+              | nil => rfl
+              | cons c t3 =>
+                  simp at htail
+  | cons b bs ih =>
+      have hb : b.length = 3 := hblocks b (by simp)
+      have hbs : ∀ b' ∈ bs, b'.length = 3 := by
+        intro b' hb'; exact hblocks b' (by simp [hb'])
+      cases b with
+      | nil => simp at hb
+      | cons b0 t0 =>
+          cases t0 with
+          | nil => simp at hb
+          | cons b1 t1 =>
+              cases t1 with
+              | nil => simp at hb
+              | cons b2 t2 =>
+                  cases t2 with
+                  | nil =>
+                      show b64Split (b0 :: b1 :: b2 :: (bs.flatten ++ tail)) = ([b0, b1, b2] :: bs, tail)
+                      rw [b64Split.eq_4]
+                      rw [ih tail hbs htail]
+                  | cons c t3 => simp at hb
+
+/-! ## The converse: a successful decode re-encodes to the input -/
+
+/-- A single decoded tail block re-encodes: from `relRepeat (Rel b64TailElem)
+tails m st` with `tails.length ≤ 1`, the tail encoder `encodeB64Tail
+tails.flatten` reproduces `⟨m, st⟩` exactly (functionality of `b64TailElem` pins
+the bytes).  `[propext, Quot.sound]`-only. -/
+theorem encodeB64Tail_of_rel (tails : List (List UInt8)) {m : Nat} (st : Bytes m)
+    (hrel : relRepeat (Rel b64TailElem) tails m st) (hlen : tails.length ≤ 1) :
+    encodeB64Tail tails.flatten = some ⟨m, st⟩ := by
+  cases tails with
+  | nil =>
+      rw [relRepeat_nil] at hrel
+      subst m
+      have hst0 : st = (Codec.emptyBytes : Bytes 0) := by
+        apply Bytes.ext
+        intro i
+        exact Fin.elim0 i
+      subst hst0
+      rfl
+  | cons x txs =>
+      cases txs with
+      | nil =>
+          -- tails = [x]: extract `Rel b64TailElem x st` (the run is a single step)
+          have hrelx : Rel b64TailElem x st := by
+            rw [relRepeat_cons] at hrel
+            rcases hrel with ⟨m₁, hm₁, s₁, s₂, hs, hx, hr⟩
+            rw [relRepeat_nil] at hr
+            have hm₁m : m₁ = m := by omega
+            subst hm₁m
+            -- s₂ : Bytes (m - m) = Bytes 0; st = splice .. s₁ (empty), so s₁ = st
+            have hs₁st : s₁ = st := by
+              apply Bytes.ext
+              intro i
+              rw [hs]
+              rw [Codec.splice_apply]
+              rw [cast_fin_symm]
+              · unfold Codec.concat
+                simp [i.isLt]
+              · omega
+            rw [hs₁st] at hx
+            exact hx
+          -- now re-encode via functionality
+          have hxlen : x.length = 1 ∨ x.length = 2 := Rel_b64TailElem_size x st hrelx
+          have henc_ne : Codec.encode b64TailElem x ≠ none :=
+            encode_ne_none b64TailElem x st hrelx
+          cases he : Codec.encode b64TailElem x with
+          | none => exact False.elim (henc_ne he)
+          | some e =>
+              rcases e with ⟨n₁, s₁⟩
+              have hrel' : Rel b64TailElem x s₁ := encode_rel b64TailElem x he
+              have hpin : (⟨n₁, s₁⟩ : Sigma fun k => Bytes k) = ⟨m, st⟩ :=
+                b64TailElem_functional x s₁ st hrel' hrelx
+              cases hpin
+              -- encodeB64Tail x = Codec.encode b64TailElem x (x is 1 or 2 bytes)
+              rcases hxlen with h1 | h2
+              · -- x.length = 1: x = [a]
+                rcases x with _ | ⟨a, t⟩
+                · simp only [List.length_nil] at h1; omega
+                · cases t with
+                    | nil => simp [encodeB64Tail]; exact he
+                    | cons _ _ => simp only [List.length_cons] at h1; omega
+              · -- x.length = 2: x = [a, b]
+                rcases x with _ | ⟨a, t⟩
+                · simp only [List.length_nil] at h2; omega
+                · cases t with
+                    | nil => simp only [List.length_cons, List.length_nil] at h2; omega
+                    | cons b t2 =>
+                        cases t2 with
+                        | nil => simp [encodeB64Tail]; exact he
+                        | cons _ _ => simp only [List.length_cons] at h2; omega
+      | cons y ys =>
+          have hnle : ¬ (x :: y :: ys).length ≤ 1 := by simp
+          exact False.elim (hnle hlen)
+
+/-- The converse (`decodeFullB64 s = some v → encodeB64 v = some ⟨n, s⟩`).  A
+successful decode decomposes (via `decodeFullB64_some`) into a block run
+`blocks` and an at-most-one-block tail `tails`, with `v = blocks.flatten ++
+tails.flatten`.  Re-encode the blocks by `encodeRepeat_of_rel` and the tail by
+`encodeB64Tail_of_rel` (functionality pins the exact bytes), then reassemble
+`concat s₀ t.bytes` back to `s` via the `t.prepend s₀ = s` transport.
+`[propext, Quot.sound]`-only. -/
+theorem decodeFullB64_conv {n : Nat} (s : Bytes n) (v : List UInt8)
+    (h : decodeFullB64 s = some v) :
+    encodeB64 v = some ⟨n, s⟩ := by
+  rcases decodeFullB64_some s v h with ⟨blocks, t, tails, hmem, htail, hlen, hflat⟩
+  rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks n s t).1 hmem with
+    ⟨s₀, hs₀, hrel₀⟩
+  have hblock3 : ∀ b ∈ blocks, b.length = 3 := relB64Block_all_size3 s₀ hrel₀
+  -- re-encode the block run
+  have henc₀ : encodeRepeat b64BlockElem blocks = some ⟨n - t.remaining, s₀⟩ :=
+    encodeRepeat_of_rel b64BlockElem b64BlockElem_functional blocks s₀ hrel₀
+  -- re-encode the tail
+  have hmemt : (tails, Suffix.empty t.remaining) ∈ decodeRepeat b64TailElem b64TailConsumesByte t.remaining t.bytes :=
+    decodeFull_some b64TailElem b64TailConsumesByte t.bytes tails htail
+  rcases (decodeRepeat_spec b64TailElem b64TailConsumesByte tails t.remaining t.bytes (Suffix.empty t.remaining)).1 hmemt with
+    ⟨st, hst, hrelt⟩
+  -- `st : Bytes (t.remaining - (Suffix.empty t.remaining).remaining)`; that length
+  -- is `t.remaining - 0 = t.remaining`, so normalise it in place
+  simp only [Suffix.empty, Nat.sub_zero] at st hrelt
+  have henct : encodeB64Tail tails.flatten = some ⟨t.remaining, st⟩ :=
+    encodeB64Tail_of_rel tails st hrelt hlen
+  -- the flattened tail is at most 2 bytes (the split-back length hypothesis)
+  have htail2 : tails.flatten.length ≤ 2 := by
+    cases tails with
+    | nil => simp
+    | cons x txs =>
+        cases txs with
+        | nil =>
+            have hxlen : x.length = 1 ∨ x.length = 2 := by
+              rw [relRepeat_cons] at hrelt
+              rcases hrelt with ⟨mh, hmh, sh, srest, hsp, hxr, _⟩
+              exact Rel_b64TailElem_size x sh hxr
+            simpa using hxlen.elim (fun h => (h ▸ (by decide : 1 ≤ 2))) (fun h => (h ▸ (by decide : 2 ≤ 2)))
+        | cons y ys =>
+            have hnle : ¬ (x :: y :: ys).length ≤ 1 := by simp
+            exact absurd hlen hnle
+  -- split-back: `v = blocks.flatten ++ tails.flatten` splits as `(blocks, tails.flatten)`
+  have hsplit : b64Split (blocks.flatten ++ tails.flatten) = (blocks, tails.flatten) :=
+    b64Split_blocks_tail blocks tails.flatten hblock3 htail2
+  -- `st` is `t.bytes` (read through the empty-suffix prepend)
+  have hst_eq : st = t.bytes := by
+    have h1 : (Suffix.empty t.remaining).prepend st = t.bytes := hst.symm
+    rw [Codec.prepend_empty] at h1
+    apply Bytes.ext
+    intro j
+    have hj := congrFun h1 j
+    rw [cast_bytes_val' (e := Nat.sub_zero t.remaining)] at hj
+    exact hj
+  subst hst_eq
+  -- expand `encodeB64 v` and rewrite the two component encodes
+  rw [encodeB64, b64Split_ofBytes_ofBytes v]
+  rw [← hflat]
+  rw [hsplit]
+  rw [encodeB64']
+  rw [henc₀, henct]
+  dsimp only []
+  -- goal: `some ⟨(n - t.remaining) + t.remaining, concat s₀ t.bytes⟩ = some ⟨n, s⟩`
+  have hlen : n - t.remaining + t.remaining = n := Nat.sub_add_cancel t.hle
+  -- the reassembled bytes: `concat s₀ st = s` (transported along `hlen.symm`)
+  have hbytes : Codec.concat s₀ t.bytes = cast (congrArg Bytes hlen.symm) s := by
+    apply Bytes.ext
+    intro j
+    rw [cast_bytes_val' (e := hlen.symm)]
+    unfold Codec.concat
+    by_cases hj : j.val < n - t.remaining
+    · simp [hj]
+      -- prefix read: `s₀ ⟨j.val⟩ = s ⟨j.val⟩` via `t.prepend s₀ = s`
+      have hread : s₀ ⟨j.val, hj⟩ = (t.prepend s₀) ⟨j.val, by omega⟩ :=
+        (Codec.prepend_prefix_read t s₀ ⟨j.val, by omega⟩ hj).symm
+      rw [hread]
+      exact (congrFun hs₀ _).symm
+    · -- suffix read
+      have hidx : j.val - (n - t.remaining) < t.remaining := by
+        have := t.hle
+        omega
+      -- st reads as t.bytes at the suffix index
+      have hread : ∀ (hix : j.val - (n - t.remaining) < t.remaining),
+          t.bytes ⟨j.val - (n - t.remaining), hix⟩ = s ⟨j.val, by omega⟩ := by
+        intro hix
+        have hprep : t.bytes ⟨j.val - (n - t.remaining), hix⟩ =
+            (t.prepend s₀) ⟨j.val, by omega⟩ := by
+          unfold Suffix.prepend
+          rw [Codec.splice_apply]
+          rw [cast_fin_symm]
+          · simp only [Nat.not_lt.mpr (Nat.le_of_not_gt hj), Codec.concat, dif_neg (by decide : ¬ False)]
+            rw [cast_bytes_val']
+            omega
+          · omega
+        exact hprep.trans (congrFun hs₀ _).symm
+      -- take the else branch of the (already-unfolded) `concat`
+      simp only [hj, ite_false, cast_bytes_val']
+      exact hread _
+  -- conclude the `Option`/`Sigma` equality from the length and byte identities
+  have hsig : (⟨n - t.remaining + t.remaining, Codec.concat s₀ t.bytes⟩ : Sigma fun k => Bytes k) = ⟨n, s⟩ :=
+    Sigma.ext hlen (by
+      have h1 : HEq (Codec.concat s₀ t.bytes) (cast (congrArg Bytes hlen.symm) s) :=
+        heq_of_eq hbytes
+      exact h1.trans (cast_heq (congrArg Bytes hlen.symm) s))
+  rw [hsig]
+
+/-! ## Injectivity (task 4.4)
+
+`encodeB64` is injective on its value: two byte lists that encode to the same
+`(length, bytes)` are equal.  This is immediate from the roundtrip
+`decodeFullB64_roundtrip` (both `v` and `v'` decode from the same `s`), so
+`decodeFullB64` is the left inverse and `encodeB64` a partial bijection.
+`[propext, Quot.sound]`-only. -/
+
+/-- `encodeB64` injectivity: `encodeB64 v = encodeB64 v' = some ⟨n, s⟩ → v = v'`. -/
+theorem encodeB64_injective {v v' : List UInt8} {n : Nat} {s : Bytes n}
+    (h : encodeB64 v = some ⟨n, s⟩) (h' : encodeB64 v' = some ⟨n, s⟩) :
+    v = v' := by
+  have hv : decodeFullB64 s = some v := decodeFullB64_roundtrip v h
+  have hv' : decodeFullB64 s = some v' := decodeFullB64_roundtrip v' h'
+  exact Option.some.inj (hv.symm.trans hv')
+
 end BaseN.Base64
