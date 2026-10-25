@@ -590,6 +590,24 @@ theorem head?_eq_some_of_mem_eq {α : Type} (b : α) (L : List α)
       simp [List.head?_cons]
       rw [hall hd (by simp)]
 
+/-- A concrete `Nat` below `4` is `0`, `1`, `2`, or `3` — the clean (`omega`-free,
+`[propext, Quot.sound]`-only) case analysis for a `Fin 4` index.  We spell this out
+rather than let `omega` discharge it, because `omega`'s disjunction search turns
+`Nat.lt_or_gt_of_ne` (trichotomy), which is `Classical.choice`-dependent. -/
+theorem nat_lt_four (k : Nat) (hk : k < 4) : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 := by
+  cases k with
+  | zero => simp
+  | succ k1 =>
+      cases k1 with
+      | zero => simp
+      | succ k2 =>
+          cases k2 with
+          | zero => simp
+          | succ k3 =>
+              cases k3 with
+              | zero => simp
+              | succ k4 => exfalso; omega
+
 /-- The empty-blocks result of `decodeRepeat` is exactly the identity suffix:
 `([], t) ∈ decodeRepeat p h n s` forces `t = Suffix.id n s` (every other result
 carries a non-empty block list, so it cannot match `[]`).  This is the clean

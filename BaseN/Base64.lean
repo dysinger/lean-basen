@@ -1886,11 +1886,8 @@ theorem decodeFullB64_reject_ZgAAAA :
                       exact (Codec.splice_prefix_read hm₂ sb₂ srest2 ⟨i.val, show i.val < 4 by exact i.isLt⟩ i.isLt).symm
                     rw [hsbread]
                     dsimp [bdrop]
-                    simp [s₀]
                     rcases i with ⟨k, hk⟩
-                    have hk4 : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 := by
-                      have hlt : k < 4 := hk
-                      omega
+                    have hk4 : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 := nat_lt_four k hk
                     rcases hk4 with rfl | rfl | rfl | rfl <;> rfl
                   rcases hpad₂ with ⟨i, hpad⟩
                   exact False.elim (by
@@ -1898,5 +1895,193 @@ theorem decodeFullB64_reject_ZgAAAA :
                     have hbot : (61 : Nat) = 65 := hpad.symm.trans h65
                     have hbad : (61 : Nat) ≠ 65 := by intro h; cases h
                     exact hbad hbot)
+
+/-! ## Rejection family (task 3.1)
+
+The RFC 4648 §4 malformed-input rejection vectors, re-expressed over the
+uniform `decodeFullB64`.  Each is `decodeFullB64 s = none`, proved as an
+inequation over the block-run + terminal-tail composition via `decodeFullB64_some`
+and the pad-dichotomy primitives. -/
+
+/-- A `b64TailElem`-related string's first byte is a valid alphabet character
+(never `=` and never invalid).  `b64BlockApply` (hence `b64TailApply`) recovers the
+tail value via `b64BlockUnapply`, whose first char is `valToB64 (v0 / 4)` — a valid,
+non-pad alphabet byte (`valToB64_valid`).  With `a = List.ofFn s` that pins
+`s ⟨0, ·⟩`. -/
+theorem Rel_b64TailElem_first_char (x : List UInt8) {n : Nat} (s : Bytes n)
+    (h : Rel b64TailElem x s) :
+    b64Valid (s ⟨0, by
+      have hn4 : n = 4 := Rel_b64TailElem_len x s h
+      omega⟩).toNat = true := by
+  unfold b64TailElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, ha, hr⟩
+  have hofn : List.ofFn s = a := Rel_count_satisfy_ofFn b64OrPad 4 a s hr
+  have hn4 : n = 4 := Rel_count_satisfy_len b64OrPad 4 a s hr
+  subst n
+  unfold b64TailIso at ha
+  change b64TailApply a = some x at ha
+  unfold b64TailApply at ha
+  cases hb : b64BlockApply a with
+  | none => simp [hb] at ha
+  | some bl =>
+    cases bl with
+    | nil => simp [hb] at ha
+    | cons b0 bl1 =>
+      cases bl1 with
+      | nil =>
+        have hun : b64BlockUnapply [b0] = some a := (b64BlockIso_law a [b0]).1 (by simpa using hb)
+        have htail : a = [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16)), toByte 61, toByte 61] := by
+          simp [b64BlockUnapply] at hun
+          exact hun.symm
+        rw [← hofn] at htail
+        have hc0 : s ⟨0, by decide⟩ = toByte (valToB64 (b0.toNat / 4)) := by
+          have hsucc : List.ofFn s = s ⟨0, by decide⟩ :: List.ofFn (fun i : Fin 3 => s i.succ) := List.ofFn_succ
+          have hcons : s ⟨0, by decide⟩ :: List.ofFn (fun i : Fin 3 => s i.succ) = [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16)), toByte 61, toByte 61] := by
+            rw [← hsucc, htail]
+          have hhead := congrArg (fun l : List UInt8 => l.head!) hcons
+          simp [List.head!] at hhead
+          exact hhead
+        have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+        have hc0v : b64Valid (valToB64 (b0.toNat / 4)) = true :=
+          valToB64_valid (b0.toNat / 4) (by omega)
+        rw [hc0, toByte_valToB64 (b0.toNat / 4) (by omega)]
+        exact hc0v
+      | cons b1 bl2 =>
+        cases bl2 with
+        | nil =>
+          have hun : b64BlockUnapply [b0, b1] = some a := (b64BlockIso_law a [b0, b1]).1 (by simpa using hb)
+          have htail : a = [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)), toByte (valToB64 ((b1.toNat % 16) * 4)), toByte 61] := by
+            simp [b64BlockUnapply] at hun
+            exact hun.symm
+          rw [← hofn] at htail
+          have hc0 : s ⟨0, by decide⟩ = toByte (valToB64 (b0.toNat / 4)) := by
+            have hsucc : List.ofFn s = s ⟨0, by decide⟩ :: List.ofFn (fun i : Fin 3 => s i.succ) := List.ofFn_succ
+            have hcons : s ⟨0, by decide⟩ :: List.ofFn (fun i : Fin 3 => s i.succ) = [toByte (valToB64 (b0.toNat / 4)), toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)), toByte (valToB64 ((b1.toNat % 16) * 4)), toByte 61] := by
+              rw [← hsucc, htail]
+            have hhead := congrArg (fun l : List UInt8 => l.head!) hcons
+            simp [List.head!] at hhead
+            exact hhead
+          have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+          have hc0v : b64Valid (valToB64 (b0.toNat / 4)) = true :=
+            valToB64_valid (b0.toNat / 4) (by omega)
+          rw [hc0, toByte_valToB64 (b0.toNat / 4) (by omega)]
+          exact hc0v
+        | cons _ _ => simp [hb] at ha
+
+/-- A 4-byte input whose first byte is not a valid alphabet character is rejected:
+the block run and the terminal tail both force the first byte to be `b64Valid`
+(`Rel_b64BlockElem_canonical` / `Rel_b64TailElem_first_char`), so a first byte that
+is `=` or `!` cannot decode. -/
+theorem decodeFullB64_reject_first_invalid (s : Bytes 4)
+    (hbad : b64Valid (s ⟨0, by decide⟩).toNat = false) :
+    decodeFullB64 s = none := by
+  cases h : decodeFullB64 s with
+  | none => rfl
+  | some v =>
+      rcases decodeFullB64_some s v h with ⟨blocks, t, tails, hmem, htail, _⟩
+      rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks 4 s t).1 hmem with ⟨s₁, hs, hrel⟩
+      have hcanon : ∀ i : Fin (4 - t.remaining), b64Char (s₁ i) = true :=
+        relRepeat_forall b64Char (fun x {m} tt ht => Rel_b64BlockElem_canonical ht) blocks (4 - t.remaining) s₁ hrel
+      cases blocks with
+      | cons b bs =>
+          -- a block consumes the first byte; that byte is b64Valid
+          rw [relRepeat_cons] at hrel
+          rcases hrel with ⟨m, hm, sb, srest, hsplice, hb, _⟩
+          have hm4 : m = 4 := Rel_b64BlockElem_len b sb hb
+          subst m
+          have hfirst : b64Valid (s ⟨0, by decide⟩).toNat = true := by
+            have hge : 0 < 4 - t.remaining := by omega
+            have hsread : s ⟨0, by decide⟩ = s₁ ⟨0, hge⟩ := by
+              rw [hs]
+              exact (Codec.prepend_prefix_read t s₁ ⟨0, by decide⟩ hge)
+            have hc : b64Char (s₁ ⟨0, hge⟩) = true := hcanon ⟨0, hge⟩
+            rw [hsread]
+            exact hc
+          have hfalse : b64Valid (s ⟨0, by decide⟩).toNat = false := hbad
+          rw [hfirst] at hfalse
+          exact False.elim (Bool.false_ne_true hfalse.symm)
+      | nil =>
+          -- no block consumed: t = Suffix.id 4 s, the tail decodes the whole input
+          have ht : t = Suffix.id 4 s := decodeRepeat_nil_mem_eq_id b64BlockElem b64BlockConsumesByte s t hmem
+          subst t
+          have htail_mem : (tails, Suffix.empty 4) ∈ decodeRepeat b64TailElem b64TailConsumesByte 4 s := by
+            simpa using (decodeFull_some b64TailElem b64TailConsumesByte s tails htail)
+          rcases (decodeRepeat_spec b64TailElem b64TailConsumesByte tails 4 s (Suffix.empty 4)).1 htail_mem with ⟨s₂, hs₂, htailrel⟩
+          have htailrel' : relRepeat (Rel b64TailElem) tails 4 s := by
+            have hne : s = cast (congrArg Bytes (Nat.sub_zero 4)) s₂ := by
+              rw [hs₂]
+              exact prepend_empty_eq s₂
+            rw [hne]
+            exact (relRepeat_cast (Rel b64TailElem) tails (Nat.sub_zero 4) s₂).1 htailrel
+          cases tails with
+          | nil => rw [relRepeat_nil] at htailrel'; omega
+          | cons x xs =>
+              rw [relRepeat_cons] at htailrel'
+              rcases htailrel' with ⟨m, hm, sb, srest, hsplice, hx, _⟩
+              have hm4 : m = 4 := Rel_b64TailElem_len x sb hx
+              subst m
+              have hfirst : b64Valid (s ⟨0, by decide⟩).toNat = true := by
+                have hf_sb : b64Valid (sb ⟨0, by decide⟩).toNat = true :=
+                  Rel_b64TailElem_first_char x sb hx
+                have hsread : s ⟨0, by decide⟩ = sb ⟨0, by decide⟩ := by
+                  rw [hsplice]
+                  exact (Codec.splice_prefix_read hm sb srest ⟨0, by decide⟩ (by decide)).symm
+                rw [hsread]
+                exact hf_sb
+              have hfalse : b64Valid (s ⟨0, by decide⟩).toNat = false := hbad
+              rw [hfirst] at hfalse
+              exact False.elim (Bool.false_ne_true hfalse.symm)
+
+/-- Invalid base64 character `!` (0x21) is rejected. -/
+def bangGEqEq : Bytes 4 := fun i => [0x21, 0x67, 0x3D, 0x3D][i]
+
+/-- `=` in the first position (illegal padding) is rejected. -/
+def eqGEqEq : Bytes 4 := fun i => [0x3D, 0x67, 0x3D, 0x3D][i]
+
+/-- Two-char input (wrong arity) is rejected. -/
+def zgTwo : Bytes 2 := fun i => [0x5A, 0x67][i]
+
+theorem decodeFullB64_reject_invalid_char : decodeFullB64 bangGEqEq = none := by
+  exact decodeFullB64_reject_first_invalid bangGEqEq (by decide)
+
+theorem decodeFullB64_reject_pad_first : decodeFullB64 eqGEqEq = none := by
+  exact decodeFullB64_reject_first_invalid eqGEqEq (by decide)
+
+/-- Wrong-arity input `Zg` (2 base64 chars) is rejected: neither a full 4-char block
+nor a 4-char padded tail can be formed from 2 bytes. -/
+theorem decodeFullB64_reject_bad_length : decodeFullB64 zgTwo = none := by
+  cases h : decodeFullB64 zgTwo with
+  | none => rfl
+  | some v =>
+      rcases decodeFullB64_some zgTwo v h with ⟨blocks, t, tails, hmem, htail, _⟩
+      rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks 2 zgTwo t).1 hmem with ⟨s₁, hs, hrel⟩
+      cases blocks with
+      | nil =>
+          have ht : t = Suffix.id 2 zgTwo := decodeRepeat_nil_mem_eq_id b64BlockElem b64BlockConsumesByte zgTwo t hmem
+          subst t
+          have htail_mem : (tails, Suffix.empty 2) ∈ decodeRepeat b64TailElem b64TailConsumesByte 2 zgTwo := by
+            simpa using (decodeFull_some b64TailElem b64TailConsumesByte zgTwo tails htail)
+          rcases (decodeRepeat_spec b64TailElem b64TailConsumesByte tails 2 zgTwo (Suffix.empty 2)).1 htail_mem with ⟨s₂, hs₂, htailrel⟩
+          have htailrel' : relRepeat (Rel b64TailElem) tails 2 zgTwo := by
+            have hne : zgTwo = cast (congrArg Bytes (Nat.sub_zero 2)) s₂ := by
+              rw [hs₂]
+              exact prepend_empty_eq s₂
+            rw [hne]
+            exact (relRepeat_cast (Rel b64TailElem) tails (Nat.sub_zero 2) s₂).1 htailrel
+          cases tails with
+          | nil => rw [relRepeat_nil] at htailrel'; omega
+          | cons x xs =>
+              rw [relRepeat_cons] at htailrel'
+              rcases htailrel' with ⟨m, hm, sb, srest, hsplice, hx, _⟩
+              have hm4 : m = 4 := Rel_b64TailElem_len x sb hx
+              subst m
+              omega
+      | cons b bs =>
+          rw [relRepeat_cons] at hrel
+          rcases hrel with ⟨m, hm, sb, srest, hsplice, hb, _⟩
+          have hm4 : m = 4 := Rel_b64BlockElem_len b sb hb
+          subst m
+          omega
 
 end BaseN.Base64
