@@ -2285,26 +2285,16 @@ converse: a successful decode re-encodes to the exact input) and
 
 /-- A `b64BlockElem`-related value is a 3-byte list (already in
 `Rel_b64BlockElem_size`); lifted to a `relRepeat`, every block of a block-run is
-exactly 3 bytes.  Proved by induction on the block list: each `cons` step's head
-relates via `Rel b64BlockElem` over a 4-byte window, so `Rel_b64BlockElem_size`
-pins its value to length 3, and the tail is handled by the IH. -/
-theorem relB64Block_all_size3 :
+exactly 3 bytes.  An instantiation of the generic `Common.relRepeat_block_len`:
+`Rel_b64BlockElem_size` supplies the per-step length.  (`b64Split_blocks_tail`
+below is **not** generic — it is a statement about `b64Split`'s own defining
+equations — so it stays here; base32 mirrors it with 5-byte blocks and a
+4-byte tail bound.) -/
+theorem relB64Block_len3 :
     ∀ {blocks : List (List UInt8)} {m : Nat} (s : Bytes m),
       relRepeat (Rel b64BlockElem) blocks m s → ∀ b ∈ blocks, b.length = 3 := by
   intro blocks m s hrel
-  induction blocks generalizing m s with
-  | nil =>
-      intro b hb
-      simp at hb
-  | cons x xs ih =>
-      intro b hb
-      rw [relRepeat_cons] at hrel
-      rcases hrel with ⟨m₁, hm₁, s₁, s₂, _hs, hx, hxs⟩
-      rw [List.mem_cons] at hb
-      rcases hb with hbeq | hbmem
-      · subst b
-        exact Rel_b64BlockElem_size x s₁ hx
-      · exact ih s₂ hxs b hbmem
+  exact relRepeat_block_len (len := 3) (fun x _ sx hx => Rel_b64BlockElem_size x sx hx) blocks s hrel
 
 /-- `b64Split` reconstructs a run of 3-byte blocks plus a ≤ 2-byte tail: given
 `blocks` all length-3 and `tail.length ≤ 2`, splitting `blocks.flatten ++ tail`
@@ -2351,7 +2341,15 @@ theorem b64Split_blocks_tail (blocks : List (List UInt8)) (tail : List UInt8)
 /-- A single decoded tail block re-encodes: from `relRepeat (Rel b64TailElem)
 tails m st` with `tails.length ≤ 1`, the tail encoder `encodeB64Tail
 tails.flatten` reproduces `⟨m, st⟩` exactly (functionality of `b64TailElem` pins
-the bytes).  `[propext, Quot.sound]`-only. -/
+the bytes).  `[propext, Quot.sound]`-only.
+
+**Not hoisted to `BaseN.Common` (task 6.8, documented mirror).**  Base32's
+`encodeB32Tail_of_rel` has the same *proof shape* (functionality of the tail
+element pins the bytes), but the statement is not generic: it must case-split the
+base's own tail arities (1–2 bytes for base64 vs 1–4 for base32) and call the
+base's own `encodeB{64,32}Tail`.  Parameterising it would need an arity-witness
+type threaded through the `Rel` proof, which is more machinery than the saved
+duplication — so the two are kept as an explicit, mutually-referenced mirror. -/
 theorem encodeB64Tail_of_rel (tails : List (List UInt8)) {m : Nat} (st : Bytes m)
     (hrel : relRepeat (Rel b64TailElem) tails m st) (hlen : tails.length ≤ 1) :
     encodeB64Tail tails.flatten = some ⟨m, st⟩ := by
@@ -2433,7 +2431,7 @@ theorem decodeFullB64_conv {n : Nat} (s : Bytes n) (v : List UInt8)
   rcases decodeFullB64_some s v h with ⟨blocks, t, tails, hmem, htail, hlen, hflat⟩
   rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks n s t).1 hmem with
     ⟨s₀, hs₀, hrel₀⟩
-  have hblock3 : ∀ b ∈ blocks, b.length = 3 := relB64Block_all_size3 s₀ hrel₀
+  have hblock3 : ∀ b ∈ blocks, b.length = 3 := relB64Block_len3 s₀ hrel₀
   -- re-encode the block run
   have henc₀ : encodeRepeat b64BlockElem blocks = some ⟨n - t.remaining, s₀⟩ :=
     encodeRepeat_of_rel b64BlockElem b64BlockElem_functional blocks s₀ hrel₀
@@ -2481,7 +2479,9 @@ theorem decodeFullB64_conv {n : Nat} (s : Bytes n) (v : List UInt8)
   rw [hsplit]
   rw [encodeB64']
   rw [henc₀, henct]
-  dsimp only []
+  -- unfold the `Option`/`Sigma` wrapper so the goal is stated over
+  -- `(n - t.remaining) + t.remaining` and `concat s₀ t.bytes`
+  dsimp only
   -- goal: `some ⟨(n - t.remaining) + t.remaining, concat s₀ t.bytes⟩ = some ⟨n, s⟩`
   have hlen : n - t.remaining + t.remaining = n := Nat.sub_add_cancel t.hle
   -- the reassembled bytes: `concat s₀ st = s` (transported along `hlen.symm`)
@@ -2530,11 +2530,15 @@ theorem decodeFullB64_conv {n : Nat} (s : Bytes n) (v : List UInt8)
 
 `encodeB64` is injective on its value: two byte lists that encode to the same
 `(length, bytes)` are equal.  This is immediate from the roundtrip
-`decodeFullB64_roundtrip` (both `v` and `v'` decode from the same `s`), so
-`decodeFullB64` is the left inverse and `encodeB64` a partial bijection.
-`[propext, Quot.sound]`-only. -/
+`decodeFullB64_roundtrip` — both `v` and `v'` decode from the same `s`.
 
-/-- `encodeB64` injectivity: `encodeB64 v = encodeB64 v' = some ⟨n, s⟩ → v = v'`. -/
+**Scope of the statement.**  Both hypotheses are `= some ⟨n, s⟩`.  `encodeB64`'s
+*totality* (that it never returns `none`) is **not** proved here, so this is not
+yet the spec's `Option`-equality law `encodeB64 v = encodeB64 v' → v = v'`; the
+remaining gap is tracked as task 6.2.  `[propext, Quot.sound]`-only. -/
+
+/-- `encodeB64` injectivity, in the both-succeed form:
+`encodeB64 v = some ⟨n, s⟩ → encodeB64 v' = some ⟨n, s⟩ → v = v'`. -/
 theorem encodeB64_injective {v v' : List UInt8} {n : Nat} {s : Bytes n}
     (h : encodeB64 v = some ⟨n, s⟩) (h' : encodeB64 v' = some ⟨n, s⟩) :
     v = v' := by

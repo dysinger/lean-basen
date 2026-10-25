@@ -632,4 +632,39 @@ theorem decodeRepeat_nil_mem_eq_id {α : Type} (p : Codec α) (h : ConsumesByte 
     rcases b with ⟨xs, _⟩
     simpa using hb
 
+/-! ## Block-run facts shared by the padded bases (task 6.8)
+
+The padded bases (base32/base64) each run a block element through `relRepeat`,
+and both need the same two facts: every value in a block run has a fixed byte
+length, and the split-back that recovers `(blocks, tail)`.  The *length* fact is
+fully generic — it needs only `Rel elem x s → x.length = len` — so it lives here
+and each base instantiates it.  The *split-back* is **not** hoistable: it is a
+statement about the base's own `b64Split`/`b32Split` `defining equations`
+(different block sizes 3 vs 5, tail bounds 2 vs 4, and different per-base
+`def`s), so it stays per-base with the mirror documented there.
+-/
+
+/-- **Every block of a block run has length `len`.**  If a single step's value
+is always `len` bytes, then every block of a `relRepeat` run is `len` bytes.
+This is the generic form of the per-base `relB64Block_len3` /
+`relB32Block_len5`; those are one-line instantiations. -/
+theorem relRepeat_block_len {R : List UInt8 → {m : Nat} → Bytes m → Prop}
+    {len : Nat} (hstep : ∀ x {m : Nat} (s : Bytes m), R x s → x.length = len) :
+    ∀ (xs : List (List UInt8)) {m : Nat} (s : Bytes m),
+      relRepeat R xs m s → ∀ b ∈ xs, b.length = len := by
+  intro xs
+  induction xs with
+  | nil =>
+      intro m s _ b hb
+      simp at hb
+  | cons x rest ih =>
+      intro m s hrel b hb
+      rw [relRepeat_cons] at hrel
+      rcases hrel with ⟨m₁, _hm₁, s₁, s₂, _hs, hx, hxs⟩
+      rw [List.mem_cons] at hb
+      rcases hb with hbeq | hbmem
+      · subst b
+        exact hstep x s₁ hx
+      · exact ih (m := m - m₁) (s := s₂) hxs b hbmem
+
 end BaseN.Common
