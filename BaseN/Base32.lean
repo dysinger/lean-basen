@@ -3245,4 +3245,326 @@ theorem decodeFullB32_char {n : Nat} (s : Bytes n) (v : List UInt8) :
     rw [hv]
     exact decodeFullB32_roundtrip w he
 
+/-! ## General rejection laws (task 6.4, base32 mirror)
+
+The base64 laws of the same names, mirrored over the base32 composition
+(8-char code words, full blocks of 5 bytes, a tail of 0–4 bytes).  Each is
+`[propext, Quot.sound]`-only, zero `sorry`:
+
+* (a) `decodeFullB32_reject_invalid_at` — a non-`b32OrPad` byte at any index;
+* (b) `decodeFullB32_reject_pad_at_low_slot` — a `=` at code-word slot 0 or 1
+  (the `MY======MY======` class);
+* (c) `decodeFullB32_reject_arity` — a byte count not divisible by 8. -/
+
+/-- **Every consumed byte of a successful base32 decode satisfies `b32OrPad`.**
+
+A success decomposes into a full-block region (every byte a `b32Char`, hence
+`b32OrPad`) and a terminal-tail region (every byte `b32OrPad` by the `count 8
+(satisfy b32OrPad)` window), and together they consume the whole input — the
+general replacement for the index-0-only `decodeFullB32_reject_first_invalid`. -/
+theorem decodeFullB32_consumed_alphabet {n : Nat} (s : Bytes n) (v : List UInt8)
+    (h : decodeFullB32 s = some v) :
+    ∀ i : Fin n, b32OrPad (s i) = true := by
+  rcases decodeFullB32_some s v h with ⟨blocks, t, tails, hmem, htail, _hlen, _hflat⟩
+  rcases (decodeRepeat_spec b32BlockElem b32BlockConsumesByte blocks n s t).1 hmem with
+    ⟨s₁, hs, hrel⟩
+  have hcanon : ∀ j : Fin (n - t.remaining), b32Char (s₁ j) = true :=
+    relRepeat_forall b32Char (fun x {m} tt ht => Rel_b32BlockElem_canonical ht)
+      blocks (n - t.remaining) s₁ hrel
+  have htail_mem : (tails, Suffix.empty t.remaining) ∈
+      decodeRepeat b32TailElem b32TailConsumesByte t.remaining t.bytes :=
+    decodeFull_some b32TailElem b32TailConsumesByte t.bytes tails htail
+  rcases (decodeRepeat_spec b32TailElem b32TailConsumesByte tails t.remaining t.bytes
+    (Suffix.empty t.remaining)).1 htail_mem with ⟨s₂, hs₂, hrel₂⟩
+  have htail_s : t.bytes = cast (congrArg Bytes (Nat.sub_zero t.remaining)) s₂ := by
+    rw [hs₂]
+    exact prepend_empty_eq s₂
+  have hrel₂' : relRepeat (Rel b32TailElem) tails t.remaining t.bytes := by
+    rw [htail_s]
+    exact (relRepeat_cast (Rel b32TailElem) tails (Nat.sub_zero t.remaining) s₂).1 hrel₂
+  have htail_forall : ∀ j : Fin t.remaining, b32OrPad (t.bytes j) = true :=
+    relRepeat_forall b32OrPad
+      (fun x {m} tt ht => by
+        unfold b32TailElem at ht
+        rw [Rel_iso] at ht
+        rcases ht with ⟨a, _, hc⟩
+        exact Rel_count_satisfy_forall b32OrPad 8 a tt hc)
+      tails t.remaining t.bytes hrel₂'
+  intro i
+  by_cases hin : i.val < n - t.remaining
+  · have hread : s i = s₁ ⟨i.val, hin⟩ := by
+      rw [hs]
+      exact Codec.prepend_prefix_read t s₁ i hin
+    have hc : b32Char (s₁ ⟨i.val, hin⟩) = true := hcanon ⟨i.val, hin⟩
+    rw [hread]
+    unfold b32OrPad
+    have hcv : b32Valid (s₁ ⟨i.val, hin⟩).toNat = true := hc
+    rw [hcv]
+    rfl
+  · have hread : s i = t.bytes ⟨i.val - (n - t.remaining), by
+      have := t.hle
+      omega⟩ := by
+      have hdrop : bdrop (n - t.remaining) s =
+          cast (congrArg Bytes (Nat.sub_sub_self t.hle).symm) t.bytes := by
+        rw [hs]
+        exact bdrop_prepend t s₁
+      have hsi : s i = s ⟨(⟨i.val - (n - t.remaining), by
+            have := t.hle
+            omega⟩ : Fin (n - (n - t.remaining))).val + (n - t.remaining), by
+          have := t.hle
+          have := i.isLt
+          omega⟩ := by
+        congr 1
+        exact Fin.ext (by simp; omega)
+      have hc := congrFun hdrop ⟨i.val - (n - t.remaining), by
+        have := t.hle
+        omega⟩
+      unfold Codec.bdrop at hc
+      rw [hsi]
+      refine hc.trans ?_
+      rw [Codec.cast_bytes_val_symm]
+      congr 1
+      exact Nat.sub_sub_self t.hle
+    rw [hread]
+    exact htail_forall _
+
+/-- **An alphabet-invalid byte at any index is rejected (base32).**  Generalises
+`decodeFullB32_reject_first_invalid` from index 0 to **every** index. -/
+theorem decodeFullB32_reject_invalid_at {n : Nat} (s : Bytes n) (i : Fin n)
+    (hbad : b32OrPad (s i) = false) :
+    decodeFullB32 s = none := by
+  cases h : decodeFullB32 s with
+  | none => rfl
+  | some v =>
+      have htrue : b32OrPad (s i) = true := decodeFullB32_consumed_alphabet s v h i
+      rw [htrue] at hbad
+      exact absurd hbad (by decide : (true = false) → False)
+
+/-- **A `b32TailElem` block pads only at slots 2 and later.**  A base32 tail block
+is a padded 8-char window; `b32TailUnapply` of a 1-, 2-, 3- or 4-byte value puts
+`valToB32` outputs in slots 0 and 1 and the `=` run only from slot 2 on.  So a `=`
+byte of a tail block sits at index ≥ 2.
+
+This is the "`=` is terminal only" half of RFC 4648 §6 at the block level, and the
+input `decodeFullB32_reject_pad_at_low_slot` consumes. -/
+theorem Rel_b32TailElem_pad_pos (x : List UInt8) {n : Nat} (s : Bytes n)
+    (h : Rel b32TailElem x s) :
+    ∀ i : Fin n, (s i).toNat = 61 → 2 ≤ i.val := by
+  intro i hi
+  unfold b32TailElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, ha, hr⟩
+  have hofn : List.ofFn s = a := Rel_count_satisfy_ofFn b32OrPad 8 a s hr
+  have hn8 : n = 8 := Rel_count_satisfy_len b32OrPad 8 a s hr
+  subst hn8
+  unfold b32TailIso at ha
+  change b32TailApply a = some x at ha
+  have hsl : b32TailUnapply x = some a := (b32TailIso_law a x).1 ha
+  -- read window slot `j` as a byte of `s`
+  have read : ∀ (j : Nat) (hj : j < 8) {c : UInt8}, a[j]? = some c →
+      s ⟨j, hj⟩ = c := by
+    intro j hj c hc
+    rw [← hofn] at hc
+    rw [List.getElem?_ofFn] at hc
+    rw [dite_eq_left hj] at hc
+    exact Option.some.inj hc
+  -- slot 0 of every tail shape is `valToB32 (v0 / 8)`
+  have s0 : ∀ (v0 : UInt8) (rest : List UInt8), b32TailUnapply (v0 :: rest) = some a →
+      a[0]? = some (toByte (valToB32 (v0.toNat / 8))) := by
+    intro v0 rest hun
+    -- enumerate the four encodable shapes; a 5+-byte value is `none`
+    rcases rest with _ | ⟨w, r2⟩
+    · simp only [b32TailUnapply, b32BlockUnapply, Option.some.injEq] at hun
+      subst hun; rfl
+    rcases r2 with _ | ⟨u, r3⟩
+    · simp only [b32TailUnapply, b32BlockUnapply, Option.some.injEq] at hun
+      subst hun; rfl
+    rcases r3 with _ | ⟨u2, r4⟩
+    · simp only [b32TailUnapply, b32BlockUnapply, Option.some.injEq] at hun
+      subst hun; rfl
+    rcases r4 with _ | ⟨u3, r5⟩
+    · simp only [b32TailUnapply, b32BlockUnapply, Option.some.injEq] at hun
+      subst hun; rfl
+    · simp [b32TailUnapply, b32BlockUnapply] at hun
+  have s1 : ∀ (v0 w : UInt8) (r2 : List UInt8), b32TailUnapply (v0 :: w :: r2) = some a →
+      a[1]? = some (toByte (valToB32 ((v0.toNat % 8) * 4 + w.toNat / 64))) := by
+    intro v0 w r2 hun
+    rcases r2 with _ | ⟨u, r3⟩
+    · simp only [b32TailUnapply, b32BlockUnapply, Option.some.injEq] at hun
+      subst hun; rfl
+    rcases r3 with _ | ⟨u2, r4⟩
+    · simp only [b32TailUnapply, b32BlockUnapply, Option.some.injEq] at hun
+      subst hun; rfl
+    rcases r4 with _ | ⟨u3, r5⟩
+    · simp only [b32TailUnapply, b32BlockUnapply, Option.some.injEq] at hun
+      subst hun; rfl
+    · simp [b32TailUnapply, b32BlockUnapply] at hun
+
+  rcases i with ⟨k, hk⟩
+  have hk8 : k = 0 ∨ k = 1 ∨ 2 ≤ k := by omega
+  rcases hk8 with rfl | hk1 | hk2
+  · rcases x with _ | ⟨v0, rest⟩
+    · simp [b32TailUnapply] at hsl
+    refine absurd hi ?_
+    rw [read 0 hk (s0 v0 rest hsl), toByte_valToB32 _
+      (by have := UInt8.toNat_lt v0; omega)]
+    exact valToB32_not_pad _ (by have := UInt8.toNat_lt v0; omega)
+  · subst hk1
+    rcases x with _ | ⟨v0, rest⟩
+    · simp [b32TailUnapply] at hsl
+    rcases rest with _ | ⟨w, r2⟩
+    · -- 1-byte tail: slot 1 is `valToB32 ((v0 % 8) * 4)`, an alphabet char
+      have key : a[1]? = some (toByte (valToB32 ((v0.toNat % 8) * 4))) := by
+        simp only [b32TailUnapply, b32BlockUnapply, Option.some.injEq] at hsl
+        subst hsl
+        rfl
+      refine absurd hi ?_
+      rw [read 1 hk key, toByte_valToB32 _
+        (by have := UInt8.toNat_lt v0; omega)]
+      exact valToB32_not_pad _ (by have := UInt8.toNat_lt v0; omega)
+    · refine absurd hi ?_
+      rw [read 1 hk (s1 v0 w r2 (by simpa using hsl)), toByte_valToB32 _
+        (by have := UInt8.toNat_lt v0; have := UInt8.toNat_lt w; omega)]
+      exact valToB32_not_pad _
+        (by have := UInt8.toNat_lt v0; have := UInt8.toNat_lt w; omega)
+  · exact hk2
+
+/-- **A pad byte at code-word slot 0 or 1 is rejected (base32).**
+
+Mirror of `Base64.decodeFullB64_reject_pad_at_low_slot`: the full-block region is
+alphabet-only and 8-aligned, and a terminal-tail block pads only at slots 2 and
+later (`Rel_b32TailElem_pad_pos`).  So a `=` whose position modulo 8 is 0 or 1
+cannot occur in a successful decode — covering the `MY======MY======` class. -/
+theorem decodeFullB32_reject_pad_at_low_slot {n : Nat} (s : Bytes n) (i : Fin n)
+    (hpad : (s i).toNat = 61) (hslots : i.val % 8 = 0 ∨ i.val % 8 = 1) :
+    decodeFullB32 s = none := by
+  cases h : decodeFullB32 s with
+  | none => rfl
+  | some v =>
+    rcases decodeFullB32_some s v h with ⟨blocks, t, tails, hmem, htail, _hlen, _hflat⟩
+    rcases (decodeRepeat_spec b32BlockElem b32BlockConsumesByte blocks n s t).1 hmem with
+      ⟨s₁, hs, hrel⟩
+    have hblk_len : n - t.remaining = 8 * blocks.length := relB32Block_len s₁ hrel
+    have hcanon : ∀ j : Fin (n - t.remaining), b32Char (s₁ j) = true :=
+      relRepeat_forall b32Char (fun x {m} tt ht => Rel_b32BlockElem_canonical ht)
+        blocks (n - t.remaining) s₁ hrel
+    have htail_mem : (tails, Suffix.empty t.remaining) ∈
+        decodeRepeat b32TailElem b32TailConsumesByte t.remaining t.bytes :=
+      decodeFull_some b32TailElem b32TailConsumesByte t.bytes tails htail
+    rcases (decodeRepeat_spec b32TailElem b32TailConsumesByte tails t.remaining t.bytes
+      (Suffix.empty t.remaining)).1 htail_mem with ⟨s₂, hs₂, hrel₂⟩
+    have htail_s : t.bytes = cast (congrArg Bytes (Nat.sub_zero t.remaining)) s₂ := by
+      rw [hs₂]
+      exact prepend_empty_eq s₂
+    have hrel₂' : relRepeat (Rel b32TailElem) tails t.remaining t.bytes := by
+      rw [htail_s]
+      exact (relRepeat_cast (Rel b32TailElem) tails (Nat.sub_zero t.remaining) s₂).1 hrel₂
+    have htail_len : t.remaining = 8 * tails.length := relB32Tail_len t.bytes hrel₂'
+    by_cases hin : i.val < n - t.remaining
+    · -- block region: alphabet only, never the pad
+      have hread : s i = s₁ ⟨i.val, hin⟩ := by
+        rw [hs]
+        exact Codec.prepend_prefix_read t s₁ i hin
+      have hc : b32Char (s₁ ⟨i.val, hin⟩) = true := hcanon ⟨i.val, hin⟩
+      rw [hread] at hpad
+      unfold b32Char at hc
+      rw [hpad] at hc
+      have hfalse : b32Valid 61 = false := by decide
+      rw [hfalse] at hc
+      exact absurd hc (by decide)
+    · -- tail region
+      have hge : n - t.remaining ≤ i.val := Nat.le_of_not_gt hin
+      have hdrop : bdrop (n - t.remaining) s =
+          cast (congrArg Bytes (Nat.sub_sub_self t.hle).symm) t.bytes := by
+        rw [hs]
+        exact bdrop_prepend t s₁
+      have hread : s i = t.bytes ⟨i.val - (n - t.remaining), by
+        have := t.hle
+        omega⟩ := by
+        have hsi : s i = s ⟨(⟨i.val - (n - t.remaining), by
+              have := t.hle
+              omega⟩ : Fin (n - (n - t.remaining))).val + (n - t.remaining), by
+            have := t.hle
+            have := i.isLt
+            omega⟩ := by
+          congr 1
+          exact Fin.ext (by simp; omega)
+        have hc := congrFun hdrop ⟨i.val - (n - t.remaining), by
+          have := t.hle
+          omega⟩
+        unfold Codec.bdrop at hc
+        rw [hsi]
+        refine hc.trans ?_
+        rw [Codec.cast_bytes_val_symm]
+        congr 1
+        exact Nat.sub_sub_self t.hle
+      rcases tails with _ | ⟨x, xs⟩
+      · rw [relRepeat_nil] at hrel₂'
+        omega
+      rw [relRepeat_cons] at hrel₂'
+      rcases hrel₂' with ⟨m, hm, sb, srest, hsplice, hx, _⟩
+      have hm8 : m = 8 := Rel_b32TailElem_len x sb hx
+      subst hm8
+      have hk : i.val - (n - t.remaining) < 8 := by
+        rcases xs with _ | ⟨_, _ | ⟨_, _ | ⟨_, _ | ⟨_, _⟩⟩⟩⟩ <;> simp_all <;> omega
+      have hpad_t : (t.bytes ⟨i.val - (n - t.remaining), by
+          have := t.hle
+          omega⟩).toNat = 61 := by
+        rw [← hread]
+        exact hpad
+      have hread' : t.bytes ⟨i.val - (n - t.remaining), by
+          have := t.hle
+          omega⟩ = sb ⟨i.val - (n - t.remaining), hk⟩ := by
+        rw [hsplice]
+        exact Codec.splice_prefix_read hm sb srest
+          ⟨i.val - (n - t.remaining), by omega⟩ hk
+      have hpad_sb : (sb ⟨i.val - (n - t.remaining), hk⟩).toNat = 61 := by
+        rw [← hread']
+        exact hpad_t
+      have hpos : 2 ≤ i.val - (n - t.remaining) :=
+        Rel_b32TailElem_pad_pos x sb hx ⟨i.val - (n - t.remaining), hk⟩ hpad_sb
+      have hmod : (i.val - (n - t.remaining)) % 8 = i.val % 8 := by
+        rw [hblk_len]
+        omega
+      rcases hslots with h0 | h0 <;> omega
+
+/-- **A successful base32 decode consumes a whole number of 8-byte code words.**
+
+The arity law: `relB32Block_len` gives `n - t.remaining = 8 · blocks.length`,
+`relB32Tail_len` gives `t.remaining = 8 · tails.length`, and the two regions
+partition `n` — so `n % 8 = 0`.  No case-splitting on named vectors. -/
+theorem decodeFullB32_arity {n : Nat} (s : Bytes n) (v : List UInt8)
+    (h : decodeFullB32 s = some v) :
+    n % 8 = 0 := by
+  rcases decodeFullB32_some s v h with ⟨blocks, t, tails, hmem, htail, _hlen, _hflat⟩
+  rcases (decodeRepeat_spec b32BlockElem b32BlockConsumesByte blocks n s t).1 hmem with
+    ⟨s₁, hs, hrel⟩
+  have hblk_len : n - t.remaining = 8 * blocks.length := relB32Block_len s₁ hrel
+  have htail_mem : (tails, Suffix.empty t.remaining) ∈
+      decodeRepeat b32TailElem b32TailConsumesByte t.remaining t.bytes :=
+    decodeFull_some b32TailElem b32TailConsumesByte t.bytes tails htail
+  rcases (decodeRepeat_spec b32TailElem b32TailConsumesByte tails t.remaining t.bytes
+    (Suffix.empty t.remaining)).1 htail_mem with ⟨s₂, hs₂, hrel₂⟩
+  have htail_s : t.bytes = cast (congrArg Bytes (Nat.sub_zero t.remaining)) s₂ := by
+    rw [hs₂]
+    exact prepend_empty_eq s₂
+  have hrel₂' : relRepeat (Rel b32TailElem) tails t.remaining t.bytes := by
+    rw [htail_s]
+    exact (relRepeat_cast (Rel b32TailElem) tails (Nat.sub_zero t.remaining) s₂).1 hrel₂
+  have htail_len : t.remaining = 8 * tails.length := relB32Tail_len t.bytes hrel₂'
+  have hn : n = 8 * (blocks.length + tails.length) := by
+    have hle := t.hle
+    omega
+  rw [hn, Nat.mul_mod_right]
+
+/-- **Wrong-arity input is rejected (base32).**  Generalises
+`decodeFullB32_reject_bad_length`: a byte count not divisible by 8 cannot be a
+base32 encoding. -/
+theorem decodeFullB32_reject_arity {n : Nat} (s : Bytes n) (hmod : n % 8 ≠ 0) :
+    decodeFullB32 s = none := by
+  cases h : decodeFullB32 s with
+  | none => rfl
+  | some v =>
+      exact absurd (decodeFullB32_arity s v h) hmod
+
 end BaseN.Base32
