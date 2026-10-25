@@ -2660,24 +2660,16 @@ converse) and `encodeB32 v = encodeB32 v' = some ⟨n, s⟩ → v = v'`
 tails).  Both `[propext, Quot.sound]`-only. -/
 
 /-- A `b32BlockElem`-related value is a 5-byte list (`Rel_b32BlockElem_size`);
-lifted to a `relRepeat`, every block of a block-run is exactly 5 bytes. -/
-theorem relB32Block_all_size3 :
+lifted to a `relRepeat`, every block of a block-run is exactly 5 bytes.  An
+instantiation of the generic `Common.relRepeat_block_len`.  (`b32Split_blocks_tail`
+below is **not** generic — it is a statement about `b32Split`'s own defining
+equations — so it stays here, mirroring base64 with 5-byte blocks and a 4-byte
+tail bound instead of 3 and 2.) -/
+theorem relB32Block_len5 :
     ∀ {blocks : List (List UInt8)} {m : Nat} (s : Bytes m),
       relRepeat (Rel b32BlockElem) blocks m s → ∀ b ∈ blocks, b.length = 5 := by
   intro blocks m s hrel
-  induction blocks generalizing m s with
-  | nil =>
-      intro b hb
-      simp at hb
-  | cons x xs ih =>
-      intro b hb
-      rw [relRepeat_cons] at hrel
-      rcases hrel with ⟨m₁, hm₁, s₁, s₂, _hs, hx, hxs⟩
-      rw [List.mem_cons] at hb
-      rcases hb with hbeq | hbmem
-      · subst b
-        exact Rel_b32BlockElem_size x s₁ hx
-      · exact ih s₂ hxs b hbmem
+  exact relRepeat_block_len (len := 5) (fun x _ sx hx => Rel_b32BlockElem_size x sx hx) blocks s hrel
 
 /-- `b32Split` reconstructs a run of 5-byte blocks plus a ≤ 4-byte tail: given
 `blocks` all length-5 and `tail.length ≤ 4`, splitting `blocks.flatten ++ tail`
@@ -2828,7 +2820,7 @@ theorem decodeFullB32_conv {n : Nat} (s : Bytes n) (v : List UInt8)
   rcases decodeFullB32_some s v h with ⟨blocks, t, tails, hmem, htail, hlen, hflat⟩
   rcases (decodeRepeat_spec b32BlockElem b32BlockConsumesByte blocks n s t).1 hmem with
     ⟨s₀, hs₀, hrel₀⟩
-  have hblock5 : ∀ b ∈ blocks, b.length = 5 := relB32Block_all_size3 s₀ hrel₀
+  have hblock5 : ∀ b ∈ blocks, b.length = 5 := relB32Block_len5 s₀ hrel₀
   have henc₀ : encodeRepeat b32BlockElem blocks = some ⟨n - t.remaining, s₀⟩ :=
     encodeRepeat_of_rel b32BlockElem b32BlockElem_functional blocks s₀ hrel₀
   -- re-encode the tail
@@ -2873,7 +2865,9 @@ theorem decodeFullB32_conv {n : Nat} (s : Bytes n) (v : List UInt8)
   rw [hsplit]
   rw [encodeB32']
   rw [henc₀, henct]
-  dsimp only []
+  -- unfold the `Option`/`Sigma` wrapper so the goal is stated over
+  -- `(n - t.remaining) + t.remaining` and `concat s₀ t.bytes`
+  dsimp only
   have hlen : n - t.remaining + t.remaining = n := Nat.sub_add_cancel t.hle
   have hbytes : Codec.concat s₀ t.bytes = cast (congrArg Bytes hlen.symm) s := by
     apply Bytes.ext
@@ -2911,7 +2905,11 @@ theorem decodeFullB32_conv {n : Nat} (s : Bytes n) (v : List UInt8)
       exact h1.trans (cast_heq (congrArg Bytes hlen.symm) s))
   rw [hsig]
 
-/-- `encodeB32` injectivity: `encodeB32 v = encodeB32 v' = some ⟨n, s⟩ → v = v'`. -/
+/-- `encodeB32` injectivity, in the both-succeed form:
+`encodeB32 v = some ⟨n, s⟩ → encodeB32 v' = some ⟨n, s⟩ → v = v'`.
+
+Both hypotheses are `= some ⟨n, s⟩`; `encodeB32`'s totality is **not** proved
+here, so this is not yet the spec's `Option`-equality law — see task 6.2. -/
 theorem encodeB32_injective {v v' : List UInt8} {n : Nat} {s : Bytes n}
     (h : encodeB32 v = some ⟨n, s⟩) (h' : encodeB32 v' = some ⟨n, s⟩) :
     v = v' := by

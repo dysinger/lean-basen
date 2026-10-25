@@ -431,8 +431,16 @@ theorem rejects_invalid_byte (bad : UInt8) (hbad : hexDigit bad = false) :
       rw [hbad] at h0
       simp at h0
 
-/-- Rejection: lowercase `f` (`0x66`) is *not* accepted by the strict uppercase
-bijection (D8). -/
+/-- Rejection: the lowercase letter `f` (`0x66`, a **single byte**, not the
+two-character string `"6f"`) is not accepted by the strict uppercase bijection.
+
+**This is a recorded RFC 4648 §8 divergence, not a conformance win.** RFC 4648 §8
+says "a decoder MAY… MUST accept both cases" for base16; `basen`'s base16 is
+uppercase-only because the block `Iso` is a strict bijection and a
+case-insensitive alphabet would break `Unambiguous`.  This theorem pins that
+deliberate non-conformance so the divergence is visible in the proof surface;
+it is stated here rather than in the bench so the bench never asserts a
+non-conformance as a passing vector. -/
 theorem rejects_lowercase :
     decodeFull hexElem hexConsumesByte 1 (fun _ => 0x66) = none := by
   exact rejects_invalid_byte (0x66 : UInt8) (by decide)
