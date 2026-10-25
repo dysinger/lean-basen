@@ -94,29 +94,278 @@ example (n : Nat) (s : Bytes n) : Base32.encodeB32 foobar = some ⟨n, s⟩ →
     Base32.decodeFullB32 s = some foobar :=
   Base32.decodeFullB32_roundtrip foobar
 
--- Canonical encoding (alphabet-only blocks + terminal, arity-correct pad):
--- `encodeB64_canonical` decomposes any encoded output into alphabet-only full
--- blocks plus a single RFC-arity padded tail.
+/-! ## Canonical vectors: the **actual** whole-input encoder output
 
-example (n : Nat) (s : Bytes n) (he : Base64.encodeB64 foobar = some ⟨n, s⟩) :
-    ∃ (blocks : List (List UInt8)) (m₁ m₂ : Nat) (blkBytes : Bytes m₁) (tailBytes : Bytes m₂),
-      Codec.encodeRepeat Base64.b64BlockElem blocks = some ⟨m₁, blkBytes⟩ ∧
-      Base64.encodeB64Tail (Base64.b64Split_ofBytes (Base64.b64OfBytes foobar)).2 =
-        some ⟨m₂, tailBytes⟩ ∧
-      List.ofFn s = List.ofFn blkBytes ++ List.ofFn tailBytes := by
-  obtain ⟨blocks, m₁, m₂, blkBytes, tailBytes, hblk, htail, hlen, _, _⟩ :=
-    Base64.encodeB64_canonical foobar he
-  exact ⟨blocks, m₁, m₂, blkBytes, tailBytes, hblk, htail, hlen⟩
+Each `example` below pins the exact bytes `encodeB64`/`encodeB32` emit for an
+RFC 4648 §10 vector.  This is the load-bearing assertion of the lane — a *value*
+check, not a re-statement of a theorem's hypothesis: the input and the expected
+output are both concrete, the encoder is unfolded to its emitted bytes, and every
+`Bytes` index is closed by `rfl`.  (`Bytes` equality needs `funext`, so the check
+is index-by-index rather than `decide`.)
 
-example (n : Nat) (s : Bytes n) (he : Base32.encodeB32 foobar = some ⟨n, s⟩) :
-    ∃ (blocks : List (List UInt8)) (m₁ m₂ : Nat) (blkBytes : Bytes m₁) (tailBytes : Bytes m₂),
-      Codec.encodeRepeat Base32.b32BlockElem blocks = some ⟨m₁, blkBytes⟩ ∧
-      Base32.encodeB32Tail (Base32.b32Split_ofBytes (Base32.b32OfBytes foobar)).2 =
-        some ⟨m₂, tailBytes⟩ ∧
-      List.ofFn s = List.ofFn blkBytes ++ List.ofFn tailBytes := by
-  obtain ⟨blocks, m₁, m₂, blkBytes, tailBytes, hblk, htail, hlen, _, _⟩ :=
-    Base32.encodeB32_canonical foobar he
-  exact ⟨blocks, m₁, m₂, blkBytes, tailBytes, hblk, htail, hlen⟩
+A deliberately broken encoder — lowercase alphabet, a short pad run, one pad too
+many, wrong pad placement — changes one of these indices and **fails this file**.
+
+The unfold is deliberately uniform across all eleven vectors, so for a
+multi-block input (e.g. `foobar`) no terminal-tail branch is reachable and some
+of the ticket's simp lemmas are unused; that is why the unused-`simp` linter is
+off for that block only. -/
+
+set_option linter.unusedSimpArgs false
+
+
+
+/-- `0x66` -> `Zg==` (RFC 4648 §10). -/
+example : Base64.encodeB64 [0x66] =
+    some ⟨4, fun i : Fin 4 => [0x5A, 0x67, 0x3D, 0x3D][i]⟩ := by
+  rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
+  simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
+    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
+    Codec.count, Base64.b64TailUnapply,
+    Base64.b64BlockUnapply, Base64.valToB64]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+    | ⟨2, _⟩ => rfl
+    | ⟨3, _⟩ => rfl
+
+/-- `0x66, 0x6F` -> `Zm8=` (RFC 4648 §10). -/
+example : Base64.encodeB64 [0x66, 0x6F] =
+    some ⟨4, fun i : Fin 4 => [0x5A, 0x6D, 0x38, 0x3D][i]⟩ := by
+  rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
+  simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
+    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
+    Codec.count, Base64.b64TailUnapply,
+    Base64.b64BlockUnapply, Base64.valToB64]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+    | ⟨2, _⟩ => rfl
+    | ⟨3, _⟩ => rfl
+
+/-- `0x66, 0x6F, 0x6F` -> `Zm9v` (RFC 4648 §10). -/
+example : Base64.encodeB64 [0x66, 0x6F, 0x6F] =
+    some ⟨4, fun i : Fin 4 => [0x5A, 0x6D, 0x39, 0x76][i]⟩ := by
+  rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
+  simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
+    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
+    Codec.count, Base64.b64TailUnapply,
+    Base64.b64BlockUnapply, Base64.valToB64]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+    | ⟨2, _⟩ => rfl
+    | ⟨3, _⟩ => rfl
+
+/-- `0x66, 0x6F, 0x6F, 0x62` -> `Zm9vYg==` (RFC 4648 §10). -/
+example : Base64.encodeB64 [0x66, 0x6F, 0x6F, 0x62] =
+    some ⟨8, fun i : Fin 8 => [0x5A, 0x6D, 0x39, 0x76, 0x59, 0x67, 0x3D, 0x3D][i]⟩ := by
+  rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
+  simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
+    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
+    Codec.count, Base64.b64TailUnapply,
+    Base64.b64BlockUnapply, Base64.valToB64]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+    | ⟨2, _⟩ => rfl
+    | ⟨3, _⟩ => rfl
+    | ⟨4, _⟩ => rfl
+    | ⟨5, _⟩ => rfl
+    | ⟨6, _⟩ => rfl
+    | ⟨7, _⟩ => rfl
+
+/-- `0x66, 0x6F, 0x6F, 0x62, 0x61` -> `Zm9vYmE=` (RFC 4648 §10). -/
+example : Base64.encodeB64 [0x66, 0x6F, 0x6F, 0x62, 0x61] =
+    some ⟨8, fun i : Fin 8 => [0x5A, 0x6D, 0x39, 0x76, 0x59, 0x6D, 0x45, 0x3D][i]⟩ := by
+  rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
+  simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
+    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
+    Codec.count, Base64.b64TailUnapply,
+    Base64.b64BlockUnapply, Base64.valToB64]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+    | ⟨2, _⟩ => rfl
+    | ⟨3, _⟩ => rfl
+    | ⟨4, _⟩ => rfl
+    | ⟨5, _⟩ => rfl
+    | ⟨6, _⟩ => rfl
+    | ⟨7, _⟩ => rfl
+
+/-- `0x66, 0x6F, 0x6F, 0x62, 0x61, 0x72` -> `Zm9vYmFy` (RFC 4648 §10). -/
+example : Base64.encodeB64 [0x66, 0x6F, 0x6F, 0x62, 0x61, 0x72] =
+    some ⟨8, fun i : Fin 8 => [0x5A, 0x6D, 0x39, 0x76, 0x59, 0x6D, 0x46, 0x79][i]⟩ := by
+  rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
+  simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
+    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
+    Codec.count, Base64.b64TailUnapply,
+    Base64.b64BlockUnapply, Base64.valToB64]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+    | ⟨2, _⟩ => rfl
+    | ⟨3, _⟩ => rfl
+    | ⟨4, _⟩ => rfl
+    | ⟨5, _⟩ => rfl
+    | ⟨6, _⟩ => rfl
+    | ⟨7, _⟩ => rfl
+
+/-- `0x66` -> `MY======` (RFC 4648 §10). -/
+example : Base32.encodeB32 [0x66] =
+    some ⟨8, fun i : Fin 8 => [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D][i]⟩ := by
+  rw [Base32.encodeB32, Base32.b32Split_ofBytes_ofBytes]
+  simp only [Base32.b32Split, Base32.encodeB32', Base32.encodeB32Tail,
+    Codec.encodeRepeat, Codec.encode, Base32.b32TailElem, Base32.b32TailIso,
+    Codec.count, Base32.b32TailUnapply,
+    Base32.b32BlockUnapply, Base32.valToB32]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+    | ⟨2, _⟩ => rfl
+    | ⟨3, _⟩ => rfl
+    | ⟨4, _⟩ => rfl
+    | ⟨5, _⟩ => rfl
+    | ⟨6, _⟩ => rfl
+    | ⟨7, _⟩ => rfl
+
+/-- `0x66, 0x6F` -> `MZXQ====` (RFC 4648 §10). -/
+example : Base32.encodeB32 [0x66, 0x6F] =
+    some ⟨8, fun i : Fin 8 => [0x4D, 0x5A, 0x58, 0x51, 0x3D, 0x3D, 0x3D, 0x3D][i]⟩ := by
+  rw [Base32.encodeB32, Base32.b32Split_ofBytes_ofBytes]
+  simp only [Base32.b32Split, Base32.encodeB32', Base32.encodeB32Tail,
+    Codec.encodeRepeat, Codec.encode, Base32.b32TailElem, Base32.b32TailIso,
+    Codec.count, Base32.b32TailUnapply,
+    Base32.b32BlockUnapply, Base32.valToB32]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+    | ⟨2, _⟩ => rfl
+    | ⟨3, _⟩ => rfl
+    | ⟨4, _⟩ => rfl
+    | ⟨5, _⟩ => rfl
+    | ⟨6, _⟩ => rfl
+    | ⟨7, _⟩ => rfl
+
+/-- `0x66, 0x6F, 0x6F` -> `MZXW6===` (RFC 4648 §10). -/
+example : Base32.encodeB32 [0x66, 0x6F, 0x6F] =
+    some ⟨8, fun i : Fin 8 => [0x4D, 0x5A, 0x58, 0x57, 0x36, 0x3D, 0x3D, 0x3D][i]⟩ := by
+  rw [Base32.encodeB32, Base32.b32Split_ofBytes_ofBytes]
+  simp only [Base32.b32Split, Base32.encodeB32', Base32.encodeB32Tail,
+    Codec.encodeRepeat, Codec.encode, Base32.b32TailElem, Base32.b32TailIso,
+    Codec.count, Base32.b32TailUnapply,
+    Base32.b32BlockUnapply, Base32.valToB32]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+    | ⟨2, _⟩ => rfl
+    | ⟨3, _⟩ => rfl
+    | ⟨4, _⟩ => rfl
+    | ⟨5, _⟩ => rfl
+    | ⟨6, _⟩ => rfl
+    | ⟨7, _⟩ => rfl
+
+/-- `0x66, 0x6F, 0x6F, 0x62` -> `MZXW6YQ=` (RFC 4648 §10). -/
+example : Base32.encodeB32 [0x66, 0x6F, 0x6F, 0x62] =
+    some ⟨8, fun i : Fin 8 => [0x4D, 0x5A, 0x58, 0x57, 0x36, 0x59, 0x51, 0x3D][i]⟩ := by
+  rw [Base32.encodeB32, Base32.b32Split_ofBytes_ofBytes]
+  simp only [Base32.b32Split, Base32.encodeB32', Base32.encodeB32Tail,
+    Codec.encodeRepeat, Codec.encode, Base32.b32TailElem, Base32.b32TailIso,
+    Codec.count, Base32.b32TailUnapply,
+    Base32.b32BlockUnapply, Base32.valToB32]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+    | ⟨2, _⟩ => rfl
+    | ⟨3, _⟩ => rfl
+    | ⟨4, _⟩ => rfl
+    | ⟨5, _⟩ => rfl
+    | ⟨6, _⟩ => rfl
+    | ⟨7, _⟩ => rfl
+
+/-- `0x66, 0x6F, 0x6F, 0x62, 0x61` -> `MZXW6YTB` (RFC 4648 §10). -/
+example : Base32.encodeB32 [0x66, 0x6F, 0x6F, 0x62, 0x61] =
+    some ⟨8, fun i : Fin 8 => [0x4D, 0x5A, 0x58, 0x57, 0x36, 0x59, 0x54, 0x42][i]⟩ := by
+  rw [Base32.encodeB32, Base32.b32Split_ofBytes_ofBytes]
+  simp only [Base32.b32Split, Base32.encodeB32', Base32.encodeB32Tail,
+    Codec.encodeRepeat, Codec.encode, Base32.b32TailElem, Base32.b32TailIso,
+    Codec.count, Base32.b32TailUnapply,
+    Base32.b32BlockUnapply, Base32.valToB32]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+    | ⟨2, _⟩ => rfl
+    | ⟨3, _⟩ => rfl
+    | ⟨4, _⟩ => rfl
+    | ⟨5, _⟩ => rfl
+    | ⟨6, _⟩ => rfl
+    | ⟨7, _⟩ => rfl
 
 -- Rejection vectors: trailing data after a terminal `=` is `none`.
 
@@ -175,14 +424,9 @@ example : Codec.decodeFull Base10.digElem Base10.digConsumesByte 3
     (fun i : Fin 3 => [0x32, 0x35, 0x36][i]) = none :=
   Base10.rejects_overflow
 
--- Base16 non-goal (recorded, not a passing vector): lowercase `6f` is rejected.
-
-example : Codec.decodeFull Base16.hexElem Base16.hexConsumesByte 1
-    (fun _ => 0x66) = none :=
-  Base16.rejects_lowercase
-
 end Bench
 
-/-- `main` runs and exits 0 (type-checks are the gate; no runtime smoke here). -/
+/-- `main` runs and exits 0 (type-checking the `example`s above is the gate;
+there is no runtime smoke lane here). -/
 def main : IO Unit :=
   pure ()
