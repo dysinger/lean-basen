@@ -13,5 +13,9 @@ require codec from git "https://github.com/dysinger/lean-codec.git" @ "master"
 lean_lib basen where
   roots := #[`BaseN]
 
+@[default_target]
+lean_lib Axioms where
+  roots := #[`Axioms]
+
 lean_exe bench where
   root := `Bench
