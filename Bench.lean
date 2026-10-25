@@ -7,17 +7,20 @@ import Codec
 /-!
 # Byte-exact vector bench lane
 
-Value-checks each base **byte-for-byte** against the authoritative vectors:
+Value-checks each base **byte-for-byte** against the authoritative vectors, all
+through the **uniform surface** (`Codec.decodeFull`/`Codec.encode` on each base's
+own value, and `decodeFullB64`/`encodeB64`/`decodeFullB32`/`encodeB32` for the
+padded bases).  There is **no** bespoke per-format function and **no** facade:
+each `example` names the base's value, never a dispatch index.
 
   * base16/32/64 — RFC 4648 §10 (pinned in the sibling `lean-codec` repo's
     `openspec/changes/lean-basen/rfc4648.md`).
   * base2/4/8/10 — hand vectors for this package's own spec (no RFC).
 
-The fixed-width bases are `Codec` values over `satisfy`/`count`/`iso` + the
-repetition layer (value `List UInt8`); the padded bases (32/64) are **strict**
-over the terminal-tail value `B32`/`B64` (`encodeB32Strict`/`decodeB32Strict`,
-`encodeB64Strict`/`decodeB64Strict`), so the terminal-pad class is *rejected*
-structurally (`decode… = none`), not filtered.
+The padded bases (32/64) are the **composition** — a full-block `Run` (the
+derived `many`) followed by an at-most-one-block terminal tail — so the
+terminal-pad class (`Zg==AAAA` / `MY======AAAAAAAA`) is *rejected* by the `≤ 1`
+terminal-tail guard (`decodeFullB64`/`decodeFullB32 = none`), not filtered.
 -/
 
 namespace Bench
@@ -59,7 +62,7 @@ example : Base4.quartetBlockUnapply 0x66 = some [0x31, 0x32, 0x31, 0x32] := rfl 
 example : Base8.octBlockUnapply 0x66 = some [0x31, 0x34, 0x36] := rfl                     -- "146"
 example : Base10.digBlockUnapply 0x66 = some [0x31, 0x30, 0x32] := rfl                     -- "102"
 
--- Roundtrip laws, re-instantiated over the RFC byte-strings (fixed-width bases).
+-- Roundtrip laws, re-instantiated over the RFC byte-string `foobar`.
 
 example (n : Nat) (s : Bytes n) : Base16.encodeHex foobar = some ⟨n, s⟩ →
     Codec.decodeFull Base16.hexElem Base16.hexConsumesByte n s = some foobar :=
@@ -81,40 +84,102 @@ example (n : Nat) (s : Bytes n) : Base10.encodeDig foobar = some ⟨n, s⟩ →
     Codec.decodeFull Base10.digElem Base10.digConsumesByte n s = some foobar :=
   Base10.roundtrip foobar
 
--- Strict base32/64: roundtrip, canonical encoding, and rejection vectors.
+-- Base32/64 roundtrip through the uniform composition (`Codec`-value surface).
 
-example : Base64.decodeB64Strict (Base64.encodeB64Strict (Base64.B64.full 0x66 0x6F 0x6F Base64.B64.nil)) =
-    some (Base64.B64.full 0x66 0x6F 0x6F Base64.B64.nil) := rfl
+example (n : Nat) (s : Bytes n) : Base64.encodeB64 foobar = some ⟨n, s⟩ →
+    Base64.decodeFullB64 s = some foobar :=
+  Base64.decodeFullB64_roundtrip foobar
 
-example : Base32.decodeB32Strict (Base32.encodeB32Strict (Base32.B32.full 0x66 0x6F 0x6F 0x62 0x61 Base32.B32.nil)) =
-    some (Base32.B32.full 0x66 0x6F 0x6F 0x62 0x61 Base32.B32.nil) := rfl
+example (n : Nat) (s : Bytes n) : Base32.encodeB32 foobar = some ⟨n, s⟩ →
+    Base32.decodeFullB32 s = some foobar :=
+  Base32.decodeFullB32_roundtrip foobar
 
--- Canonical encoding: the RFC vectors re-expressed over the strict surface.
+-- Canonical encoding (alphabet-only blocks + terminal, arity-correct pad):
+-- `encodeB64_canonical` decomposes any encoded output into alphabet-only full
+-- blocks plus a single RFC-arity padded tail.
 
-example : Base64.encodeB64Strict (Base64.B64.tail1 0x66) = [0x5A, 0x67, 0x3D, 0x3D] := rfl -- "Zg=="
-example : Base64.encodeB64Strict (Base64.B64.tail2 0x66 0x6F) = [0x5A, 0x6D, 0x38, 0x3D] := rfl -- "Zm8="
-example : Base64.encodeB64Strict (Base64.B64.full 0x66 0x6F 0x6F Base64.B64.nil) = [0x5A, 0x6D, 0x39, 0x76] := rfl -- "Zm9v"
+example (n : Nat) (s : Bytes n) (he : Base64.encodeB64 foobar = some ⟨n, s⟩) :
+    ∃ (blocks : List (List UInt8)) (m₁ m₂ : Nat) (blkBytes : Bytes m₁) (tailBytes : Bytes m₂),
+      Codec.encodeRepeat Base64.b64BlockElem blocks = some ⟨m₁, blkBytes⟩ ∧
+      Base64.encodeB64Tail (Base64.b64Split_ofBytes (Base64.b64OfBytes foobar)).2 =
+        some ⟨m₂, tailBytes⟩ ∧
+      List.ofFn s = List.ofFn blkBytes ++ List.ofFn tailBytes := by
+  obtain ⟨blocks, m₁, m₂, blkBytes, tailBytes, hblk, htail, hlen, _, _⟩ :=
+    Base64.encodeB64_canonical foobar he
+  exact ⟨blocks, m₁, m₂, blkBytes, tailBytes, hblk, htail, hlen⟩
 
-example : Base32.encodeB32Strict (Base32.B32.tail1 0x66) = [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] := rfl -- "MY======"
-example : Base32.encodeB32Strict (Base32.B32.full 0x66 0x6F 0x6F 0x62 0x61 Base32.B32.nil) = [0x4D, 0x5A, 0x58, 0x57, 0x36, 0x59, 0x54, 0x42] := rfl -- "MZXW6YTB"
+example (n : Nat) (s : Bytes n) (he : Base32.encodeB32 foobar = some ⟨n, s⟩) :
+    ∃ (blocks : List (List UInt8)) (m₁ m₂ : Nat) (blkBytes : Bytes m₁) (tailBytes : Bytes m₂),
+      Codec.encodeRepeat Base32.b32BlockElem blocks = some ⟨m₁, blkBytes⟩ ∧
+      Base32.encodeB32Tail (Base32.b32Split_ofBytes (Base32.b32OfBytes foobar)).2 =
+        some ⟨m₂, tailBytes⟩ ∧
+      List.ofFn s = List.ofFn blkBytes ++ List.ofFn tailBytes := by
+  obtain ⟨blocks, m₁, m₂, blkBytes, tailBytes, hblk, htail, hlen, _, _⟩ :=
+    Base32.encodeB32_canonical foobar he
+  exact ⟨blocks, m₁, m₂, blkBytes, tailBytes, hblk, htail, hlen⟩
 
--- Rejection vectors: trailing data after a terminal `=` is `none` (structural).
+-- Rejection vectors: trailing data after a terminal `=` is `none`.
 
-example : Base64.decodeB64Strict [0x5A, 0x67, 0x3D, 0x3D, 0x41, 0x41, 0x41, 0x41] = none :=
-  Base64.rejects_trailing
+example : Base64.decodeFullB64 Base64.zgAAAA = none :=
+  Base64.decodeFullB64_reject_ZgAAAA
 
-example : Base32.decodeB32Strict [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41] = none :=
-  Base32.rejects_trailing
+example : Base32.decodeFullB32 Base32.myAAAA = none :=
+  Base32.decodeFullB32_reject_MYAAAA
+
+/-- `Zg==` as a `Bytes 4` (a canonical 1-byte base64 tail). -/
+def zgEqEq : Bytes 4 := fun i => [0x5A, 0x67, 0x3D, 0x3D][i]
+
+/-- `MY======` as a `Bytes 8` (a canonical 1-byte base32 tail). -/
+def myEqEq : Bytes 8 := fun i =>
+  [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D][i]
 
 -- Converse: a successful decode re-encodes to exactly the input (canonical).
 
-example : Base64.decodeB64Strict [0x5A, 0x67, 0x3D, 0x3D] = some (Base64.B64.tail1 0x66) →
-    Base64.encodeB64Strict (Base64.B64.tail1 0x66) = [0x5A, 0x67, 0x3D, 0x3D] :=
-  Base64.decodeB64Strict_inverse [0x5A, 0x67, 0x3D, 0x3D] (Base64.B64.tail1 0x66)
+example (h : Base64.decodeFullB64 zgEqEq = some f) :
+    Base64.encodeB64 f = some ⟨4, zgEqEq⟩ :=
+  Base64.decodeFullB64_conv zgEqEq f h
 
-example : Base32.decodeB32Strict [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] = some (Base32.B32.tail1 0x66) →
-    Base32.encodeB32Strict (Base32.B32.tail1 0x66) = [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] :=
-  Base32.decodeB32Strict_inverse [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] (Base32.B32.tail1 0x66)
+example (h : Base32.decodeFullB32 myEqEq = some f) :
+    Base32.encodeB32 f = some ⟨8, myEqEq⟩ :=
+  Base32.decodeFullB32_conv myEqEq f h
+
+-- Injectivity: a byte list has a unique encoding.
+
+example (n : Nat) (s : Bytes n) (v v' : List UInt8)
+    (h : Base64.encodeB64 v = some ⟨n, s⟩) (h' : Base64.encodeB64 v' = some ⟨n, s⟩) :
+    v = v' :=
+  Base64.encodeB64_injective h h'
+
+example (n : Nat) (s : Bytes n) (v v' : List UInt8)
+    (h : Base32.encodeB32 v = some ⟨n, s⟩) (h' : Base32.encodeB32 v' = some ⟨n, s⟩) :
+    v = v' :=
+  Base32.encodeB32_injective h h'
+
+example (n : Nat) (s : Bytes n) (v v' : List UInt8)
+    (h : Base16.encodeHex v = some ⟨n, s⟩) (h' : Base16.encodeHex v' = some ⟨n, s⟩) :
+    v = v' :=
+  Base16.encode_injective h h'
+
+-- Fixed-width converse + overflow vectors (through the uniform `decodeFull`).
+
+example (n : Nat) (s : Bytes n) (v : List UInt8)
+    (h : Codec.decodeFull Base16.hexElem Base16.hexConsumesByte n s = some v) :
+    Base16.encodeHex v = some ⟨n, s⟩ :=
+  Base16.decode_encode_inverse v h
+
+example : Codec.decodeFull Base8.octElem Base8.octConsumesByte 3
+    (fun i : Fin 3 => [0x34, 0x30, 0x30][i]) = none :=
+  Base8.rejects_overflow
+
+example : Codec.decodeFull Base10.digElem Base10.digConsumesByte 3
+    (fun i : Fin 3 => [0x32, 0x35, 0x36][i]) = none :=
+  Base10.rejects_overflow
+
+-- Base16 non-goal (recorded, not a passing vector): lowercase `6f` is rejected.
+
+example : Codec.decodeFull Base16.hexElem Base16.hexConsumesByte 1
+    (fun _ => 0x66) = none :=
+  Base16.rejects_lowercase
 
 end Bench
 
