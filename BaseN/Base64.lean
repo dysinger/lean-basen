@@ -2800,4 +2800,369 @@ theorem decodeFullB64_char {n : Nat} (s : Bytes n) (v : List UInt8) :
     rw [hv]
     exact decodeFullB64_roundtrip w he
 
+/-! ## General rejection laws (task 6.4)
+
+The named rejection vectors above (`Zg==AAAA`, `!g==`, `=g==`, `Zg`) are
+*instances*; the proposal promises the general statement.  The laws below are
+quantified over **every** byte string `s`:
+
+* (a) `decodeFullB64_reject_invalid_at` — a byte failing both the alphabet and
+  the `=` pad at **any** index is rejected (generalises
+  `decodeFullB64_reject_first_invalid`, which is index-0 only);
+* (b) `decodeFullB64_reject_pad_at_low_slot` — a `=` at code-word slot 0 or 1 is
+  rejected (the `Zg==Zg==` class, previously only implicit in the D8
+  `tails.length ≤ 1` guard);
+* (c) `decodeFullB64_reject_arity` — a byte count not divisible by 4 is rejected.
+
+All three follow the same pad-dichotomy: `decodeFullB64_some` decomposes a
+success into a full-block prefix plus a terminal tail; `relB64Block_len`/
+`relB64Tail_len` pin those two regions to `4 · blocks.length` and
+`4 · tails.length` consumed bytes; `Rel_b64BlockElem_canonical` and
+`Rel_b64TailElem_pad_pos` pin the alphabet in each.  Every one is
+`[propext, Quot.sound]`-only. -/
+
+/-- **Every consumed byte of a successful base64 decode satisfies `b64OrPad`.**
+
+A success decomposes into a full-block region (every byte a `b64Char`, hence
+`b64OrPad`) and a terminal-tail region (every byte `b64OrPad` by the `count 4
+(satisfy b64OrPad)` window), and together they consume the whole input.  This is
+the general replacement for the index-0-only `decodeFullB64_reject_first_invalid`:
+whatever the split, **every** byte of `s` is alphabet-or-pad. -/
+theorem decodeFullB64_consumed_alphabet {n : Nat} (s : Bytes n) (v : List UInt8)
+    (h : decodeFullB64 s = some v) :
+    ∀ i : Fin n, b64OrPad (s i) = true := by
+  rcases decodeFullB64_some s v h with ⟨blocks, t, tails, hmem, htail, _hlen, _hflat⟩
+  rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks n s t).1 hmem with
+    ⟨s₁, hs, hrel⟩
+  have hcanon : ∀ j : Fin (n - t.remaining), b64Char (s₁ j) = true :=
+    relRepeat_forall b64Char (fun x {m} tt ht => Rel_b64BlockElem_canonical ht)
+      blocks (n - t.remaining) s₁ hrel
+  have htail_mem : (tails, Suffix.empty t.remaining) ∈
+      decodeRepeat b64TailElem b64TailConsumesByte t.remaining t.bytes :=
+    decodeFull_some b64TailElem b64TailConsumesByte t.bytes tails htail
+  rcases (decodeRepeat_spec b64TailElem b64TailConsumesByte tails t.remaining t.bytes
+    (Suffix.empty t.remaining)).1 htail_mem with ⟨s₂, hs₂, hrel₂⟩
+  have htail_s : t.bytes = cast (congrArg Bytes (Nat.sub_zero t.remaining)) s₂ := by
+    rw [hs₂]
+    exact prepend_empty_eq s₂
+  have hrel₂' : relRepeat (Rel b64TailElem) tails t.remaining t.bytes := by
+    rw [htail_s]
+    exact (relRepeat_cast (Rel b64TailElem) tails (Nat.sub_zero t.remaining) s₂).1 hrel₂
+  have htail_forall : ∀ j : Fin t.remaining, b64OrPad (t.bytes j) = true :=
+    relRepeat_forall b64OrPad
+      (fun x {m} tt ht => by
+        unfold b64TailElem at ht
+        rw [Rel_iso] at ht
+        rcases ht with ⟨a, _, hc⟩
+        exact Rel_count_satisfy_forall b64OrPad 4 a tt hc)
+      tails t.remaining t.bytes hrel₂'
+  intro i
+  by_cases hin : i.val < n - t.remaining
+  · have hread : s i = s₁ ⟨i.val, hin⟩ := by
+      rw [hs]
+      exact Codec.prepend_prefix_read t s₁ i hin
+    have hc : b64Char (s₁ ⟨i.val, hin⟩) = true := hcanon ⟨i.val, hin⟩
+    rw [hread]
+    unfold b64OrPad
+    have hcv : b64Valid (s₁ ⟨i.val, hin⟩).toNat = true := hc
+    rw [hcv]
+    rfl
+  · have hread : s i = t.bytes ⟨i.val - (n - t.remaining), by
+      have := t.hle
+      omega⟩ := by
+      have hdrop : bdrop (n - t.remaining) s =
+          cast (congrArg Bytes (Nat.sub_sub_self t.hle).symm) t.bytes := by
+        rw [hs]
+        exact bdrop_prepend t s₁
+      have hsi : s i = s ⟨(⟨i.val - (n - t.remaining), by
+            have := t.hle
+            omega⟩ : Fin (n - (n - t.remaining))).val + (n - t.remaining), by
+          have := t.hle
+          have := i.isLt
+          omega⟩ := by
+        congr 1
+        exact Fin.ext (by simp; omega)
+      have hc := congrFun hdrop ⟨i.val - (n - t.remaining), by
+        have := t.hle
+        omega⟩
+      unfold Codec.bdrop at hc
+      rw [hsi]
+      refine hc.trans ?_
+      rw [Codec.cast_bytes_val_symm]
+      congr 1
+      exact Nat.sub_sub_self t.hle
+    rw [hread]
+    exact htail_forall _
+
+/-- **An alphabet-invalid byte at any index is rejected (base64).**  Generalises
+`decodeFullB64_reject_first_invalid` from index 0 to **every** index: a byte failing
+`b64OrPad` (neither an alphabet character nor `=`) anywhere in the input forces
+`none`. -/
+theorem decodeFullB64_reject_invalid_at {n : Nat} (s : Bytes n) (i : Fin n)
+    (hbad : b64OrPad (s i) = false) :
+    decodeFullB64 s = none := by
+  cases h : decodeFullB64 s with
+  | none => rfl
+  | some v =>
+      have htrue : b64OrPad (s i) = true := decodeFullB64_consumed_alphabet s v h i
+      rw [htrue] at hbad
+      exact absurd hbad (by decide : (true = false) → False)
+
+/-- **A `b64TailElem` block pads only at its terminal positions.**  A tail block is
+a padded 4-char window whose `b64BlockUnapply` of a 1- or 2-byte value is
+`[c₀, c₁, =, =]` or `[c₀, c₁, c₂, =]` — the pad is never in position 0 or 1.  So a
+`=` byte of a tail block sits at index ≥ 2.  This is the block-level "`=` is
+terminal only" half of RFC 4648 §3.2. -/
+theorem Rel_b64TailElem_pad_pos (x : List UInt8) {n : Nat} (s : Bytes n)
+    (h : Rel b64TailElem x s) :
+    ∀ i : Fin n, (s i).toNat = 61 → 2 ≤ i.val := by
+  intro i hi
+  unfold b64TailElem at h
+  rw [Rel_iso] at h
+  rcases h with ⟨a, ha, hr⟩
+  have hofn : List.ofFn s = a := Rel_count_satisfy_ofFn b64OrPad 4 a s hr
+  have hn4 : n = 4 := Rel_count_satisfy_len b64OrPad 4 a s hr
+  subst hn4
+  unfold b64TailIso at ha
+  change b64TailApply a = some x at ha
+  unfold b64TailApply at ha
+  rcases i with ⟨k, hk⟩
+  have hk4 : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 := nat_lt_four k hk
+  -- a `valToB64` output is never the pad byte
+  have slot0 : ∀ (c : UInt8), valToB64 (c.toNat / 4) ≠ 61 :=
+    fun c => valToB64_not_pad _ (by have := UInt8.toNat_lt c; omega)
+  cases hb : b64BlockApply a with
+  | none => simp [hb] at ha
+  | some bl =>
+    cases bl with
+    | nil => simp [hb] at ha
+    | cons b0 bl1 =>
+      cases bl1 with
+      | nil =>
+        have hun : b64BlockUnapply [b0] = some a := (b64BlockIso_law a [b0]).1 (by simpa using hb)
+        have htail : a = [toByte (valToB64 (b0.toNat / 4)),
+            toByte (valToB64 ((b0.toNat % 4) * 16)), toByte 61, toByte 61] := by
+          simp [b64BlockUnapply] at hun
+          exact hun.symm
+        rw [← hofn] at htail
+        have e0 : s ⟨0, by decide⟩ = toByte (valToB64 (b0.toNat / 4)) := by
+          have hg := congrArg (fun l : List UInt8 => l[0]?) htail
+          simpa using hg
+        have e1 : s ⟨1, by decide⟩ = toByte (valToB64 ((b0.toNat % 4) * 16)) := by
+          have hg := congrArg (fun l : List UInt8 => l[1]?) htail
+          simpa using hg
+        rcases hk4 with rfl | rfl | rfl | rfl
+        · rw [congrArg UInt8.toNat e0,
+              toByte_valToB64 _ (by have := UInt8.toNat_lt b0; omega)] at hi
+          exact absurd hi (slot0 b0)
+        · rw [congrArg UInt8.toNat e1,
+              toByte_valToB64 _ (by have := UInt8.toNat_lt b0; omega)] at hi
+          exact absurd hi (valToB64_not_pad _ (by have := UInt8.toNat_lt b0; omega))
+        · exact Nat.le_refl 2
+        · exact Nat.le_succ_of_le (Nat.le_refl 2)
+      | cons b1 bl2 =>
+        cases bl2 with
+        | nil =>
+          have hun : b64BlockUnapply [b0, b1] = some a := (b64BlockIso_law a [b0, b1]).1 (by simpa using hb)
+          have htail : a = [toByte (valToB64 (b0.toNat / 4)),
+              toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
+              toByte (valToB64 ((b1.toNat % 16) * 4)), toByte 61] := by
+            simp [b64BlockUnapply] at hun
+            exact hun.symm
+          rw [← hofn] at htail
+          have e0 : s ⟨0, by decide⟩ = toByte (valToB64 (b0.toNat / 4)) := by
+            have hg := congrArg (fun l : List UInt8 => l[0]?) htail
+            simpa using hg
+          have e1 : s ⟨1, by decide⟩
+              = toByte (valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)) := by
+            have hg := congrArg (fun l : List UInt8 => l[1]?) htail
+            simpa using hg
+          rcases hk4 with rfl | rfl | rfl | rfl
+          · rw [congrArg UInt8.toNat e0,
+                toByte_valToB64 _ (by have := UInt8.toNat_lt b0; omega)] at hi
+            exact absurd hi (slot0 b0)
+          · rw [congrArg UInt8.toNat e1,
+                toByte_valToB64 _
+                  (by have := UInt8.toNat_lt b0; have := UInt8.toNat_lt b1; omega)] at hi
+            exact absurd hi (valToB64_not_pad _
+              (by have := UInt8.toNat_lt b0; have := UInt8.toNat_lt b1; omega))
+          · exact Nat.le_refl 2
+          · exact Nat.le_succ_of_le (Nat.le_refl 2)
+        | cons _ _ => simp [hb] at ha
+
+/-- **The full-block region of a successful decode is alphabet-only, with its
+length exposed.**  `decodeFullB64_some` gives the split; `relRepeat_forall` +
+`Rel_b64BlockElem_canonical` give `b64Char` on every byte of the block region,
+whose length is exactly `4 · blocks.length` (`relB64Block_len`). -/
+theorem decodeFullB64_block_region {n : Nat} (s : Bytes n) (v : List UInt8)
+    (h : decodeFullB64 s = some v) :
+    ∃ (blocks : List (List UInt8)) (t : Suffix n),
+      (blocks, t) ∈ decodeRepeat b64BlockElem b64BlockConsumesByte n s ∧
+      n - t.remaining = 4 * blocks.length ∧
+      ∀ i : Fin n, i.val < 4 * blocks.length → b64Char (s i) = true := by
+  rcases decodeFullB64_some s v h with ⟨blocks, t, tails, hmem, _htail, _hlen, _hflat⟩
+  rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks n s t).1 hmem with
+    ⟨s₁, hs, hrel⟩
+  have hblk_len : n - t.remaining = 4 * blocks.length := relB64Block_len s₁ hrel
+  have hcanon : ∀ j : Fin (n - t.remaining), b64Char (s₁ j) = true :=
+    relRepeat_forall b64Char (fun x {m} tt ht => Rel_b64BlockElem_canonical ht)
+      blocks (n - t.remaining) s₁ hrel
+  refine ⟨blocks, t, hmem, hblk_len, fun i hi => ?_⟩
+  have hin : i.val < n - t.remaining := by omega
+  have hread : s i = s₁ ⟨i.val, hin⟩ := by
+    rw [hs]
+    exact Codec.prepend_prefix_read t s₁ i hin
+  rw [hread]
+  exact hcanon ⟨i.val, hin⟩
+
+/-- **A pad byte at code-word slot 0 or 1 is rejected (base64).**
+
+The general non-terminal-pad law, split-free: the full-block region is
+alphabet-only (`Rel_b64BlockElem_canonical` over the run) and 4-aligned, and a
+terminal-tail block pads only at slots 2 and 3 (`Rel_b64TailElem_pad_pos`).  So a
+`=` whose position modulo 4 is 0 or 1 cannot occur in a successful decode — which
+covers `=g==`, `Z=g=`, and the `Zg==Zg==` class (a second block, starting a fresh
+code word, whose leading alphabet byte no tail can absorb).
+
+The index split is pure `Nat` arithmetic on the two region lengths, so no
+`Fin`-cast reasoning is needed beyond reading the tail byte. -/
+theorem decodeFullB64_reject_pad_at_low_slot {n : Nat} (s : Bytes n) (i : Fin n)
+    (hpad : (s i).toNat = 61) (hslots : i.val % 4 = 0 ∨ i.val % 4 = 1) :
+    decodeFullB64 s = none := by
+  cases h : decodeFullB64 s with
+  | none => rfl
+  | some v =>
+    rcases decodeFullB64_some s v h with ⟨blocks, t, tails, hmem, htail, _hlen, _hflat⟩
+    rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks n s t).1 hmem with
+      ⟨s₁, hs, hrel⟩
+    have hblk_len : n - t.remaining = 4 * blocks.length := relB64Block_len s₁ hrel
+    have hcanon : ∀ j : Fin (n - t.remaining), b64Char (s₁ j) = true :=
+      relRepeat_forall b64Char (fun x {m} tt ht => Rel_b64BlockElem_canonical ht)
+        blocks (n - t.remaining) s₁ hrel
+    have htail_mem : (tails, Suffix.empty t.remaining) ∈
+        decodeRepeat b64TailElem b64TailConsumesByte t.remaining t.bytes :=
+      decodeFull_some b64TailElem b64TailConsumesByte t.bytes tails htail
+    rcases (decodeRepeat_spec b64TailElem b64TailConsumesByte tails t.remaining t.bytes
+      (Suffix.empty t.remaining)).1 htail_mem with ⟨s₂, hs₂, hrel₂⟩
+    have htail_s : t.bytes = cast (congrArg Bytes (Nat.sub_zero t.remaining)) s₂ := by
+      rw [hs₂]
+      exact prepend_empty_eq s₂
+    have hrel₂' : relRepeat (Rel b64TailElem) tails t.remaining t.bytes := by
+      rw [htail_s]
+      exact (relRepeat_cast (Rel b64TailElem) tails (Nat.sub_zero t.remaining) s₂).1 hrel₂
+    have htail_len : t.remaining = 4 * tails.length := relB64Tail_len t.bytes hrel₂'
+    by_cases hin : i.val < n - t.remaining
+    · -- block region: the byte is an alphabet char, never the pad
+      have hread : s i = s₁ ⟨i.val, hin⟩ := by
+        rw [hs]
+        exact Codec.prepend_prefix_read t s₁ i hin
+      have hc : b64Char (s₁ ⟨i.val, hin⟩) = true := hcanon ⟨i.val, hin⟩
+      rw [hread] at hpad
+      unfold b64Char at hc
+      rw [hpad] at hc
+      have hfalse : b64Valid 61 = false := by decide
+      rw [hfalse] at hc
+      exact absurd hc (by decide)
+    · -- tail region: read the byte, and a tail block pads only at slots 2/3
+      have hge : n - t.remaining ≤ i.val := Nat.le_of_not_gt hin
+      have hdrop : bdrop (n - t.remaining) s =
+          cast (congrArg Bytes (Nat.sub_sub_self t.hle).symm) t.bytes := by
+        rw [hs]
+        exact bdrop_prepend t s₁
+      have hread : s i = t.bytes ⟨i.val - (n - t.remaining), by
+        have := t.hle
+        omega⟩ := by
+        have hsi : s i = s ⟨(⟨i.val - (n - t.remaining), by
+              have := t.hle
+              omega⟩ : Fin (n - (n - t.remaining))).val + (n - t.remaining), by
+            have := t.hle
+            have := i.isLt
+            omega⟩ := by
+          congr 1
+          exact Fin.ext (by simp; omega)
+        have hc := congrFun hdrop ⟨i.val - (n - t.remaining), by
+          have := t.hle
+          omega⟩
+        unfold Codec.bdrop at hc
+        rw [hsi]
+        refine hc.trans ?_
+        rw [Codec.cast_bytes_val_symm]
+        congr 1
+        exact Nat.sub_sub_self t.hle
+      rcases tails with _ | ⟨x, xs⟩
+      · rw [relRepeat_nil] at hrel₂'
+        omega
+      rw [relRepeat_cons] at hrel₂'
+      rcases hrel₂' with ⟨m, hm, sb, srest, hsplice, hx, _⟩
+      have hm4 : m = 4 := Rel_b64TailElem_len x sb hx
+      subst hm4
+      have hk : i.val - (n - t.remaining) < 4 := by
+        rcases xs with _ | ⟨_, _ | ⟨_, _ | ⟨_, _⟩⟩⟩ <;> simp_all <;> omega
+      have hpad_t : (t.bytes ⟨i.val - (n - t.remaining), by
+          have := t.hle
+          omega⟩).toNat = 61 := by
+        rw [← hread]
+        exact hpad
+      have hread' : t.bytes ⟨i.val - (n - t.remaining), by
+          have := t.hle
+          omega⟩ = sb ⟨i.val - (n - t.remaining), hk⟩ := by
+        rw [hsplice]
+        exact Codec.splice_prefix_read hm sb srest
+          ⟨i.val - (n - t.remaining), by omega⟩ hk
+      have hpad_sb : (sb ⟨i.val - (n - t.remaining), hk⟩).toNat = 61 := by
+        rw [← hread']
+        exact hpad_t
+      have hpos : 2 ≤ i.val - (n - t.remaining) :=
+        Rel_b64TailElem_pad_pos x sb hx ⟨i.val - (n - t.remaining), hk⟩ hpad_sb
+      -- the consumed prefix is a whole number of code words
+      have hmod : (i.val - (n - t.remaining)) % 4 = i.val % 4 := by
+        rw [hblk_len]
+        omega
+      have hklt : i.val - (n - t.remaining) < 4 := hk
+      rcases hslots with h0 | h0 <;> omega
+
+/-- **A successful base64 decode consumes a whole number of 4-byte code words.**
+
+This is the arity law (part (c) of task 6.4), proved *without* case-splitting on the
+named vectors: `decodeFullB64_some` splits the input into the full-block run and the
+terminal tail, `relB64Block_len` pins the block region to `4 · blocks.length`,
+`relB64Tail_len` pins the tail region to `4 · tails.length`, and the two regions
+partition `n`.  Hence `n = 4 · (blocks.length + tails.length)` — so a byte count
+not divisible by 4 cannot decode. -/
+theorem decodeFullB64_arity {n : Nat} (s : Bytes n) (v : List UInt8)
+    (h : decodeFullB64 s = some v) :
+    n % 4 = 0 := by
+  rcases decodeFullB64_some s v h with ⟨blocks, t, tails, hmem, htail, _hlen, _hflat⟩
+  rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks n s t).1 hmem with
+    ⟨s₁, hs, hrel⟩
+  have hblk_len : n - t.remaining = 4 * blocks.length := relB64Block_len s₁ hrel
+  have htail_mem : (tails, Suffix.empty t.remaining) ∈
+      decodeRepeat b64TailElem b64TailConsumesByte t.remaining t.bytes :=
+    decodeFull_some b64TailElem b64TailConsumesByte t.bytes tails htail
+  rcases (decodeRepeat_spec b64TailElem b64TailConsumesByte tails t.remaining t.bytes
+    (Suffix.empty t.remaining)).1 htail_mem with ⟨s₂, hs₂, hrel₂⟩
+  have htail_s : t.bytes = cast (congrArg Bytes (Nat.sub_zero t.remaining)) s₂ := by
+    rw [hs₂]
+    exact prepend_empty_eq s₂
+  have hrel₂' : relRepeat (Rel b64TailElem) tails t.remaining t.bytes := by
+    rw [htail_s]
+    exact (relRepeat_cast (Rel b64TailElem) tails (Nat.sub_zero t.remaining) s₂).1 hrel₂
+  have htail_len : t.remaining = 4 * tails.length := relB64Tail_len t.bytes hrel₂'
+  -- the two regions partition `n`, and both are whole code words
+  have hn : n = 4 * (blocks.length + tails.length) := by
+    have hle := t.hle
+    omega
+  rw [hn, Nat.mul_mod_right]
+
+/-- **Wrong-arity input is rejected (base64).**  The general form of
+`decodeFullB64_reject_bad_length`: a byte count not divisible by 4 cannot be a
+base64 encoding, because a successful decode consumes `4 · (blocks.length +
+tails.length)` bytes (`decodeFullB64_arity`). -/
+theorem decodeFullB64_reject_arity {n : Nat} (s : Bytes n) (hmod : n % 4 ≠ 0) :
+    decodeFullB64 s = none := by
+  cases h : decodeFullB64 s with
+  | none => rfl
+  | some v =>
+      exact absurd (decodeFullB64_arity s v h) hmod
+
 end BaseN.Base64
