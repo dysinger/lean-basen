@@ -18,6 +18,8 @@ Everything here is `[propext, Quot.sound]`-only, stdlib-only (no mathlib, no
 
 namespace BaseN.Common
 
+set_option linter.unnecessarySimpa false
+
 open Codec
 
 /-! ## Generic productivity lemmas (composition preserves `Productive`) -/
@@ -587,5 +589,29 @@ theorem head?_eq_some_of_mem_eq {α : Type} (b : α) (L : List α)
   | cons hd tl ih =>
       simp [List.head?_cons]
       rw [hall hd (by simp)]
+
+/-- The empty-blocks result of `decodeRepeat` is exactly the identity suffix:
+`([], t) ∈ decodeRepeat p h n s` forces `t = Suffix.id n s` (every other result
+carries a non-empty block list, so it cannot match `[]`).  This is the clean
+"nothing consumed" bridge a rejection proof uses to relate the remaining bytes
+to the whole input. -/
+theorem decodeRepeat_nil_mem_eq_id {α : Type} (p : Codec α) (h : ConsumesByte p)
+    {n : Nat} (s : Bytes n) (t : Suffix n) :
+    ([], t) ∈ decodeRepeat p h n s → t = Suffix.id n s := by
+  intro hmem
+  rw [decodeRepeat_eq] at hmem
+  rw [List.mem_cons] at hmem
+  rcases hmem with hmem | hmem
+  · -- ([], t) = ([], Suffix.id n s): project to the suffix
+    have hpair := congrArg (fun pr : List α × Suffix n => pr.2) hmem
+    simpa using hpair
+  · exfalso
+    rw [List.mem_flatMap] at hmem
+    rcases hmem with ⟨a, _, ha⟩
+    rcases a with ⟨⟨x, _⟩, _⟩
+    rw [List.mem_map] at ha
+    rcases ha with ⟨b, _, hb⟩
+    rcases b with ⟨xs, _⟩
+    simpa using hb
 
 end BaseN.Common
