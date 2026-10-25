@@ -287,3 +287,64 @@ requirement as one proposition: `decode s = some v ↔ ∃ v', encode v' = some 
 /-- info: 'BaseN.Base32.decodeFullB32_char' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base32.decodeFullB32_char
+
+/-! ## General rejection laws (task 6.4)
+
+Task 6.4 replaced the finite rejection vector set with the *general* law for both
+padded bases: an invalid alphabet byte at **any** index, a `=` at code-word slot
+0 or 1 (i.e. non-terminal padding, the `Zg==Zg==` / `MY======MY======` class), and
+a byte count not divisible by the code-word width. Plus the supporting lemmas
+(`*_consumed_alphabet`, `Rel_b*TailElem_pad_pos`, `decodeFullB64_block_region`)
+and the arity identity `decodeFullB*_arity`. All `[propext, Quot.sound]`-only. -/
+
+/-- info: 'BaseN.Base64.decodeFullB64_consumed_alphabet' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.decodeFullB64_consumed_alphabet
+
+/-- info: 'BaseN.Base64.decodeFullB64_reject_invalid_at' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.decodeFullB64_reject_invalid_at
+
+/-- info: 'BaseN.Base64.Rel_b64TailElem_pad_pos' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.Rel_b64TailElem_pad_pos
+
+/-- info: 'BaseN.Base64.decodeFullB64_block_region' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.decodeFullB64_block_region
+
+/-- info: 'BaseN.Base64.decodeFullB64_reject_pad_at_low_slot' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.decodeFullB64_reject_pad_at_low_slot
+
+/-- info: 'BaseN.Base64.decodeFullB64_arity' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.decodeFullB64_arity
+
+/-- info: 'BaseN.Base64.decodeFullB64_reject_arity' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.decodeFullB64_reject_arity
+
+/-- info: 'BaseN.Base32.decodeFullB32_consumed_alphabet' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_consumed_alphabet
+
+/-- info: 'BaseN.Base32.decodeFullB32_reject_invalid_at' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_reject_invalid_at
+
+/-- info: 'BaseN.Base32.Rel_b32TailElem_pad_pos' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.Rel_b32TailElem_pad_pos
+
+/-- info: 'BaseN.Base32.decodeFullB32_reject_pad_at_low_slot' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_reject_pad_at_low_slot
+
+/-- info: 'BaseN.Base32.decodeFullB32_arity' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_arity
+
+/-- info: 'BaseN.Base32.decodeFullB32_reject_arity' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_reject_arity

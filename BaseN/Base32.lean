@@ -3385,7 +3385,7 @@ theorem Rel_b32TailElem_pad_pos (x : List UInt8) {n : Nat} (s : Bytes n)
     rcases r4 with _ | ⟨u3, r5⟩
     · simp only [b32TailUnapply, b32BlockUnapply, Option.some.injEq] at hun
       subst hun; rfl
-    · simp [b32TailUnapply, b32BlockUnapply] at hun
+    · simp [b32TailUnapply] at hun
   have s1 : ∀ (v0 w : UInt8) (r2 : List UInt8), b32TailUnapply (v0 :: w :: r2) = some a →
       a[1]? = some (toByte (valToB32 ((v0.toNat % 8) * 4 + w.toNat / 64))) := by
     intro v0 w r2 hun
@@ -3398,7 +3398,7 @@ theorem Rel_b32TailElem_pad_pos (x : List UInt8) {n : Nat} (s : Bytes n)
     rcases r4 with _ | ⟨u3, r5⟩
     · simp only [b32TailUnapply, b32BlockUnapply, Option.some.injEq] at hun
       subst hun; rfl
-    · simp [b32TailUnapply, b32BlockUnapply] at hun
+    · simp [b32TailUnapply] at hun
 
   rcases i with ⟨k, hk⟩
   have hk8 : k = 0 ∨ k = 1 ∨ 2 ≤ k := by omega

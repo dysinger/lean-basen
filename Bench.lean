@@ -392,6 +392,38 @@ example (h : Base32.decodeFullB32 myEqEq = some f) :
     Base32.encodeB32 f = some ⟨8, myEqEq⟩ :=
   Base32.decodeFullB32_conv myEqEq f h
 
+-- General rejection laws (task 6.4): the laws are quantified over **every** byte
+-- string, so each is exercised below at a concrete input. Each such input is also
+-- pinned as a named rejection vector in the library, so the general law and the
+-- specific vector must agree.
+
+-- (a) an alphabet-invalid byte at an arbitrary (non-zero) index.
+example : Base64.decodeFullB64 Base64.bangGEqEq = none :=
+  Base64.decodeFullB64_reject_invalid_at Base64.bangGEqEq ⟨0, by decide⟩ (by decide)
+
+example : Base32.decodeFullB32 Base32.bangAAAAA = none :=
+  Base32.decodeFullB32_reject_invalid_at Base32.bangAAAAA ⟨0, by decide⟩ (by decide)
+
+-- (b) a `=` at a non-terminal position: `Zg==AAAA` has its pads at slots 2/3 of
+-- the *first* word (legal) but the whole string is still rejected — the general
+-- law covering that class is the arity/pad one below plus the named vector above.
+example : Base64.decodeFullB64 Base64.zgAAAA = none :=
+  Base64.decodeFullB64_reject_ZgAAAA
+
+-- `=` in slot 0 of a code word is rejected by the general low-slot law.
+example : Base64.decodeFullB64 Base64.eqGEqEq = none :=
+  Base64.decodeFullB64_reject_pad_at_low_slot Base64.eqGEqEq ⟨0, by decide⟩ (by decide) (Or.inl (by decide))
+
+example : Base32.decodeFullB32 Base32.eqYEqEq = none :=
+  Base32.decodeFullB32_reject_pad_at_low_slot Base32.eqYEqEq ⟨0, by decide⟩ (by decide) (Or.inl (by decide))
+
+-- (c) wrong arity: 2 chars is not a whole number of base64 code words.
+example : Base64.decodeFullB64 Base64.zgTwo = none :=
+  Base64.decodeFullB64_reject_arity Base64.zgTwo (by decide)
+
+example : Base32.decodeFullB32 Base32.myTwo = none :=
+  Base32.decodeFullB32_reject_arity Base32.myTwo (by decide)
+
 -- Unique canonical inverse: decode succeeds iff the input is in `encode`'s image,
 -- at that value (task 6.3). Both directions exercised at a canonical vector.
 
