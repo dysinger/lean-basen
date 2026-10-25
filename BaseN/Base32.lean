@@ -2651,4 +2651,272 @@ theorem encodeB32_canonical (bs : List UInt8) {n : Nat} {s : Bytes n}
               · exact hc5
               · exact hc6
 
+
+/-! ## Converse (task 4.3) and injectivity (task 4.4)
+
+`decodeFullB32 s = some v → encodeB32 v = some ⟨n, s⟩` (the decode→encode
+converse) and `encodeB32 v = encodeB32 v' = some ⟨n, s⟩ → v = v'`
+(injectivity).  The base32 mirror of the base64 pair (5-byte blocks, 1–4-byte
+tails).  Both `[propext, Quot.sound]`-only. -/
+
+/-- A `b32BlockElem`-related value is a 5-byte list (`Rel_b32BlockElem_size`);
+lifted to a `relRepeat`, every block of a block-run is exactly 5 bytes. -/
+theorem relB32Block_all_size3 :
+    ∀ {blocks : List (List UInt8)} {m : Nat} (s : Bytes m),
+      relRepeat (Rel b32BlockElem) blocks m s → ∀ b ∈ blocks, b.length = 5 := by
+  intro blocks m s hrel
+  induction blocks generalizing m s with
+  | nil =>
+      intro b hb
+      simp at hb
+  | cons x xs ih =>
+      intro b hb
+      rw [relRepeat_cons] at hrel
+      rcases hrel with ⟨m₁, hm₁, s₁, s₂, _hs, hx, hxs⟩
+      rw [List.mem_cons] at hb
+      rcases hb with hbeq | hbmem
+      · subst b
+        exact Rel_b32BlockElem_size x s₁ hx
+      · exact ih s₂ hxs b hbmem
+
+/-- `b32Split` reconstructs a run of 5-byte blocks plus a ≤ 4-byte tail: given
+`blocks` all length-5 and `tail.length ≤ 4`, splitting `blocks.flatten ++ tail`
+recovers exactly `(blocks, tail)`. -/
+theorem b32Split_blocks_tail (blocks : List (List UInt8)) (tail : List UInt8)
+    (hblocks : ∀ b ∈ blocks, b.length = 5) (htail : tail.length ≤ 4) :
+    b32Split (blocks.flatten ++ tail) = (blocks, tail) := by
+  induction blocks generalizing tail with
+  | nil =>
+      cases tail with
+      | nil => rfl
+      | cons a t =>
+          cases t with
+          | nil => rfl
+          | cons b t2 =>
+              cases t2 with
+              | nil => rfl
+              | cons c t3 =>
+                  cases t3 with
+                  | nil => rfl
+                  | cons d t4 =>
+                      cases t4 with
+                      | nil => rfl
+                      | cons e t5 => simp at htail
+  | cons b bs ih =>
+      have hb : b.length = 5 := hblocks b (by simp)
+      have hbs : ∀ b' ∈ bs, b'.length = 5 := by
+        intro b' hb'; exact hblocks b' (by simp [hb'])
+      cases b with
+      | nil => simp at hb
+      | cons b0 t0 =>
+          cases t0 with
+          | nil => simp at hb
+          | cons b1 t1 =>
+              cases t1 with
+              | nil => simp at hb
+              | cons b2 t2 =>
+                  cases t2 with
+                  | nil => simp at hb
+                  | cons b3 t3 =>
+                      cases t3 with
+                      | nil => simp at hb
+                      | cons b4 t4 =>
+                          cases t4 with
+                          | nil =>
+                              show b32Split (b0 :: b1 :: b2 :: b3 :: b4 :: (bs.flatten ++ tail)) =
+                                ([b0, b1, b2, b3, b4] :: bs, tail)
+                              rw [b32Split.eq_6]
+                              rw [ih tail hbs htail]
+                          | cons c t5 => simp at hb
+
+/-- A single decoded tail block re-encodes: from `relRepeat (Rel b32TailElem)
+tails m st` with `tails.length ≤ 1`, `encodeB32Tail tails.flatten` reproduces
+`⟨m, st⟩` (functionality of `b32TailElem` pins the bytes).
+`[propext, Quot.sound]`-only. -/
+theorem encodeB32Tail_of_rel (tails : List (List UInt8)) {m : Nat} (st : Bytes m)
+    (hrel : relRepeat (Rel b32TailElem) tails m st) (hlen : tails.length ≤ 1) :
+    encodeB32Tail tails.flatten = some ⟨m, st⟩ := by
+  cases tails with
+  | nil =>
+      rw [relRepeat_nil] at hrel
+      subst m
+      have hst0 : st = (Codec.emptyBytes : Bytes 0) := by
+        apply Bytes.ext
+        intro i
+        exact Fin.elim0 i
+      subst hst0
+      rfl
+  | cons x txs =>
+      cases txs with
+      | nil =>
+          have hrelx : Rel b32TailElem x st := by
+            rw [relRepeat_cons] at hrel
+            rcases hrel with ⟨m₁, hm₁, s₁, s₂, hs, hx, hr⟩
+            rw [relRepeat_nil] at hr
+            have hm₁m : m₁ = m := by omega
+            subst hm₁m
+            have hs₁st : s₁ = st := by
+              apply Bytes.ext
+              intro i
+              rw [hs]
+              rw [Codec.splice_apply]
+              rw [cast_fin_symm]
+              · unfold Codec.concat
+                simp [i.isLt]
+              · omega
+            rw [hs₁st] at hx
+            exact hx
+          have hxlen : x.length = 1 ∨ x.length = 2 ∨ x.length = 3 ∨ x.length = 4 :=
+            Rel_b32TailElem_size x st hrelx
+          have henc_ne : Codec.encode b32TailElem x ≠ none :=
+            encode_ne_none b32TailElem x st hrelx
+          cases he : Codec.encode b32TailElem x with
+          | none => exact False.elim (henc_ne he)
+          | some e =>
+              rcases e with ⟨n₁, s₁⟩
+              have hrel' : Rel b32TailElem x s₁ := encode_rel b32TailElem x he
+              have hpin : (⟨n₁, s₁⟩ : Sigma fun k => Bytes k) = ⟨m, st⟩ :=
+                b32TailElem_functional x s₁ st hrel' hrelx
+              cases hpin
+              rcases hxlen with h1 | h2 | h3 | h4
+              · rcases x with _ | ⟨a, t⟩
+                · simp only [List.length_nil] at h1; omega
+                · cases t with
+                    | nil => simp [encodeB32Tail]; exact he
+                    | cons _ _ => simp only [List.length_cons] at h1; omega
+              · rcases x with _ | ⟨a, t⟩
+                · simp only [List.length_nil] at h2; omega
+                · cases t with
+                    | nil => simp only [List.length_cons, List.length_nil] at h2; omega
+                    | cons b t2 =>
+                        cases t2 with
+                        | nil => simp [encodeB32Tail]; exact he
+                        | cons _ _ => simp only [List.length_cons] at h2; omega
+              · rcases x with _ | ⟨a, t⟩
+                · simp only [List.length_nil] at h3; omega
+                · cases t with
+                    | nil => simp only [List.length_cons, List.length_nil] at h3; omega
+                    | cons b t2 =>
+                        cases t2 with
+                        | nil => simp only [List.length_cons, List.length_nil] at h3; omega
+                        | cons c t3 =>
+                            cases t3 with
+                            | nil => simp [encodeB32Tail]; exact he
+                            | cons _ _ => simp only [List.length_cons] at h3; omega
+              · rcases x with _ | ⟨a, t⟩
+                · simp only [List.length_nil] at h4; omega
+                · cases t with
+                    | nil => simp only [List.length_cons, List.length_nil] at h4; omega
+                    | cons b t2 =>
+                        cases t2 with
+                        | nil => simp only [List.length_cons, List.length_nil] at h4; omega
+                        | cons c t3 =>
+                            cases t3 with
+                            | nil => simp only [List.length_cons, List.length_nil] at h4; omega
+                            | cons d t4 =>
+                                cases t4 with
+                                | nil => simp [encodeB32Tail]; exact he
+                                | cons _ _ => simp only [List.length_cons] at h4; omega
+      | cons y ys =>
+          have hnle : ¬ (x :: y :: ys).length ≤ 1 := by simp
+          exact False.elim (hnle hlen)
+
+/-- The converse (`decodeFullB32 s = some v → encodeB32 v = some ⟨n, s⟩`). -/
+theorem decodeFullB32_conv {n : Nat} (s : Bytes n) (v : List UInt8)
+    (h : decodeFullB32 s = some v) :
+    encodeB32 v = some ⟨n, s⟩ := by
+  rcases decodeFullB32_some s v h with ⟨blocks, t, tails, hmem, htail, hlen, hflat⟩
+  rcases (decodeRepeat_spec b32BlockElem b32BlockConsumesByte blocks n s t).1 hmem with
+    ⟨s₀, hs₀, hrel₀⟩
+  have hblock5 : ∀ b ∈ blocks, b.length = 5 := relB32Block_all_size3 s₀ hrel₀
+  have henc₀ : encodeRepeat b32BlockElem blocks = some ⟨n - t.remaining, s₀⟩ :=
+    encodeRepeat_of_rel b32BlockElem b32BlockElem_functional blocks s₀ hrel₀
+  -- re-encode the tail
+  have hmemt : (tails, Suffix.empty t.remaining) ∈ decodeRepeat b32TailElem b32TailConsumesByte t.remaining t.bytes :=
+    decodeFull_some b32TailElem b32TailConsumesByte t.bytes tails htail
+  rcases (decodeRepeat_spec b32TailElem b32TailConsumesByte tails t.remaining t.bytes (Suffix.empty t.remaining)).1 hmemt with
+    ⟨st, hst, hrelt⟩
+  simp only [Suffix.empty, Nat.sub_zero] at st hrelt
+  have henct : encodeB32Tail tails.flatten = some ⟨t.remaining, st⟩ :=
+    encodeB32Tail_of_rel tails st hrelt hlen
+  -- the flattened tail is at most 4 bytes
+  have htail4 : tails.flatten.length ≤ 4 := by
+    cases tails with
+    | nil => simp
+    | cons x txs =>
+        cases txs with
+        | nil =>
+            have hxlen : x.length = 1 ∨ x.length = 2 ∨ x.length = 3 ∨ x.length = 4 := by
+              rw [relRepeat_cons] at hrelt
+              rcases hrelt with ⟨mh, hmh, sh, srest, hsp, hxr, _⟩
+              exact Rel_b32TailElem_size x sh hxr
+            simpa using hxlen.elim (fun h => (h ▸ (by decide : 1 ≤ 4)))
+              (fun h => h.elim (fun h => (h ▸ (by decide : 2 ≤ 4)))
+                (fun h => h.elim (fun h => (h ▸ (by decide : 3 ≤ 4))) (fun h => (h ▸ (by decide : 4 ≤ 4)))))
+        | cons y ys =>
+            have hnle : ¬ (x :: y :: ys).length ≤ 1 := by simp
+            exact absurd hlen hnle
+  have hsplit : b32Split (blocks.flatten ++ tails.flatten) = (blocks, tails.flatten) :=
+    b32Split_blocks_tail blocks tails.flatten hblock5 htail4
+  -- `st` is `t.bytes`
+  have hst_eq : st = t.bytes := by
+    have h1 : (Suffix.empty t.remaining).prepend st = t.bytes := hst.symm
+    rw [Codec.prepend_empty] at h1
+    apply Bytes.ext
+    intro j
+    have hj := congrFun h1 j
+    rw [cast_bytes_val' (e := Nat.sub_zero t.remaining)] at hj
+    exact hj
+  subst hst_eq
+  rw [encodeB32, b32Split_ofBytes_ofBytes v]
+  rw [← hflat]
+  rw [hsplit]
+  rw [encodeB32']
+  rw [henc₀, henct]
+  dsimp only []
+  have hlen : n - t.remaining + t.remaining = n := Nat.sub_add_cancel t.hle
+  have hbytes : Codec.concat s₀ t.bytes = cast (congrArg Bytes hlen.symm) s := by
+    apply Bytes.ext
+    intro j
+    rw [cast_bytes_val' (e := hlen.symm)]
+    unfold Codec.concat
+    by_cases hj : j.val < n - t.remaining
+    · simp [hj]
+      have hread : s₀ ⟨j.val, hj⟩ = (t.prepend s₀) ⟨j.val, by omega⟩ :=
+        (Codec.prepend_prefix_read t s₀ ⟨j.val, by omega⟩ hj).symm
+      rw [hread]
+      exact (congrFun hs₀ _).symm
+    · have hidx : j.val - (n - t.remaining) < t.remaining := by
+        have := t.hle
+        omega
+      have hread : ∀ (hix : j.val - (n - t.remaining) < t.remaining),
+          t.bytes ⟨j.val - (n - t.remaining), hix⟩ = s ⟨j.val, by omega⟩ := by
+        intro hix
+        have hprep : t.bytes ⟨j.val - (n - t.remaining), hix⟩ =
+            (t.prepend s₀) ⟨j.val, by omega⟩ := by
+          unfold Suffix.prepend
+          rw [Codec.splice_apply]
+          rw [cast_fin_symm]
+          · simp only [Nat.not_lt.mpr (Nat.le_of_not_gt hj), Codec.concat, dite_eq_right (by decide : ¬ False)]
+            rw [cast_bytes_val']
+            omega
+          · omega
+        exact hprep.trans (congrFun hs₀ _).symm
+      simp only [hj]
+      exact hread _
+  have hsig : (⟨n - t.remaining + t.remaining, Codec.concat s₀ t.bytes⟩ : Sigma fun k => Bytes k) = ⟨n, s⟩ :=
+    Sigma.ext hlen (by
+      have h1 : HEq (Codec.concat s₀ t.bytes) (cast (congrArg Bytes hlen.symm) s) :=
+        heq_of_eq hbytes
+      exact h1.trans (cast_heq (congrArg Bytes hlen.symm) s))
+  rw [hsig]
+
+/-- `encodeB32` injectivity: `encodeB32 v = encodeB32 v' = some ⟨n, s⟩ → v = v'`. -/
+theorem encodeB32_injective {v v' : List UInt8} {n : Nat} {s : Bytes n}
+    (h : encodeB32 v = some ⟨n, s⟩) (h' : encodeB32 v' = some ⟨n, s⟩) :
+    v = v' := by
+  have hv : decodeFullB32 s = some v := decodeFullB32_roundtrip v h
+  have hv' : decodeFullB32 s = some v' := decodeFullB32_roundtrip v' h'
+  exact Option.some.inj (hv.symm.trans hv')
+
 end BaseN.Base32

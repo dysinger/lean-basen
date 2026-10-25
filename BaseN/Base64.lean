@@ -2510,13 +2510,13 @@ theorem decodeFullB64_conv {n : Nat} (s : Bytes n) (v : List UInt8)
           unfold Suffix.prepend
           rw [Codec.splice_apply]
           rw [cast_fin_symm]
-          · simp only [Nat.not_lt.mpr (Nat.le_of_not_gt hj), Codec.concat, dif_neg (by decide : ¬ False)]
+          · simp only [Nat.not_lt.mpr (Nat.le_of_not_gt hj), Codec.concat, dite_eq_right (by decide : ¬ False)]
             rw [cast_bytes_val']
             omega
           · omega
         exact hprep.trans (congrFun hs₀ _).symm
       -- take the else branch of the (already-unfolded) `concat`
-      simp only [hj, ite_false, cast_bytes_val']
+      simp only [hj]
       exact hread _
   -- conclude the `Option`/`Sigma` equality from the length and byte identities
   have hsig : (⟨n - t.remaining + t.remaining, Codec.concat s₀ t.bytes⟩ : Sigma fun k => Bytes k) = ⟨n, s⟩ :=
