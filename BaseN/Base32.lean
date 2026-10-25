@@ -1000,11 +1000,16 @@ run (`decodeRepeat b32BlockElem`) with the terminal tail (`decodeFull b32TailEle
 — never a bespoke `parseB32`.  The encoder splits the byte list into full blocks +
 a terminal tail and encodes each via the element encoders. -/
 
-/-- The whole-input base32 decoder over a length-indexed byte string. -/
+/-- The whole-input base32 decoder over a length-indexed byte string: the
+full-block run followed by a single terminal tail (D8).  The committed tail is
+at most one padded block — a *multi-block* tail (data after a terminal `=` that
+is itself a valid padded block, e.g. `"MY======MY======"`) is rejected by the `≤ 1`
+guard. -/
 def decodeFullB32 {n : Nat} (s : Bytes n) : Option (List UInt8) :=
   List.head? ((decodeRepeat b32BlockElem b32BlockConsumesByte n s).filterMap fun ⟨blocks, t⟩ =>
     match decodeFull b32TailElem b32TailConsumesByte t.remaining t.bytes with
-    | some tail => some (blocks.flatten ++ tail.flatten)
+    | some tail =>
+        if tail.length ≤ 1 then some (blocks.flatten ++ tail.flatten) else none
     | none => none)
 
 /-- Split a byte list into full 5-byte blocks plus a terminal 0–4-byte tail. -/
@@ -1838,7 +1843,7 @@ theorem decodeFullB32_mem_encode (bs : List UInt8) {n : Nat} {s : Bytes n}
     bs ∈ (decodeRepeat b32BlockElem b32BlockConsumesByte n s).filterMap
       (fun ⟨blocks, t⟩ =>
         match decodeFull b32TailElem b32TailConsumesByte t.remaining t.bytes with
-        | some tail => some (blocks.flatten ++ tail.flatten)
+        | some tail => if tail.length ≤ 1 then some (blocks.flatten ++ tail.flatten) else none
         | none => none) := by
   let blocks := (b32Split_ofBytes (b32OfBytes bs)).1
   let tail := (b32Split_ofBytes (b32OfBytes bs)).2
@@ -1965,7 +1970,7 @@ theorem decodeFullB32_roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n}
                     hs.symm hbnd
                 have hx : x = blocks'.flatten ++ tail'.flatten := by
                   simp [htaildec] at hfx
-                  exact hfx.symm
+                  exact hfx.2.symm
                 rw [hblocks_eq] at hx
                 have htailflat : tail'.flatten = tail := by
                   have hbytescast : cast (congrArg Bytes hbnd) t'.bytes = tailBytes := by
@@ -2024,12 +2029,13 @@ theorem decodeFullB32_some {n : Nat} (s : Bytes n) (v : List UInt8)
     ∃ (blocks : List (List UInt8)) (t : Suffix n) (tails : List (List UInt8)),
       (blocks, t) ∈ decodeRepeat b32BlockElem b32BlockConsumesByte n s ∧
       decodeFull b32TailElem b32TailConsumesByte t.remaining t.bytes = some tails ∧
+      tails.length ≤ 1 ∧
       blocks.flatten ++ tails.flatten = v := by
   unfold decodeFullB32 at h
   have hmem : v ∈ (decodeRepeat b32BlockElem b32BlockConsumesByte n s).filterMap
       (fun ⟨blocks, t⟩ =>
         match decodeFull b32TailElem b32TailConsumesByte t.remaining t.bytes with
-        | some tail => some (blocks.flatten ++ tail.flatten)
+        | some tail => if tail.length ≤ 1 then some (blocks.flatten ++ tail.flatten) else none
         | none => none) := by
     rcases List.head?_eq_some_iff.mp h with ⟨ys, hys⟩
     rw [hys]
@@ -2040,8 +2046,12 @@ theorem decodeFullB32_some {n : Nat} (s : Bytes n) (v : List UInt8)
   cases hd : decodeFull b32TailElem b32TailConsumesByte t.remaining t.bytes with
   | none => simp [hd] at hfx
   | some tail =>
-      refine ⟨blocks, t, tail, hmemp, hd, ?_⟩
-      simpa [hd] using hfx
+      have hlen : tail.length ≤ 1 := by
+        by_cases hlen : tail.length ≤ 1
+        · exact hlen
+        · simp [hd, hlen] at hfx
+      refine ⟨blocks, t, tail, hmemp, hd, hlen, ?_⟩
+      simpa [hd, hlen] using hfx
 
 /-- The `MY======AAAAAAAA` byte vector (the flagship rejection input). -/
 def myAAAA : Bytes 16 := fun i : Fin 16 =>
@@ -2059,7 +2069,7 @@ theorem decodeFullB32_reject_MYAAAA :
   cases h : decodeFullB32 s₀ with
   | none => rfl
   | some v =>
-      rcases decodeFullB32_some s₀ v h with ⟨blocks, t, tails, hmem, htail, _⟩
+      rcases decodeFullB32_some s₀ v h with ⟨blocks, t, tails, hmem, htail, _, _⟩
       rcases (decodeRepeat_spec b32BlockElem b32BlockConsumesByte blocks 16 s₀ t).1 hmem with ⟨s₁, hs, hrel⟩
       have hcanon : ∀ i : Fin (16 - t.remaining), b32Char (s₁ i) = true :=
         relRepeat_forall b32Char (fun x {m} tt ht => Rel_b32BlockElem_canonical (t := tt) ht) blocks (16 - t.remaining) s₁ hrel
@@ -2263,7 +2273,7 @@ theorem decodeFullB32_reject_first_invalid (s : Bytes 8)
   cases h : decodeFullB32 s with
   | none => rfl
   | some v =>
-      rcases decodeFullB32_some s v h with ⟨blocks, t, tails, hmem, htail, _⟩
+      rcases decodeFullB32_some s v h with ⟨blocks, t, tails, hmem, htail, _, _⟩
       rcases (decodeRepeat_spec b32BlockElem b32BlockConsumesByte blocks 8 s t).1 hmem with ⟨s₁, hs, hrel⟩
       have hcanon : ∀ i : Fin (8 - t.remaining), b32Char (s₁ i) = true :=
         relRepeat_forall b32Char (fun x {m} tt ht => Rel_b32BlockElem_canonical ht) blocks (8 - t.remaining) s₁ hrel
@@ -2336,7 +2346,7 @@ theorem decodeFullB32_reject_bad_length : decodeFullB32 myTwo = none := by
   cases h : decodeFullB32 myTwo with
   | none => rfl
   | some v =>
-      rcases decodeFullB32_some myTwo v h with ⟨blocks, t, tails, hmem, htail, _⟩
+      rcases decodeFullB32_some myTwo v h with ⟨blocks, t, tails, hmem, htail, _, _⟩
       rcases (decodeRepeat_spec b32BlockElem b32BlockConsumesByte blocks 2 myTwo t).1 hmem with ⟨s₁, hs, hrel⟩
       cases blocks with
       | nil =>

@@ -857,11 +857,16 @@ run (`decodeRepeat b64BlockElem`) with the terminal tail (`decodeFull b64TailEle
 — never a bespoke `parseB64`.  The encoder splits the byte list into full blocks +
 a terminal tail and encodes each via the element encoders. -/
 
-/-- The whole-input base64 decoder over a length-indexed byte string. -/
+/-- The whole-input base64 decoder over a length-indexed byte string: the
+full-block run followed by a single terminal tail (D8).  The committed tail is
+at most one padded block — a *multi-block* tail (data after a terminal `=` that
+is itself a valid padded block, e.g. `"Zg==Zg=="`) is rejected by the `≤ 1`
+guard. -/
 def decodeFullB64 {n : Nat} (s : Bytes n) : Option (List UInt8) :=
   List.head? ((decodeRepeat b64BlockElem b64BlockConsumesByte n s).filterMap fun ⟨blocks, t⟩ =>
     match decodeFull b64TailElem b64TailConsumesByte t.remaining t.bytes with
-    | some tail => some (blocks.flatten ++ tail.flatten)
+    | some tail =>
+        if tail.length ≤ 1 then some (blocks.flatten ++ tail.flatten) else none
     | none => none)
 
 /-- Split a byte list into full 3-byte blocks plus a terminal 0/1/2-byte tail. -/
@@ -1570,7 +1575,7 @@ theorem decodeFullB64_mem_encode (bs : List UInt8) {n : Nat} {s : Bytes n}
     bs ∈ (decodeRepeat b64BlockElem b64BlockConsumesByte n s).filterMap
       (fun ⟨blocks, t⟩ =>
         match decodeFull b64TailElem b64TailConsumesByte t.remaining t.bytes with
-        | some tail => some (blocks.flatten ++ tail.flatten)
+        | some tail => if tail.length ≤ 1 then some (blocks.flatten ++ tail.flatten) else none
         | none => none) := by
   let blocks := (b64Split_ofBytes (b64OfBytes bs)).1
   let tail := (b64Split_ofBytes (b64OfBytes bs)).2
@@ -1708,7 +1713,7 @@ theorem decodeFullB64_roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n}
                 -- extract x from the filter step
                 have hx : x = blocks'.flatten ++ tail'.flatten := by
                   simp [htaildec] at hfx
-                  exact hfx.symm
+                  exact hfx.2.symm
                 rw [hblocks_eq] at hx
                 -- tail pin: the decoded tail flattens to the committed tail
                 have htailflat : tail'.flatten = tail := by
@@ -1761,20 +1766,22 @@ and the leftover bytes cannot decode as a terminal tail (which must be a single
 padded block). -/
 
 /-- A successful `decodeFullB64 s = some v` decomposes into a full-block run
-prefix `blocks` and a terminal tail `tails` that decode, with `v` their flatten.
-This is the contrapositive bridge: to show `= none`, assume `= some v`, reach a
-length/\alphabet contradiction from this decomposition. -/
+prefix `blocks` and a terminal tail `tails` that decode (with `tails.length ≤ 1`,
+the D8 single-block guard), with `v` their flatten.  This is the contrapositive
+bridge: to show `= none`, assume `= some v`, reach a length/\alphabet
+contradiction from this decomposition. -/
 theorem decodeFullB64_some {n : Nat} (s : Bytes n) (v : List UInt8)
     (h : decodeFullB64 s = some v) :
     ∃ (blocks : List (List UInt8)) (t : Suffix n) (tails : List (List UInt8)),
       (blocks, t) ∈ decodeRepeat b64BlockElem b64BlockConsumesByte n s ∧
       decodeFull b64TailElem b64TailConsumesByte t.remaining t.bytes = some tails ∧
+      tails.length ≤ 1 ∧
       blocks.flatten ++ tails.flatten = v := by
   unfold decodeFullB64 at h
   have hmem : v ∈ (decodeRepeat b64BlockElem b64BlockConsumesByte n s).filterMap
       (fun ⟨blocks, t⟩ =>
         match decodeFull b64TailElem b64TailConsumesByte t.remaining t.bytes with
-        | some tail => some (blocks.flatten ++ tail.flatten)
+        | some tail => if tail.length ≤ 1 then some (blocks.flatten ++ tail.flatten) else none
         | none => none) := by
     rcases List.head?_eq_some_iff.mp h with ⟨ys, hys⟩
     rw [hys]
@@ -1785,8 +1792,12 @@ theorem decodeFullB64_some {n : Nat} (s : Bytes n) (v : List UInt8)
   cases hd : decodeFull b64TailElem b64TailConsumesByte t.remaining t.bytes with
   | none => simp [hd] at hfx
   | some tail =>
-      refine ⟨blocks, t, tail, hmemp, hd, ?_⟩
-      simpa [hd] using hfx
+      have hlen : tail.length ≤ 1 := by
+        by_cases hlen : tail.length ≤ 1
+        · exact hlen
+        · simp [hd, hlen] at hfx
+      refine ⟨blocks, t, tail, hmemp, hd, hlen, ?_⟩
+      simpa [hd, hlen] using hfx
 
 /-- The `Zg==AAAA` byte vector (the flagship rejection input). -/
 def zgAAAA : Bytes 8 := fun i : Fin 8 => [0x5A, 0x67, 0x3D, 0x3D, 0x41, 0x41, 0x41, 0x41][i]
@@ -1803,7 +1814,7 @@ theorem decodeFullB64_reject_ZgAAAA :
   cases h : decodeFullB64 s₀ with
   | none => rfl
   | some v =>
-      rcases decodeFullB64_some s₀ v h with ⟨blocks, t, tails, hmem, htail, _⟩
+      rcases decodeFullB64_some s₀ v h with ⟨blocks, t, tails, hmem, htail, _, _⟩
       rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks 8 s₀ t).1 hmem with ⟨s₁, hs, hrel⟩
       have hcanon : ∀ i : Fin (8 - t.remaining), b64Char (s₁ i) = true :=
         relRepeat_forall b64Char (fun x {m} tt ht => Rel_b64BlockElem_canonical (t := tt) ht) blocks (8 - t.remaining) s₁ hrel
@@ -1979,7 +1990,7 @@ theorem decodeFullB64_reject_first_invalid (s : Bytes 4)
   cases h : decodeFullB64 s with
   | none => rfl
   | some v =>
-      rcases decodeFullB64_some s v h with ⟨blocks, t, tails, hmem, htail, _⟩
+      rcases decodeFullB64_some s v h with ⟨blocks, t, tails, hmem, htail, _, _⟩
       rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks 4 s t).1 hmem with ⟨s₁, hs, hrel⟩
       have hcanon : ∀ i : Fin (4 - t.remaining), b64Char (s₁ i) = true :=
         relRepeat_forall b64Char (fun x {m} tt ht => Rel_b64BlockElem_canonical ht) blocks (4 - t.remaining) s₁ hrel
@@ -2054,7 +2065,7 @@ theorem decodeFullB64_reject_bad_length : decodeFullB64 zgTwo = none := by
   cases h : decodeFullB64 zgTwo with
   | none => rfl
   | some v =>
-      rcases decodeFullB64_some zgTwo v h with ⟨blocks, t, tails, hmem, htail, _⟩
+      rcases decodeFullB64_some zgTwo v h with ⟨blocks, t, tails, hmem, htail, _, _⟩
       rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks 2 zgTwo t).1 hmem with ⟨s₁, hs, hrel⟩
       cases blocks with
       | nil =>
