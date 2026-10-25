@@ -174,3 +174,101 @@ depend on `[propext]` alone.
 #guard_msgs in
 #print axioms BaseN.Base8.roundtrip
 
+/-! ## Totality + spec-form injectivity (task 6.2)
+
+`encode{X}_ne_none` is the encoder totality the spec's `Option`-equality
+injectivity law rests on; `encode{X}_injective_eq` is that law itself
+(`encode{X} v = encode{X} v' -> v = v'`), together with the totality bounds the
+padded bases' proofs go through. All `[propext, Quot.sound]`-only. -/
+
+/-- info: 'BaseN.Base2.encodeBit_ne_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base2.encodeBit_ne_none
+
+/-- info: 'BaseN.Base2.bitElem_encode_ne_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base2.bitElem_encode_ne_none
+
+/-- info: 'BaseN.Base2.encodeBit_injective_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base2.encodeBit_injective_eq
+
+/-- info: 'BaseN.Base4.encodeQuartet_ne_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base4.encodeQuartet_ne_none
+
+/-- info: 'BaseN.Base4.encodeQuartet_injective_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base4.encodeQuartet_injective_eq
+
+/-- info: 'BaseN.Base8.encodeOct_ne_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base8.encodeOct_ne_none
+
+/-- info: 'BaseN.Base8.encodeOct_injective_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base8.encodeOct_injective_eq
+
+/-- info: 'BaseN.Base10.encodeDig_ne_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base10.encodeDig_ne_none
+
+/-- info: 'BaseN.Base10.encodeDig_injective_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base10.encodeDig_injective_eq
+
+/-- info: 'BaseN.Base16.encodeHex_ne_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.encodeHex_ne_none
+
+/-- info: 'BaseN.Base16.encodeHex_injective_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.encodeHex_injective_eq
+
+/-- info: 'BaseN.Base32.b32BlockUnapply_chars' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32BlockUnapply_chars
+
+/-- info: 'BaseN.Base32.b32BlockUnapply_len5' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32BlockUnapply_len5
+
+/-- info: 'BaseN.Base32.b32TailUnapply_len14' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32TailUnapply_len14
+
+/-- info: 'BaseN.Base32.b32Split_ofBytes_shape_bounds' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32Split_ofBytes_shape_bounds
+
+/-- info: 'BaseN.Base32.encodeB32_ne_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.encodeB32_ne_none
+
+/-- info: 'BaseN.Base32.encodeB32_injective_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.encodeB32_injective_eq
+
+/-- info: 'BaseN.Base64.b64BlockUnapply_len3' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.b64BlockUnapply_len3
+
+/-- info: 'BaseN.Base64.b64TailUnapply_len12' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.b64TailUnapply_len12
+
+/-- info: 'BaseN.Base64.b64Split_ofBytes_shape_bounds' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.b64Split_ofBytes_shape_bounds
+
+/-- info: 'BaseN.Base64.encodeB64_ne_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.encodeB64_ne_none
+
+/-- info: 'BaseN.Base64.encodeB64_injective_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.encodeB64_injective_eq
+
+/-- info: 'BaseN.Common.count_satisfy_encode_ne_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Common.count_satisfy_encode_ne_none

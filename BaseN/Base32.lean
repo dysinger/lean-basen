@@ -230,6 +230,135 @@ def b32BlockUnapply (bs : List UInt8) : Option (List UInt8) :=
                                   toByte (valToB32 ((v3.toNat % 4) * 8 + v4.toNat / 32)), toByte (valToB32 (v4.toNat % 32))]
   | _ => none
 
+/-- `b32OrPad` holds of a valid alphabet char. -/
+theorem b32OrPad_of_valid {c : UInt8} (h : b32Valid c.toNat = true) : b32OrPad c = true := by
+  unfold b32OrPad
+  rw [h]
+  simp
+
+/-- The pad byte satisfies `b32OrPad`. -/
+theorem b32OrPad_pad : b32OrPad 61 = true := by
+  unfold b32OrPad
+  simp
+
+/-- `b32OrPad (toByte (valToB32 i))` for `i <= 31`: an alphabet char, not the pad. -/
+theorem b32OrPad_toByte_valToB32 (i : Nat) (hi : i ≤ 31) :
+    b32OrPad (toByte (valToB32 i)) = true := by
+  unfold b32OrPad
+  rw [toByte_valToB32 i hi, valToB32_valid i hi]
+  simp
+
+/-- `b32BlockUnapply` is total on its 1-5-byte domain. -/
+theorem b32BlockUnapply_total (bs : List UInt8) (hlen : 1 ≤ bs.length) (hlen5 : bs.length ≤ 5) :
+    ∃ cs, b32BlockUnapply bs = some cs := by
+  match bs, hlen, hlen5 with
+  | [_], _, _ => exact ⟨_, rfl⟩
+  | [_, _], _, _ => exact ⟨_, rfl⟩
+  | [_, _, _], _, _ => exact ⟨_, rfl⟩
+  | [_, _, _, _], _, _ => exact ⟨_, rfl⟩
+  | [_, _, _, _, _], _, _ => exact ⟨_, rfl⟩
+  | [], h1, _ => simp at h1
+  | _ :: _ :: _ :: _ :: _ :: _ :: _, _, h5 => simp at h5
+
+/-- `b32BlockUnapply` always emits exactly 8 chars. -/
+theorem b32BlockUnapply_len8 (bs : List UInt8) {cs : List UInt8}
+    (h : b32BlockUnapply bs = some cs) : cs.length = 8 := by
+  match bs, h with
+  | [_], h => simp [b32BlockUnapply] at h; subst h; rfl
+  | [_, _], h => simp [b32BlockUnapply] at h; subst h; rfl
+  | [_, _, _], h => simp [b32BlockUnapply] at h; subst h; rfl
+  | [_, _, _, _], h => simp [b32BlockUnapply] at h; subst h; rfl
+  | [_, _, _, _, _], h => simp [b32BlockUnapply] at h; subst h; rfl
+  | _ :: _ :: _ :: _ :: _ :: _ :: _, h => simp [b32BlockUnapply] at h
+
+/-- Every char emitted by `b32BlockUnapply` is a `b32Valid` alphabet char or the
+`=` pad, whatever the block length (1-5). This one fact serves both the block and
+the tail totality. -/
+theorem b32BlockUnapply_chars {bs cs : List UInt8} (h : b32BlockUnapply bs = some cs) :
+    ∀ c ∈ cs, b32OrPad c = true := by
+  match bs, h with
+  | [v0], h =>
+      simp only [b32BlockUnapply, Option.some.injEq] at h
+      subst h
+      intro c hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      rcases hc with h | h | h | h | h | h | h | h <;> subst h
+      · exact b32OrPad_toByte_valToB32 _ (by have := UInt8.toNat_lt v0; omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_pad
+      · exact b32OrPad_pad
+      · exact b32OrPad_pad
+      · exact b32OrPad_pad
+      · exact b32OrPad_pad
+      · exact b32OrPad_pad
+  | [v0, v1], h =>
+      simp only [b32BlockUnapply, Option.some.injEq] at h
+      subst h
+      intro c hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      have hb1 : v1.toNat < 256 := UInt8.toNat_lt v1
+      rcases hc with h | h | h | h | h | h | h | h <;> subst h
+      · exact b32OrPad_toByte_valToB32 _ (by have := UInt8.toNat_lt v0; omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_pad
+      · exact b32OrPad_pad
+      · exact b32OrPad_pad
+      · exact b32OrPad_pad
+  | [v0, v1, v2], h =>
+      simp only [b32BlockUnapply, Option.some.injEq] at h
+      subst h
+      intro c hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      have hb1 : v1.toNat < 256 := UInt8.toNat_lt v1
+      have hb2 : v2.toNat < 256 := UInt8.toNat_lt v2
+      rcases hc with h | h | h | h | h | h | h | h <;> subst h
+      · exact b32OrPad_toByte_valToB32 _ (by have := UInt8.toNat_lt v0; omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_pad
+      · exact b32OrPad_pad
+      · exact b32OrPad_pad
+  | [v0, v1, v2, v3], h =>
+      simp only [b32BlockUnapply, Option.some.injEq] at h
+      subst h
+      intro c hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      have hb1 : v1.toNat < 256 := UInt8.toNat_lt v1
+      have hb2 : v2.toNat < 256 := UInt8.toNat_lt v2
+      have hb3 : v3.toNat < 256 := UInt8.toNat_lt v3
+      rcases hc with h | h | h | h | h | h | h | h <;> subst h
+      · exact b32OrPad_toByte_valToB32 _ (by have := UInt8.toNat_lt v0; omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_pad
+  | [v0, v1, v2, v3, v4], h =>
+      simp only [b32BlockUnapply, Option.some.injEq] at h
+      subst h
+      intro c hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      have hb1 : v1.toNat < 256 := UInt8.toNat_lt v1
+      have hb2 : v2.toNat < 256 := UInt8.toNat_lt v2
+      have hb3 : v3.toNat < 256 := UInt8.toNat_lt v3
+      have hb4 : v4.toNat < 256 := UInt8.toNat_lt v4
+      rcases hc with h | h | h | h | h | h | h | h <;> subst h
+      · exact b32OrPad_toByte_valToB32 _ (by have := UInt8.toNat_lt v0; omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+      · exact b32OrPad_toByte_valToB32 _ (by omega)
+  | _ :: _ :: _ :: _ :: _ :: _ :: _, h => simp [b32BlockUnapply] at h
+
 -- lenient block decode (no dropped-bit checks)
 
 /-- `b32BlockDecodeLenient cs` — decode exactly 8 base32 chars into 1–5 bytes,
@@ -790,6 +919,52 @@ string.  It is decoded *after* the full-block run.  A 5-byte output is a full
 block and is rejected by `b32TailIso` (only 1–4-byte outputs), and the recursive
 full-block repetition never produces a pad. -/
 
+/-- `b32BlockUnapply` on a 5-byte block emits exactly 8 alphabet chars (no pad). -/
+theorem b32BlockUnapply_len5 (bs : List UInt8) (hlen : bs.length = 5) :
+    ∃ cs, b32BlockUnapply bs = some cs ∧ cs.length = 8 ∧ ∀ c ∈ cs, b32Char c = true := by
+  match bs, hlen with
+  | [v0, v1, v2, v3, v4], _ =>
+      refine ⟨[toByte (valToB32 (v0.toNat / 8)),
+               toByte (valToB32 ((v0.toNat % 8) * 4 + v1.toNat / 64)),
+               toByte (valToB32 ((v1.toNat / 2) % 32)),
+               toByte (valToB32 ((v1.toNat % 2) * 16 + v2.toNat / 16)),
+               toByte (valToB32 ((v2.toNat % 16) * 2 + v3.toNat / 128)),
+               toByte (valToB32 ((v3.toNat / 4) % 32)),
+               toByte (valToB32 ((v3.toNat % 4) * 8 + v4.toNat / 32)),
+               toByte (valToB32 (v4.toNat % 32))], rfl, rfl, ?_⟩
+      have hb0 : v0.toNat < 256 := UInt8.toNat_lt v0
+      have hb1 : v1.toNat < 256 := UInt8.toNat_lt v1
+      have hb2 : v2.toNat < 256 := UInt8.toNat_lt v2
+      have hb3 : v3.toNat < 256 := UInt8.toNat_lt v3
+      have hb4 : v4.toNat < 256 := UInt8.toNat_lt v4
+      intro c hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      rcases hc with h | h | h | h | h | h | h | h <;> subst h <;> unfold b32Char
+      · rw [toByte_valToB32 _ (by omega)]; exact valToB32_valid _ (by omega)
+      · rw [toByte_valToB32 _ (by omega)]; exact valToB32_valid _ (by omega)
+      · rw [toByte_valToB32 _ (by omega)]; exact valToB32_valid _ (by omega)
+      · rw [toByte_valToB32 _ (by omega)]; exact valToB32_valid _ (by omega)
+      · rw [toByte_valToB32 _ (by omega)]; exact valToB32_valid _ (by omega)
+      · rw [toByte_valToB32 _ (by omega)]; exact valToB32_valid _ (by omega)
+      · rw [toByte_valToB32 _ (by omega)]; exact valToB32_valid _ (by omega)
+      · rw [toByte_valToB32 _ (by omega)]; exact valToB32_valid _ (by omega)
+  | [], h => simp at h
+  | [_], h => simp at h
+  | [_, _], h => simp at h
+  | [_, _, _], h => simp at h
+  | [_, _, _, _], h => simp at h
+  | _ :: _ :: _ :: _ :: _ :: _ :: _, h => simp at h
+
+/-- Every 5-byte block encodes through `b32BlockElem`: the block element encoder is
+total on its domain. -/
+theorem b32BlockElem_encode_ne_none (bs : List UInt8) (hlen : bs.length = 5) :
+    Codec.encode b32BlockElem bs ≠ none := by
+  obtain ⟨cs, hcs, hclen, hcv⟩ := b32BlockUnapply_len5 bs hlen
+  unfold b32BlockElem
+  simp only [Codec.encode, b32BlockIso, hcs, Option.bind]
+  rw [← hclen]
+  exact BaseN.Common.count_satisfy_encode_ne_none b32Char cs hcv
+
 /-- `b32TailApply cs` — decode 8 chars to 1–4 bytes only (padded blocks). -/
 def b32TailApply (cs : List UInt8) : Option (List UInt8) :=
   match b32BlockApply cs with
@@ -807,6 +982,22 @@ def b32TailUnapply (bs : List UInt8) : Option (List UInt8) :=
   | [b0, b1, b2] => b32BlockUnapply [b0, b1, b2]
   | [b0, b1, b2, b3] => b32BlockUnapply [b0, b1, b2, b3]
   | _ => none
+
+/-- `b32TailUnapply` is total on 1-4-byte lists and emits 8 chars, each alphabet or
+pad (the pads being exactly the RFC §3.2 terminal padding). -/
+theorem b32TailUnapply_len14 (bs : List UInt8)
+    (hlen : 1 ≤ bs.length) (hlen4 : bs.length ≤ 4) :
+    ∃ cs, b32TailUnapply bs = some cs ∧ cs.length = 8 ∧ ∀ c ∈ cs, b32OrPad c = true := by
+  have hblock : ∃ cs, b32BlockUnapply bs = some cs := b32BlockUnapply_total bs hlen (by omega)
+  obtain ⟨cs, hcs⟩ := hblock
+  refine ⟨cs, ?_, b32BlockUnapply_len8 bs hcs, b32BlockUnapply_chars hcs⟩
+  match bs, hlen, hlen4, hcs with
+  | [_], _, _, hcs => simp [b32TailUnapply]; exact hcs
+  | [_, _], _, _, hcs => simp [b32TailUnapply]; exact hcs
+  | [_, _, _], _, _, hcs => simp [b32TailUnapply]; exact hcs
+  | [_, _, _, _], _, _, hcs => simp [b32TailUnapply]; exact hcs
+  | [], h1, _, _ => simp at h1
+  | _ :: _ :: _ :: _ :: _ :: _, _, h4, _ => simp at h4
 
 /-- `b32TailApply` and `b32TailUnapply` are mutual inverses. -/
 theorem b32TailIso_law (cs bs : List UInt8) :
@@ -887,6 +1078,16 @@ def b32TailIso : Iso (List UInt8) (List UInt8) :=
 /-- The terminal-tail element (padded block → 1–4 bytes). -/
 def b32TailElem : Codec (List UInt8) :=
   iso b32TailIso (count 8 (Codec.satisfy b32OrPad))
+
+/-- Every 1-4-byte tail encodes through `b32TailElem`: the tail element encoder is
+total on its domain. -/
+theorem b32TailElem_encode_ne_none (bs : List UInt8)
+    (hlen : 1 ≤ bs.length) (hlen4 : bs.length ≤ 4) : Codec.encode b32TailElem bs ≠ none := by
+  obtain ⟨cs, hcs, hclen, hcv⟩ := b32TailUnapply_len14 bs hlen hlen4
+  unfold b32TailElem
+  simp only [Codec.encode, b32TailIso, hcs, Option.bind]
+  rw [← hclen]
+  exact BaseN.Common.count_satisfy_encode_ne_none b32OrPad cs hcv
 
 /-- `b32TailElem` consumes 8 bytes per (padded) block. -/
 theorem b32TailConsumesByte : ConsumesByte b32TailElem := by
@@ -2905,16 +3106,120 @@ theorem decodeFullB32_conv {n : Nat} (s : Bytes n) (v : List UInt8)
       exact h1.trans (cast_heq (congrArg Bytes hlen.symm) s))
   rw [hsig]
 
-/-- `encodeB32` injectivity, in the both-succeed form:
-`encodeB32 v = some ⟨n, s⟩ → encodeB32 v' = some ⟨n, s⟩ → v = v'`.
+/-! ## Totality of the encoder (task 6.2)
 
-Both hypotheses are `= some ⟨n, s⟩`; `encodeB32`'s totality is **not** proved
-here, so this is not yet the spec's `Option`-equality law — see task 6.2. -/
+Mirror of the base64 section: the spec's injectivity Scenario is the plain
+`Option`-equality law `encodeB32 v = encodeB32 v' → v = v'`, which needs
+`encodeB32`'s **totality** so the `none` branches of that equation are refuted.
+
+`encodeB32` splits along the `B32` spine (`b32Split_ofBytes`) into 5-byte full
+blocks and a 0-4-byte tail, then `encodeB32'` runs `encodeRepeat b32BlockElem`
+over the blocks and `encodeB32Tail` over the tail. Both are total on those
+domains: `b32BlockUnapply` is total on 5-byte lists and emits alphabet chars
+(`b32BlockUnapply_len5`), and `b32TailUnapply` is total on 1-4-byte lists and
+emits alphabet-or-pad chars (`b32TailUnapply_len14`).
+`[propext, Quot.sound]`-only. -/
+
+/-- `encodeB32Tail` is total on the tails the `B32` spine can produce (0-4 bytes). -/
+theorem encodeB32Tail_ne_none (tail : List UInt8) (hlen : tail.length ≤ 4) :
+    encodeB32Tail tail ≠ none := by
+  match tail, hlen with
+  | [], _ => simp [encodeB32Tail]
+  | [b], _ =>
+      simp only [encodeB32Tail]
+      exact b32TailElem_encode_ne_none [b] (by simp) (by simp)
+  | [a, b], _ =>
+      simp only [encodeB32Tail]
+      exact b32TailElem_encode_ne_none [a, b] (by simp) (by simp)
+  | [a, b, c], _ =>
+      simp only [encodeB32Tail]
+      exact b32TailElem_encode_ne_none [a, b, c] (by simp) (by simp)
+  | [a, b, c, d], _ =>
+      simp only [encodeB32Tail]
+      exact b32TailElem_encode_ne_none [a, b, c, d] (by simp) (by simp)
+  | _ :: _ :: _ :: _ :: _ :: _, h => simp at h
+
+/-- `encodeB32'` is total when every block is 5 bytes and the tail is at most 4. -/
+theorem encodeB32'_ne_none (blocks : List (List UInt8)) (tail : List UInt8)
+    (hblocks : ∀ b ∈ blocks, b.length = 5) (htail : tail.length ≤ 4) :
+    encodeB32' blocks tail ≠ none := by
+  unfold encodeB32'
+  have hb : encodeRepeat b32BlockElem blocks ≠ none := by
+    induction blocks with
+    | nil => simp [Codec.encodeRepeat]
+    | cons b rest ih =>
+        have hbl : b.length = 5 := hblocks b (by simp)
+        have hrest : ∀ x ∈ rest, x.length = 5 := fun x hx => hblocks x (by simp [hx])
+        rw [Codec.encodeRepeat]
+        have hne : Codec.encode b32BlockElem b ≠ none := b32BlockElem_encode_ne_none b hbl
+        cases h₁ : Codec.encode b32BlockElem b with
+        | none => exact absurd h₁ hne
+        | some e₁ =>
+            cases h₂ : Codec.encodeRepeat b32BlockElem rest with
+            | none => exact absurd h₂ (ih hrest)
+            | some e₂ => simp
+  have ht : encodeB32Tail tail ≠ none := encodeB32Tail_ne_none tail htail
+  cases hb' : encodeRepeat b32BlockElem blocks with
+  | none => exact absurd hb' hb
+  | some e₁ =>
+      cases ht' : encodeB32Tail tail with
+      | none => exact absurd ht' ht
+      | some e₂ => simp
+
+/-- For every `B32` spine value, the split's blocks are all 5 bytes and its tail
+is at most 4 — the structural fact the encoder's totality rests on. -/
+theorem b32Split_ofBytes_shape_bounds (v : B32) :
+    (∀ b ∈ (b32Split_ofBytes v).1, b.length = 5) ∧ (b32Split_ofBytes v).2.length ≤ 4 := by
+  induction v with
+  | nil => exact ⟨by simp [b32Split_ofBytes], by simp [b32Split_ofBytes]⟩
+  | tail1 b0 => exact ⟨by simp [b32Split_ofBytes], by simp [b32Split_ofBytes]⟩
+  | tail2 b0 b1 => exact ⟨by simp [b32Split_ofBytes], by simp [b32Split_ofBytes]⟩
+  | tail3 b0 b1 b2 => exact ⟨by simp [b32Split_ofBytes], by simp [b32Split_ofBytes]⟩
+  | tail4 b0 b1 b2 b3 => exact ⟨by simp [b32Split_ofBytes], by simp [b32Split_ofBytes]⟩
+  | full a b c d e rest ih =>
+      obtain ⟨ihb, iht⟩ := ih
+      refine ⟨?_, ?_⟩
+      · intro x hx
+        simp only [b32Split_ofBytes, List.mem_cons] at hx
+        rcases hx with h | h
+        · subst h; rfl
+        · exact ihb x h
+      · simpa [b32Split_ofBytes] using iht
+
+/-- **Base32 encoding is total** — `encodeB32` never returns `none`.
+
+`encodeB32` splits its value along the `B32` spine and delegates to
+`encodeB32'`, whose totality needs exactly the bounds
+`b32Split_ofBytes_shape_bounds` supplies (5-byte blocks, ≤ 4-byte tail).
+`[propext, Quot.sound]`-only. -/
+theorem encodeB32_ne_none (bs : List UInt8) : encodeB32 bs ≠ none := by
+  unfold encodeB32
+  obtain ⟨hb, ht⟩ := b32Split_ofBytes_shape_bounds (b32OfBytes bs)
+  exact encodeB32'_ne_none _ _ hb ht
+
+/-- `encodeB32` injectivity, in the both-succeed form:
+`encodeB32 v = some ⟨n, s⟩ → encodeB32 v' = some ⟨n, s⟩ → v = v'`. -/
 theorem encodeB32_injective {v v' : List UInt8} {n : Nat} {s : Bytes n}
     (h : encodeB32 v = some ⟨n, s⟩) (h' : encodeB32 v' = some ⟨n, s⟩) :
     v = v' := by
   have hv : decodeFullB32 s = some v := decodeFullB32_roundtrip v h
   have hv' : decodeFullB32 s = some v' := decodeFullB32_roundtrip v' h'
   exact Option.some.inj (hv.symm.trans hv')
+
+/-- **`encodeB32` is injective, in the spec's `Option`-equality form:**
+`encodeB32 v = encodeB32 v' → v = v'` — exactly the `basen` spec's Scenario
+"Encoding is injective" (`encode{X} v = encode{X} v' → v = v'`).
+
+Because `encodeB32` is total (`encodeB32_ne_none`), the left side cannot be
+`none`; destructure the common result and hand both successes to
+`encodeB32_injective`. `[propext, Quot.sound]`-only. -/
+theorem encodeB32_injective_eq {v v' : List UInt8} (h : encodeB32 v = encodeB32 v') :
+    v = v' := by
+  cases hv : encodeB32 v with
+  | none => exact absurd hv (encodeB32_ne_none v)
+  | some e =>
+      rcases e with ⟨n, s⟩
+      have hv' : encodeB32 v' = some ⟨n, s⟩ := by rw [← h]; exact hv
+      exact encodeB32_injective hv hv'
 
 end BaseN.Base32

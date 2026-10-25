@@ -451,13 +451,78 @@ theorem decode_encode_inverse {n : Nat} {s : Bytes n} (v : List UInt8) :
     exact (relRepeat_cast (Rel quartetElem) v (Nat.sub_zero n) s₀).1 hrel
   exact encodeRepeat_of_rel quartetElem quartetElem_functional v s hrels
 
-/-- Encoding is injective: a byte list has a unique quartet encoding. -/
+/-- `quartetBlockUnapply` is *total*, and its digits are exactly the 4 digits of the
+byte: length 4, every one a `quartetDigit`. This is what makes `quartetElem`'s
+encoder total — its only failure mode would be a produced digit failing
+`satisfy`. -/
+theorem quartetBlockUnapply_digits (b : UInt8) :
+    ∃ ds, quartetBlockUnapply b = some ds ∧ ds.length = 4 ∧ ∀ d ∈ ds, quartetDigit d = true := by
+  refine ⟨[toByte (valToQuartet (quartetAt b.toNat 0)), toByte (valToQuartet (quartetAt b.toNat 1)), toByte (valToQuartet (quartetAt b.toNat 2)), toByte (valToQuartet (quartetAt b.toNat 3))], rfl, rfl, ?_⟩
+  intro d hd
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hd
+  unfold quartetDigit
+  rcases hd with h | h | h | h <;> subst h
+  · exact (quartetDigit_valid_of_byte b).1
+  · exact (quartetDigit_valid_of_byte b).2.1
+  · exact (quartetDigit_valid_of_byte b).2.2.1
+  · exact (quartetDigit_valid_of_byte b).2.2.2
+
+/-- Every byte encodes through `quartetElem`: the element encoder is total. -/
+theorem quartetElem_encode_ne_none (b : UInt8) : Codec.encode quartetElem b ≠ none := by
+  obtain ⟨ds, hds, hlen, hpd⟩ := quartetBlockUnapply_digits b
+  unfold quartetElem
+  simp only [Codec.encode, quartetBlockIso, hds, Option.bind]
+  rw [← hlen]
+  exact count_satisfy_encode_ne_none quartetDigit ds hpd
+
+/-- **Quartet encoding is total** — `encodeQuartet` never returns `none`.
+
+This is the fact that upgrades the injectivity law to the spec's plain
+`Option`-equality form (task 6.2): with totality in hand the `none`/`none` and
+`some`/`none` cases of `encodeQuartet v = encodeQuartet v'` are refuted, leaving only
+the both-succeed case, which is `encode_injective`.
+
+`encodeRepeat` fails only when the element encoder does, so this is an induction
+on the value list with `quartetElem_encode_ne_none` at each step.
+`[propext, Quot.sound]`-only. -/
+theorem encodeQuartet_ne_none (bs : List UInt8) : encodeQuartet bs ≠ none := by
+  unfold encodeQuartet
+  induction bs with
+  | nil => simp [Codec.encodeRepeat]
+  | cons b rest ih =>
+      rw [Codec.encodeRepeat]
+      have hb : Codec.encode quartetElem b ≠ none := quartetElem_encode_ne_none b
+      cases h₁ : Codec.encode quartetElem b with
+      | none => exact absurd h₁ hb
+      | some e₁ =>
+          cases h₂ : Codec.encodeRepeat quartetElem rest with
+          | none => exact absurd h₂ ih
+          | some e₂ => simp
+
+/-- encoding is injective: a byte list has a unique quartet encoding (the
+both-succeed form, which the spec's `Option`-equality law reduces to). -/
 theorem encode_injective {v v' : List UInt8} {n : Nat} {s : Bytes n} :
     encodeQuartet v = some ⟨n, s⟩ → encodeQuartet v' = some ⟨n, s⟩ → v = v' := by
   intro hv hv'
   have hrelv : relRepeat (Rel quartetElem) v n s := encodeRepeat_rel quartetElem v hv
   have hrelv' : relRepeat (Rel quartetElem) v' n s := encodeRepeat_rel quartetElem v' hv'
   exact relQuartet_unambiguous s hrelv hrelv'
+
+/-- **Quartet encoding is injective, in the spec's `Option`-equality form:**
+`encodeQuartet v = encodeQuartet v' → v = v'` — exactly the `basen` spec's Scenario
+"Encoding is injective" (`encode{X} v = encode{X} v' → v = v'`).
+
+Because `encodeQuartet` is total (`encodeQuartet_ne_none`), the left side cannot be
+`none`; destructure the common result and hand both successes to
+`encode_injective`. `[propext, Quot.sound]`-only. -/
+theorem encodeQuartet_injective_eq {v v' : List UInt8} (h : encodeQuartet v = encodeQuartet v') :
+    v = v' := by
+  cases hv : encodeQuartet v with
+  | none => exact absurd hv (encodeQuartet_ne_none v)
+  | some e =>
+      rcases e with ⟨n, s⟩
+      have hv' : encodeQuartet v' = some ⟨n, s⟩ := by rw [← h]; exact hv
+      exact encode_injective hv hv'
 
 /-- A fully-decoded value means every input byte is a quartet digit. `[propext,
 Quot.sound]`-only. -/

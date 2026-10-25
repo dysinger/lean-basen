@@ -557,13 +557,84 @@ theorem decode_encode_inverse {n : Nat} {s : Bytes n} (v : List UInt8) :
     exact (relRepeat_cast (Rel bitElem) v (Nat.sub_zero n) s₀).1 hrel
   exact encodeRepeat_of_rel bitElem bitElem_functional v s hrels
 
-/-- Encoding is injective: a byte list has a unique binary encoding. -/
+/-- `bitBlockUnapply` is *total*, and its digits are exactly the 8 bits of the
+byte: length 8, every one a `bitDigit`. This is what makes `bitElem`'s encoder
+total — its only failure mode would be a produced digit failing `satisfy`. -/
+theorem bitBlockUnapply_digits (b : UInt8) :
+    ∃ ds, bitBlockUnapply b = some ds ∧ ds.length = 8 ∧ ∀ d ∈ ds, bitDigit d = true := by
+  refine ⟨[toByte (valToBit (bitAt b.toNat 0)), toByte (valToBit (bitAt b.toNat 1)),
+           toByte (valToBit (bitAt b.toNat 2)), toByte (valToBit (bitAt b.toNat 3)),
+           toByte (valToBit (bitAt b.toNat 4)), toByte (valToBit (bitAt b.toNat 5)),
+           toByte (valToBit (bitAt b.toNat 6)), toByte (valToBit (bitAt b.toNat 7))], rfl, rfl, ?_⟩
+  intro d hd
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hd
+  unfold bitDigit
+  rcases hd with h | h | h | h | h | h | h | h <;> subst h
+  · exact (bitDigit_valid_of_byte b).1
+  · exact (bitDigit_valid_of_byte b).2.1
+  · exact (bitDigit_valid_of_byte b).2.2.1
+  · exact (bitDigit_valid_of_byte b).2.2.2.1
+  · exact (bitDigit_valid_of_byte b).2.2.2.2.1
+  · exact (bitDigit_valid_of_byte b).2.2.2.2.2.1
+  · exact (bitDigit_valid_of_byte b).2.2.2.2.2.2.1
+  · exact (bitDigit_valid_of_byte b).2.2.2.2.2.2.2
+
+/-- Every byte encodes through `bitElem`: the element encoder is total. -/
+theorem bitElem_encode_ne_none (b : UInt8) : Codec.encode bitElem b ≠ none := by
+  obtain ⟨ds, hds, hlen, hpd⟩ := bitBlockUnapply_digits b
+  unfold bitElem
+  simp only [Codec.encode, bitBlockIso, hds, Option.bind]
+  rw [← hlen]
+  exact count_satisfy_encode_ne_none bitDigit ds hpd
+
+/-- **Base2 encoding is total** — `encodeBit` never returns `none`.
+
+This is the fact that upgrades the injectivity law to the spec's plain
+`Option`-equality form (task 6.2): with totality in hand the `none`/`none` and
+`some`/`none` cases of `encodeBit v = encodeBit v'` are refuted, leaving only
+the both-succeed case, which is `encode_injective`.
+
+`encodeRepeat` fails only when the element encoder does, so this is an induction
+on the value list with `bitElem_encode_ne_none` at each step.
+`[propext, Quot.sound]`-only. -/
+theorem encodeBit_ne_none (bs : List UInt8) : encodeBit bs ≠ none := by
+  unfold encodeBit
+  induction bs with
+  | nil => simp [Codec.encodeRepeat]
+  | cons b rest ih =>
+      rw [Codec.encodeRepeat]
+      have hb : Codec.encode bitElem b ≠ none := bitElem_encode_ne_none b
+      cases h₁ : Codec.encode bitElem b with
+      | none => exact absurd h₁ hb
+      | some e₁ =>
+          cases h₂ : Codec.encodeRepeat bitElem rest with
+          | none => exact absurd h₂ ih
+          | some e₂ => simp
+
+/-- Encoding is injective: a byte list has a unique binary encoding (the
+both-succeed form, which the spec's `Option`-equality law reduces to). -/
 theorem encode_injective {v v' : List UInt8} {n : Nat} {s : Bytes n} :
     encodeBit v = some ⟨n, s⟩ → encodeBit v' = some ⟨n, s⟩ → v = v' := by
   intro hv hv'
   have hrelv : relRepeat (Rel bitElem) v n s := encodeRepeat_rel bitElem v hv
   have hrelv' : relRepeat (Rel bitElem) v' n s := encodeRepeat_rel bitElem v' hv'
   exact relBit_unambiguous s hrelv hrelv'
+
+/-- **Base2 encoding is injective, in the spec's `Option`-equality form:**
+`encodeBit v = encodeBit v' → v = v'` — exactly the `basen` spec's Scenario
+"Encoding is injective" (`encode{X} v = encode{X} v' → v = v'`).
+
+Because `encodeBit` is total (`encodeBit_ne_none`), the left side cannot be
+`none`; destructure the common result and hand both successes to
+`encode_injective`. `[propext, Quot.sound]`-only. -/
+theorem encodeBit_injective_eq {v v' : List UInt8} (h : encodeBit v = encodeBit v') :
+    v = v' := by
+  cases hv : encodeBit v with
+  | none => exact absurd hv (encodeBit_ne_none v)
+  | some e =>
+      rcases e with ⟨n, s⟩
+      have hv' : encodeBit v' = some ⟨n, s⟩ := by rw [← h]; exact hv
+      exact encode_injective hv hv'
 
 /-- A fully-decoded value means every input byte is a bit digit. `[propext,
 Quot.sound]`-only. -/

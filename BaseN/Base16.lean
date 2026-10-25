@@ -395,13 +395,76 @@ theorem decode_encode_inverse {n : Nat} {s : Bytes n} (v : List UInt8) :
     exact (relRepeat_cast (Rel hexElem) v (Nat.sub_zero n) s₀).1 hrel
   exact encodeRepeat_of_rel hexElem hexElem_functional v s hrels
 
-/-- Encoding is injective: a byte list has a unique hex encoding. -/
+/-- `hexBlockUnapply` is *total*, and its digits are exactly the 2 digits of the
+byte: length 2, every one a `hexDigit`. This is what makes `hexElem`'s
+encoder total — its only failure mode would be a produced digit failing
+`satisfy`. -/
+theorem hexBlockUnapply_digits (b : UInt8) :
+    ∃ ds, hexBlockUnapply b = some ds ∧ ds.length = 2 ∧ ∀ d ∈ ds, hexDigit d = true := by
+  refine ⟨[toByte (nibbleToHex (b.toNat / 16)), toByte (nibbleToHex (b.toNat % 16))], rfl, rfl, ?_⟩
+  intro d hd
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hd
+  unfold hexDigit
+  rcases hd with h | h <;> subst h
+  · exact (hexDigit_valid_of_byte b).1
+  · exact (hexDigit_valid_of_byte b).2
+
+/-- Every byte encodes through `hexElem`: the element encoder is total. -/
+theorem hexElem_encode_ne_none (b : UInt8) : Codec.encode hexElem b ≠ none := by
+  obtain ⟨ds, hds, hlen, hpd⟩ := hexBlockUnapply_digits b
+  unfold hexElem
+  simp only [Codec.encode, hexBlockIso, hds, Option.bind]
+  rw [← hlen]
+  exact count_satisfy_encode_ne_none hexDigit ds hpd
+
+/-- **Hex encoding is total** — `encodeHex` never returns `none`.
+
+This is the fact that upgrades the injectivity law to the spec's plain
+`Option`-equality form (task 6.2): with totality in hand the `none`/`none` and
+`some`/`none` cases of `encodeHex v = encodeHex v'` are refuted, leaving only
+the both-succeed case, which is `encode_injective`.
+
+`encodeRepeat` fails only when the element encoder does, so this is an induction
+on the value list with `hexElem_encode_ne_none` at each step.
+`[propext, Quot.sound]`-only. -/
+theorem encodeHex_ne_none (bs : List UInt8) : encodeHex bs ≠ none := by
+  unfold encodeHex
+  induction bs with
+  | nil => simp [Codec.encodeRepeat]
+  | cons b rest ih =>
+      rw [Codec.encodeRepeat]
+      have hb : Codec.encode hexElem b ≠ none := hexElem_encode_ne_none b
+      cases h₁ : Codec.encode hexElem b with
+      | none => exact absurd h₁ hb
+      | some e₁ =>
+          cases h₂ : Codec.encodeRepeat hexElem rest with
+          | none => exact absurd h₂ ih
+          | some e₂ => simp
+
+/-- encoding is injective: a byte list has a unique hex encoding (the
+both-succeed form, which the spec's `Option`-equality law reduces to). -/
 theorem encode_injective {v v' : List UInt8} {n : Nat} {s : Bytes n} :
     encodeHex v = some ⟨n, s⟩ → encodeHex v' = some ⟨n, s⟩ → v = v' := by
   intro hv hv'
   have hrelv : relRepeat (Rel hexElem) v n s := encodeRepeat_rel hexElem v hv
   have hrelv' : relRepeat (Rel hexElem) v' n s := encodeRepeat_rel hexElem v' hv'
   exact relHex_unambiguous s hrelv hrelv'
+
+/-- **Hex encoding is injective, in the spec's `Option`-equality form:**
+`encodeHex v = encodeHex v' → v = v'` — exactly the `basen` spec's Scenario
+"Encoding is injective" (`encode{X} v = encode{X} v' → v = v'`).
+
+Because `encodeHex` is total (`encodeHex_ne_none`), the left side cannot be
+`none`; destructure the common result and hand both successes to
+`encode_injective`. `[propext, Quot.sound]`-only. -/
+theorem encodeHex_injective_eq {v v' : List UInt8} (h : encodeHex v = encodeHex v') :
+    v = v' := by
+  cases hv : encodeHex v with
+  | none => exact absurd hv (encodeHex_ne_none v)
+  | some e =>
+      rcases e with ⟨n, s⟩
+      have hv' : encodeHex v' = some ⟨n, s⟩ := by rw [← h]; exact hv
+      exact encode_injective hv hv'
 
 /-- A fully-decoded value means every input byte is a hex digit: the decoder
 never accepts a byte outside the uppercase canonical alphabet. `[propext,

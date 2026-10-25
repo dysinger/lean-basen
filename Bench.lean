@@ -392,22 +392,36 @@ example (h : Base32.decodeFullB32 myEqEq = some f) :
     Base32.encodeB32 f = some ⟨8, myEqEq⟩ :=
   Base32.decodeFullB32_conv myEqEq f h
 
--- Injectivity: a byte list has a unique encoding.
+-- Injectivity, in the spec's plain `Option`-equality form
+-- (`encode{X} v = encode{X} v' → v = v'`, task 6.2). Covered for all seven bases.
 
-example (n : Nat) (s : Bytes n) (v v' : List UInt8)
-    (h : Base64.encodeB64 v = some ⟨n, s⟩) (h' : Base64.encodeB64 v' = some ⟨n, s⟩) :
+example (v v' : List UInt8) (h : Base64.encodeB64 v = Base64.encodeB64 v') :
     v = v' :=
-  Base64.encodeB64_injective h h'
+  Base64.encodeB64_injective_eq h
 
-example (n : Nat) (s : Bytes n) (v v' : List UInt8)
-    (h : Base32.encodeB32 v = some ⟨n, s⟩) (h' : Base32.encodeB32 v' = some ⟨n, s⟩) :
+example (v v' : List UInt8) (h : Base32.encodeB32 v = Base32.encodeB32 v') :
     v = v' :=
-  Base32.encodeB32_injective h h'
+  Base32.encodeB32_injective_eq h
 
-example (n : Nat) (s : Bytes n) (v v' : List UInt8)
-    (h : Base16.encodeHex v = some ⟨n, s⟩) (h' : Base16.encodeHex v' = some ⟨n, s⟩) :
+example (v v' : List UInt8) (h : Base16.encodeHex v = Base16.encodeHex v') :
     v = v' :=
-  Base16.encode_injective h h'
+  Base16.encodeHex_injective_eq h
+
+example (v v' : List UInt8) (h : Base10.encodeDig v = Base10.encodeDig v') :
+    v = v' :=
+  Base10.encodeDig_injective_eq h
+
+example (v v' : List UInt8) (h : Base8.encodeOct v = Base8.encodeOct v') :
+    v = v' :=
+  Base8.encodeOct_injective_eq h
+
+example (v v' : List UInt8) (h : Base4.encodeQuartet v = Base4.encodeQuartet v') :
+    v = v' :=
+  Base4.encodeQuartet_injective_eq h
+
+example (v v' : List UInt8) (h : Base2.encodeBit v = Base2.encodeBit v') :
+    v = v' :=
+  Base2.encodeBit_injective_eq h
 
 -- Fixed-width converse + overflow vectors (through the uniform `decodeFull`).
 

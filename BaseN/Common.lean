@@ -667,4 +667,62 @@ theorem relRepeat_block_len {R : List UInt8 → {m : Nat} → Bytes m → Prop}
         exact hstep x s₁ hx
       · exact ih (m := m - m₁) (s := s₂) hxs b hbmem
 
+/-! ## Totality of the element encoders (task 6.2)
+
+The fixed-width bases' `encode{X}` is `encodeRepeat {x}Elem`, and `encodeRepeat`
+returns `none` only when the element encoder does. The element is
+`iso {x}BlockIso (count k (satisfy {x}Digit))`, and every base's
+`{x}BlockUnapply` is *total* on its `UInt8` domain (`some` of exactly the `k`
+digits of the byte). So the element encoder's only failure mode is a digit
+failing the `satisfy` test — which cannot happen, since the produced digits are
+valid by construction. The three lemmas below are that argument, generic over
+the digit predicate and the block width; each base supplies only its
+`{x}BlockUnapply_digits` (total + length + validity) and instantiates.
+
+This is what makes `encode{X}_ne_none` — and hence the spec's plain
+`Option`-equality injectivity law — provable without `Classical.choice`: the
+`count` width is derived from the list's own `length` (never an abstract index
+`k` threaded through `cases`), which is the shape that keeps dependent
+elimination out of the proof term. -/
+
+/-- `encode (satisfy p) d` succeeds whenever `d` is a `p`-byte. -/
+theorem encode_satisfy_ne_none (p : UInt8 → Bool) (d : UInt8) (hd : p d = true) :
+    Codec.encode (Codec.satisfy p) d ≠ none := by
+  simp [Codec.encode, hd]
+
+/-- `encode (seq d₁ d₂)` succeeds as soon as both components do. -/
+theorem encode_seq_ne_none {α β : Type} (d₁ : Codec α) (d₂ : Codec β) (x₁ : α) (x₂ : β)
+    (h₁ : Codec.encode d₁ x₁ ≠ none) (h₂ : Codec.encode d₂ x₂ ≠ none) :
+    Codec.encode (Codec.seq d₁ d₂) (x₁, x₂) ≠ none := by
+  simp only [Codec.encode]
+  cases he₁ : Codec.encode d₁ x₁ with
+  | none => exact absurd he₁ h₁
+  | some e₁ =>
+      cases he₂ : Codec.encode d₂ x₂ with
+      | none => exact absurd he₂ h₂
+      | some e₂ => simp
+
+/-- **`count` of `satisfy` is a total encoder on its own digit lists.**  A list all
+of whose bytes satisfy `p` encodes through `count ds.length (satisfy p)`.
+
+The `count` width is `ds.length` — *derived* from the list rather than passed as a
+separate index. That is deliberate: an abstract `k` with a hypothesis
+`ds.length = k` forces a dependent `cases` on `ds`, whose `Eq.ndrec` path pulls in
+`Classical.choice` and breaks the `[propext, Quot.sound]`-only gate. -/
+theorem count_satisfy_encode_ne_none (p : UInt8 → Bool) :
+    ∀ (ds : List UInt8), (∀ d ∈ ds, p d = true) →
+      Codec.encode (count ds.length (Codec.satisfy p)) ds ≠ none
+  | [], _ => by
+      show Codec.encode (Codec.iso Iso.nil (Codec.pure ())) [] ≠ none
+      simp [Codec.encode, Iso.nil]
+  | d :: rest, hpd => by
+      have hd : p d = true := hpd d (by simp)
+      have hrest : ∀ e ∈ rest, p e = true := fun e he => hpd e (by simp [he])
+      show Codec.encode (count (rest.length + 1) (Codec.satisfy p)) (d :: rest) ≠ none
+      unfold count
+      simp only [Codec.encode, Iso.cons]
+      exact encode_seq_ne_none _ _ d rest
+        (encode_satisfy_ne_none p d hd)
+        (count_satisfy_encode_ne_none p rest hrest)
+
 end BaseN.Common

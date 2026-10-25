@@ -2526,16 +2526,220 @@ theorem decodeFullB64_conv {n : Nat} (s : Bytes n) (v : List UInt8)
       exact h1.trans (cast_heq (congrArg Bytes hlen.symm) s))
   rw [hsig]
 
-/-! ## Injectivity (task 4.4)
+/-! ## Totality of the encoder (task 6.2)
+
+The spec's injectivity Scenario is the plain `Option`-equality law
+`encodeB64 v = encodeB64 v' → v = v'`. Getting there needs `encodeB64`'s
+**totality**: with it, the `none`/`none` and `some`/`none` cases of that equation
+are refuted and only the both-succeed case (`encodeB64_injective`) survives.
+
+Totality is two pieces. `encodeB64` splits its value with `b64Split_ofBytes`, so
+it is `encodeB64' blocks tail`: an `encodeRepeat` over the 3-byte block element
+(total, because `b64BlockUnapply` is total on 3-byte lists and emits alphabet
+chars — `b64BlockUnapply_len3`), and `encodeB64Tail tail` on a tail the `B64`
+spine bounds to 0-2 bytes (total, because `b64TailUnapply` is total on 1- and
+2-byte lists — `b64TailUnapply_len12`). `[propext, Quot.sound]`-only. -/
+
+/-- `b64BlockUnapply` is total on 3-byte blocks and emits four alphabet chars:
+each output char is `toByte (valToB64 k)` with `k <= 63` (the `=` pad byte
+appears only in the 1- and 2-byte arms). -/
+theorem b64BlockUnapply_len3 (bs : List UInt8) (hlen : bs.length = 3) :
+    ∃ cs, b64BlockUnapply bs = some cs ∧ cs.length = 4 ∧ ∀ c ∈ cs, b64Char c = true := by
+  match bs, hlen with
+  | [v0, v1, v2], _ =>
+      refine ⟨[toByte (valToB64 (v0.toNat / 4)),
+               toByte (valToB64 ((v0.toNat % 4) * 16 + v1.toNat / 16)),
+               toByte (valToB64 ((v1.toNat % 16) * 4 + v2.toNat / 64)),
+               toByte (valToB64 (v2.toNat % 64))], rfl, rfl, ?_⟩
+      have hb0 : v0.toNat < 256 := UInt8.toNat_lt v0
+      have hb1 : v1.toNat < 256 := UInt8.toNat_lt v1
+      have hb2 : v2.toNat < 256 := UInt8.toNat_lt v2
+      have h0 : v0.toNat / 4 ≤ 63 := by omega
+      have h1 : (v0.toNat % 4) * 16 + v1.toNat / 16 ≤ 63 := by omega
+      have h2 : (v1.toNat % 16) * 4 + v2.toNat / 64 ≤ 63 := by omega
+      have h3 : v2.toNat % 64 ≤ 63 := by omega
+      intro c hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      rcases hc with h | h | h | h <;> subst h <;> unfold b64Char
+      · rw [toByte_valToB64 _ h0]; exact valToB64_valid _ h0
+      · rw [toByte_valToB64 _ h1]; exact valToB64_valid _ h1
+      · rw [toByte_valToB64 _ h2]; exact valToB64_valid _ h2
+      · rw [toByte_valToB64 _ h3]; exact valToB64_valid _ h3
+  | [], h => simp at h
+  | [_], h => simp at h
+  | [_, _], h => simp at h
+  | _ :: _ :: _ :: _ :: _, h => simp at h
+
+/-- A `b64Valid` char or the pad byte satisfies `b64OrPad`. -/
+theorem b64OrPad_of_valid {c : UInt8} (h : b64Valid c.toNat = true) : b64OrPad c = true := by
+  unfold b64OrPad
+  rw [h]
+  simp
+
+/-- The pad byte satisfies `b64OrPad`. -/
+theorem b64OrPad_pad : b64OrPad 61 = true := by
+  unfold b64OrPad
+  simp
+
+/-- `b64BlockUnapply` on a 1-byte block emits two alphabet chars then two pads. -/
+theorem b64BlockUnapply_one (v0 : UInt8) :
+    b64BlockUnapply [v0] =
+      some [toByte (valToB64 (v0.toNat / 4)), toByte (valToB64 ((v0.toNat % 4) * 16)), 61, 61] := rfl
+
+/-- `b64BlockUnapply` on a 2-byte block emits three alphabet chars then one pad. -/
+theorem b64BlockUnapply_two (v0 v1 : UInt8) :
+    b64BlockUnapply [v0, v1] =
+      some [toByte (valToB64 (v0.toNat / 4)),
+            toByte (valToB64 ((v0.toNat % 4) * 16 + v1.toNat / 16)),
+            toByte (valToB64 ((v1.toNat % 16) * 4)), 61] := rfl
+
+/-- `b64TailUnapply` is total on 1- and 2-byte lists and emits four pad-or-alphabet
+chars (the `=` bytes are exactly the RFC §3.2 terminal padding).
+
+Stated over the numeric bounds `1 ≤ bs.length` / `bs.length ≤ 2` rather than a
+disjunctive `bs.length = 1 ∨ bs.length = 2` hypothesis: matching on `bs` while
+the *equation* form appears in the context makes the elimination motive
+dependent, which pulls `Classical.choice` into the proof term. With the `≤`/`<`
+bounds the match is non-dependent and the law stays `[propext, Quot.sound]`-only. -/
+theorem b64TailUnapply_len12 (bs : List UInt8) (hlen : 1 ≤ bs.length) (hlen2 : bs.length ≤ 2) :
+    ∃ cs, b64TailUnapply bs = some cs ∧ cs.length = 4 ∧ ∀ c ∈ cs, b64OrPad c = true := by
+  match bs, hlen, hlen2 with
+  | [v0], _, _ =>
+      refine ⟨[toByte (valToB64 (v0.toNat / 4)), toByte (valToB64 ((v0.toNat % 4) * 16)), 61, 61],
+              rfl, rfl, ?_⟩
+      have h0 : v0.toNat / 4 ≤ 63 := by
+        have := UInt8.toNat_lt v0; omega
+      have h1 : (v0.toNat % 4) * 16 ≤ 63 := by
+        have := UInt8.toNat_lt v0; omega
+      intro c hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      rcases hc with h | h | h | h <;> subst h
+      · exact b64OrPad_of_valid (by rw [toByte_valToB64 _ h0]; exact valToB64_valid _ h0)
+      · exact b64OrPad_of_valid (by rw [toByte_valToB64 _ h1]; exact valToB64_valid _ h1)
+      · exact b64OrPad_pad
+      · exact b64OrPad_pad
+  | [v0, v1], _, _ =>
+      refine ⟨[toByte (valToB64 (v0.toNat / 4)),
+               toByte (valToB64 ((v0.toNat % 4) * 16 + v1.toNat / 16)),
+               toByte (valToB64 ((v1.toNat % 16) * 4)), 61], rfl, rfl, ?_⟩
+      have hb1 : v1.toNat < 256 := UInt8.toNat_lt v1
+      have h0 : v0.toNat / 4 ≤ 63 := by
+        have := UInt8.toNat_lt v0; omega
+      have h1 : (v0.toNat % 4) * 16 + v1.toNat / 16 ≤ 63 := by omega
+      have h2 : (v1.toNat % 16) * 4 ≤ 63 := by omega
+      intro c hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hc
+      rcases hc with h | h | h | h <;> subst h
+      · exact b64OrPad_of_valid (by rw [toByte_valToB64 _ h0]; exact valToB64_valid _ h0)
+      · exact b64OrPad_of_valid (by rw [toByte_valToB64 _ h1]; exact valToB64_valid _ h1)
+      · exact b64OrPad_of_valid (by rw [toByte_valToB64 _ h2]; exact valToB64_valid _ h2)
+      · exact b64OrPad_pad
+  | [], h, _ => simp at h
+  | _ :: _ :: _ :: _, _, h => simp at h
+
+/-- Every 1- or 2-byte tail encodes through `b64TailElem`: the tail element
+encoder is total on its domain. -/
+theorem b64TailElem_encode_ne_none (bs : List UInt8)
+    (hlen : 1 ≤ bs.length) (hlen2 : bs.length ≤ 2) : Codec.encode b64TailElem bs ≠ none := by
+  obtain ⟨cs, hcs, hclen, hcv⟩ := b64TailUnapply_len12 bs hlen hlen2
+  unfold b64TailElem
+  simp only [Codec.encode, b64TailIso, hcs, Option.bind]
+  rw [← hclen]
+  exact BaseN.Common.count_satisfy_encode_ne_none b64OrPad cs hcv
+
+/-- `encodeB64Tail` is total on tails of at most 2 bytes (the shapes the `B64`
+spine produces). Stated by structural recursion on the list rather than by
+`match tail, hlen`, which would put a dependent `cases` into the proof term and
+pull in `Classical.choice` (breaking the `[propext, Quot.sound]`-only gate). -/
+theorem encodeB64Tail_ne_none : ∀ (tail : List UInt8), tail.length ≤ 2 →
+    encodeB64Tail tail ≠ none
+  | [], _ => by simp [encodeB64Tail]
+  | [_], _ => by
+      simp only [encodeB64Tail]
+      exact b64TailElem_encode_ne_none [_] (by simp) (by simp)
+  | [_, _], _ => by
+      simp only [encodeB64Tail]
+      exact b64TailElem_encode_ne_none [_, _] (by simp) (by simp)
+  | _ :: _ :: _ :: _, h => by simp at h
+
+/-- Every 3-byte block encodes through `b64BlockElem`: the block element encoder is
+total on its domain. -/
+theorem b64BlockElem_encode_ne_none (bs : List UInt8) (hlen : bs.length = 3) :
+    Codec.encode b64BlockElem bs ≠ none := by
+  obtain ⟨cs, hcs, hclen, hcv⟩ := b64BlockUnapply_len3 bs hlen
+  unfold b64BlockElem
+  simp only [Codec.encode, b64BlockIso, hcs, Option.bind]
+  rw [← hclen]
+  exact BaseN.Common.count_satisfy_encode_ne_none b64Char cs hcv
+
+/-- `encodeB64'` is total when every block is 3 bytes and the tail is at most 2. -/
+theorem encodeB64'_ne_none (blocks : List (List UInt8)) (tail : List UInt8)
+    (hblocks : ∀ b ∈ blocks, b.length = 3) (htail : tail.length ≤ 2) :
+    encodeB64' blocks tail ≠ none := by
+  unfold encodeB64'
+  have hb : encodeRepeat b64BlockElem blocks ≠ none := by
+    induction blocks with
+    | nil => simp [Codec.encodeRepeat]
+    | cons b rest ih =>
+        have hbl : b.length = 3 := hblocks b (by simp)
+        have hrest : ∀ x ∈ rest, x.length = 3 := fun x hx => hblocks x (by simp [hx])
+        rw [Codec.encodeRepeat]
+        have hne : Codec.encode b64BlockElem b ≠ none := b64BlockElem_encode_ne_none b hbl
+        cases h₁ : Codec.encode b64BlockElem b with
+        | none => exact absurd h₁ hne
+        | some e₁ =>
+            cases h₂ : Codec.encodeRepeat b64BlockElem rest with
+            | none => exact absurd h₂ (ih hrest)
+            | some e₂ => simp
+  have ht : encodeB64Tail tail ≠ none := encodeB64Tail_ne_none tail htail
+  cases hb' : encodeRepeat b64BlockElem blocks with
+  | none => exact absurd hb' hb
+  | some e₁ =>
+      cases ht' : encodeB64Tail tail with
+      | none => exact absurd ht' ht
+      | some e₂ => simp
+
+/-- For every `B64` spine value, the split's blocks are all 3 bytes and its tail
+is at most 2 — the structural fact the encoder's totality rests on. -/
+theorem b64Split_ofBytes_shape_bounds (v : B64) :
+    (∀ b ∈ (b64Split_ofBytes v).1, b.length = 3) ∧ (b64Split_ofBytes v).2.length ≤ 2 := by
+  induction v with
+  | nil => exact ⟨by simp [b64Split_ofBytes], by simp [b64Split_ofBytes]⟩
+  | tail1 b0 => exact ⟨by simp [b64Split_ofBytes], by simp [b64Split_ofBytes]⟩
+  | tail2 b0 b1 => exact ⟨by simp [b64Split_ofBytes], by simp [b64Split_ofBytes]⟩
+  | full b0 b1 b2 rest ih =>
+      obtain ⟨ihb, iht⟩ := ih
+      refine ⟨?_, ?_⟩
+      · intro b hb
+        simp only [b64Split_ofBytes, List.mem_cons] at hb
+        rcases hb with h | h
+        · subst h; rfl
+        · exact ihb b h
+      · simpa [b64Split_ofBytes] using iht
+
+/-- **Base64 encoding is total** — `encodeB64` never returns `none`.
+
+`encodeB64` splits its value along the `B64` spine and delegates to
+`encodeB64'`, whose totality needs exactly the bounds
+`b64Split_ofBytes_shape_bounds` supplies (3-byte blocks, ≤ 2-byte tail).
+`[propext, Quot.sound]`-only. -/
+theorem encodeB64_ne_none (bs : List UInt8) : encodeB64 bs ≠ none := by
+  unfold encodeB64
+  obtain ⟨hb, ht⟩ := b64Split_ofBytes_shape_bounds (b64OfBytes bs)
+  exact encodeB64'_ne_none _ _ hb ht
+
+/-! ## Injectivity (tasks 4.4 / 6.2)
 
 `encodeB64` is injective on its value: two byte lists that encode to the same
-`(length, bytes)` are equal.  This is immediate from the roundtrip
+`(length, bytes)` are equal. Immediate from the roundtrip
 `decodeFullB64_roundtrip` — both `v` and `v'` decode from the same `s`.
 
-**Scope of the statement.**  Both hypotheses are `= some ⟨n, s⟩`.  `encodeB64`'s
-*totality* (that it never returns `none`) is **not** proved here, so this is not
-yet the spec's `Option`-equality law `encodeB64 v = encodeB64 v' → v = v'`; the
-remaining gap is tracked as task 6.2.  `[propext, Quot.sound]`-only. -/
+The spec's injectivity Scenario is the plain `Option`-equality law
+`encodeB64 v = encodeB64 v' → v = v'` (task 6.2). That follows from the
+both-succeed form below plus `encodeB64_ne_none` (the encoder is total, proved
+in the Totality section): the common result cannot be `none`, so destructuring it
+leaves the two successes that `encodeB64_injective` needs.
+`[propext, Quot.sound]`-only. -/
 
 /-- `encodeB64` injectivity, in the both-succeed form:
 `encodeB64 v = some ⟨n, s⟩ → encodeB64 v' = some ⟨n, s⟩ → v = v'`. -/
@@ -2545,5 +2749,21 @@ theorem encodeB64_injective {v v' : List UInt8} {n : Nat} {s : Bytes n}
   have hv : decodeFullB64 s = some v := decodeFullB64_roundtrip v h
   have hv' : decodeFullB64 s = some v' := decodeFullB64_roundtrip v' h'
   exact Option.some.inj (hv.symm.trans hv')
+
+/-- **`encodeB64` is injective, in the spec's `Option`-equality form:**
+`encodeB64 v = encodeB64 v' → v = v'` — exactly the `basen` spec's Scenario
+"Encoding is injective" (`encode{X} v = encode{X} v' → v = v'`).
+
+Because `encodeB64` is total (`encodeB64_ne_none`), the left side cannot be
+`none`; destructure the common result and hand both successes to
+`encodeB64_injective`. `[propext, Quot.sound]`-only. -/
+theorem encodeB64_injective_eq {v v' : List UInt8} (h : encodeB64 v = encodeB64 v') :
+    v = v' := by
+  cases hv : encodeB64 v with
+  | none => exact absurd hv (encodeB64_ne_none v)
+  | some e =>
+      rcases e with ⟨n, s⟩
+      have hv' : encodeB64 v' = some ⟨n, s⟩ := by rw [← h]; exact hv
+      exact encodeB64_injective hv hv'
 
 end BaseN.Base64

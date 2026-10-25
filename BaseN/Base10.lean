@@ -407,13 +407,77 @@ theorem decode_encode_inverse {n : Nat} {s : Bytes n} (v : List UInt8) :
     exact (relRepeat_cast (Rel digElem) v (Nat.sub_zero n) s₀).1 hrel
   exact encodeRepeat_of_rel digElem digElem_functional v s hrels
 
-/-- Encoding is injective: a byte list has a unique decimal encoding. -/
+/-- `digBlockUnapply` is *total*, and its digits are exactly the 3 digits of the
+byte: length 3, every one a `digDigit`. This is what makes `digElem`'s
+encoder total — its only failure mode would be a produced digit failing
+`satisfy`. -/
+theorem digBlockUnapply_digits (b : UInt8) :
+    ∃ ds, digBlockUnapply b = some ds ∧ ds.length = 3 ∧ ∀ d ∈ ds, digDigit d = true := by
+  refine ⟨[toByte (valToDig (b.toNat / 100)), toByte (valToDig ((b.toNat / 10) % 10)), toByte (valToDig (b.toNat % 10))], rfl, rfl, ?_⟩
+  intro d hd
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hd
+  unfold digDigit
+  rcases hd with h | h | h <;> subst h
+  · exact (digDigit_valid_of_byte b).1
+  · exact (digDigit_valid_of_byte b).2.1
+  · exact (digDigit_valid_of_byte b).2.2
+
+/-- Every byte encodes through `digElem`: the element encoder is total. -/
+theorem digElem_encode_ne_none (b : UInt8) : Codec.encode digElem b ≠ none := by
+  obtain ⟨ds, hds, hlen, hpd⟩ := digBlockUnapply_digits b
+  unfold digElem
+  simp only [Codec.encode, digBlockIso, hds, Option.bind]
+  rw [← hlen]
+  exact count_satisfy_encode_ne_none digDigit ds hpd
+
+/-- **Decimal encoding is total** — `encodeDig` never returns `none`.
+
+This is the fact that upgrades the injectivity law to the spec's plain
+`Option`-equality form (task 6.2): with totality in hand the `none`/`none` and
+`some`/`none` cases of `encodeDig v = encodeDig v'` are refuted, leaving only
+the both-succeed case, which is `encode_injective`.
+
+`encodeRepeat` fails only when the element encoder does, so this is an induction
+on the value list with `digElem_encode_ne_none` at each step.
+`[propext, Quot.sound]`-only. -/
+theorem encodeDig_ne_none (bs : List UInt8) : encodeDig bs ≠ none := by
+  unfold encodeDig
+  induction bs with
+  | nil => simp [Codec.encodeRepeat]
+  | cons b rest ih =>
+      rw [Codec.encodeRepeat]
+      have hb : Codec.encode digElem b ≠ none := digElem_encode_ne_none b
+      cases h₁ : Codec.encode digElem b with
+      | none => exact absurd h₁ hb
+      | some e₁ =>
+          cases h₂ : Codec.encodeRepeat digElem rest with
+          | none => exact absurd h₂ ih
+          | some e₂ => simp
+
+/-- encoding is injective: a byte list has a unique decimal encoding (the
+both-succeed form, which the spec's `Option`-equality law reduces to). -/
 theorem encode_injective {v v' : List UInt8} {n : Nat} {s : Bytes n} :
     encodeDig v = some ⟨n, s⟩ → encodeDig v' = some ⟨n, s⟩ → v = v' := by
   intro hv hv'
   have hrelv : relRepeat (Rel digElem) v n s := encodeRepeat_rel digElem v hv
   have hrelv' : relRepeat (Rel digElem) v' n s := encodeRepeat_rel digElem v' hv'
   exact relDig_unambiguous s hrelv hrelv'
+
+/-- **Decimal encoding is injective, in the spec's `Option`-equality form:**
+`encodeDig v = encodeDig v' → v = v'` — exactly the `basen` spec's Scenario
+"Encoding is injective" (`encode{X} v = encode{X} v' → v = v'`).
+
+Because `encodeDig` is total (`encodeDig_ne_none`), the left side cannot be
+`none`; destructure the common result and hand both successes to
+`encode_injective`. `[propext, Quot.sound]`-only. -/
+theorem encodeDig_injective_eq {v v' : List UInt8} (h : encodeDig v = encodeDig v') :
+    v = v' := by
+  cases hv : encodeDig v with
+  | none => exact absurd hv (encodeDig_ne_none v)
+  | some e =>
+      rcases e with ⟨n, s⟩
+      have hv' : encodeDig v' = some ⟨n, s⟩ := by rw [← h]; exact hv
+      exact encode_injective hv hv'
 
 /-- A fully-decoded value means every input byte is a decimal digit. `[propext,
 Quot.sound]`-only. -/
