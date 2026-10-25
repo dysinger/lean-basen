@@ -2366,4 +2366,279 @@ theorem decodeFullB32_reject_bad_length : decodeFullB32 myTwo = none := by
           subst m
           omega
 
+/-! ## Conformance: canonical encoding (task 4.2, base32)
+
+The whole-input `encodeB32` output is canonical: alphabet-only full blocks
+followed by a single RFC-arity padded tail (base32 1/2/3/4-byte tails → 6/4/3/1
+`=` pads).  Stated as a decomposition over `List.ofFn`; `[propext,
+Quot.sound]`-only. -/
+
+/-- `b32TailApply a = some ys` forces `b32BlockApply a = some ys` (the tail
+apply is the block apply restricted to 1–4-byte results).  Proved by fully
+casing the block result length. -/
+private theorem b32TailApply_block {a ys : List UInt8}
+    (h : b32TailApply a = some ys) : b32BlockApply a = some ys := by
+  cases hb : b32BlockApply a with
+  | none => simp [b32TailApply, hb] at h
+  | some bl =>
+    cases bl with
+    | nil => simp [b32TailApply, hb] at h
+    | cons x bl1 =>
+    cases bl1 with
+    | nil => simpa [b32TailApply, hb] using h
+    | cons y bl2 =>
+    cases bl2 with
+    | nil => simpa [b32TailApply, hb] using h
+    | cons z bl3 =>
+    cases bl3 with
+    | nil => simpa [b32TailApply, hb] using h
+    | cons w bl4 =>
+    cases bl4 with
+    | nil => simpa [b32TailApply, hb] using h
+    | cons _ _ => simp [b32TailApply, hb] at h
+
+/-- A tail encoding is either empty (length 0) or a single 8-byte padded block
+whose pad bytes are exactly the RFC tail (1→6, 2→4, 3→3, 4→1). -/
+theorem b32TailBlock_canonical (tail : List UInt8) {m : Nat} {t : Bytes m}
+    (he : encodeB32Tail tail = some ⟨m, t⟩) :
+    (tail = [] ∧ m = 0) ∨
+    (∃ b, tail = [b] ∧ m = 8 ∧ ∃ c0 c1 : UInt8,
+      List.ofFn t = [c0, c1, toByte 61, toByte 61, toByte 61, toByte 61, toByte 61, toByte 61] ∧
+      b32Valid c0.toNat = true ∧ b32Valid c1.toNat = true) ∨
+    (∃ b0 b1, tail = [b0, b1] ∧ m = 8 ∧ ∃ c0 c1 c2 c3 : UInt8,
+      List.ofFn t = [c0, c1, c2, c3, toByte 61, toByte 61, toByte 61, toByte 61] ∧
+      b32Valid c0.toNat = true ∧ b32Valid c1.toNat = true ∧ b32Valid c2.toNat = true ∧ b32Valid c3.toNat = true) ∨
+    (∃ b0 b1 b2, tail = [b0, b1, b2] ∧ m = 8 ∧ ∃ c0 c1 c2 c3 c4 : UInt8,
+      List.ofFn t = [c0, c1, c2, c3, c4, toByte 61, toByte 61, toByte 61] ∧
+      b32Valid c0.toNat = true ∧ b32Valid c1.toNat = true ∧ b32Valid c2.toNat = true ∧ b32Valid c3.toNat = true ∧ b32Valid c4.toNat = true) ∨
+    (∃ b0 b1 b2 b3, tail = [b0, b1, b2, b3] ∧ m = 8 ∧ ∃ c0 c1 c2 c3 c4 c5 c6 : UInt8,
+      List.ofFn t = [c0, c1, c2, c3, c4, c5, c6, toByte 61] ∧
+      b32Valid c0.toNat = true ∧ b32Valid c1.toNat = true ∧ b32Valid c2.toNat = true ∧ b32Valid c3.toNat = true ∧ b32Valid c4.toNat = true ∧ b32Valid c5.toNat = true ∧ b32Valid c6.toNat = true) := by
+  cases tail with
+  | nil =>
+      have hs : (⟨0, (Codec.emptyBytes : Bytes 0)⟩ : Sigma fun k => Bytes k) = ⟨m, t⟩ := by
+        simpa [encodeB32Tail] using he
+      cases hs
+      left
+      simp
+  | cons b t1 =>
+      cases t1 with
+      | nil =>
+          have henc : Codec.encode b32TailElem [b] = some ⟨m, t⟩ := by simpa [encodeB32Tail] using he
+          have hrel : Rel b32TailElem [b] t := encode_rel b32TailElem [b] henc
+          have hm8 : m = 8 := Rel_b32TailElem_len [b] t hrel
+          subst m
+          right; left
+          refine ⟨b, rfl, rfl, ?_⟩
+          unfold b32TailElem at hrel
+          rw [Rel_iso] at hrel
+          rcases hrel with ⟨a, ha, hr⟩
+          have hofn : List.ofFn t = a := Rel_count_satisfy_ofFn b32OrPad 8 a t hr
+          unfold b32TailIso at ha
+          change b32TailApply a = some [b] at ha
+          have hblk : b32BlockApply a = some [b] := b32TailApply_block ha
+          have hun : b32BlockUnapply [b] = some a := (b32BlockIso_law a [b]).1 hblk
+          simp [b32BlockUnapply] at hun
+          have ha' : a = [toByte (valToB32 (b.toNat / 8)), toByte (valToB32 ((b.toNat % 8) * 4)), toByte 61, toByte 61, toByte 61, toByte 61, toByte 61, toByte 61] := hun.symm
+          have hb : b.toNat < 256 := UInt8.toNat_lt b
+          refine ⟨toByte (valToB32 (b.toNat / 8)), toByte (valToB32 ((b.toNat % 8) * 4)), ?_, ?_, ?_⟩
+          · rw [hofn]; exact ha'
+          · rw [toByte_valToB32 (b.toNat / 8) (by omega)]
+            exact valToB32_valid (b.toNat / 8) (by omega)
+          · rw [toByte_valToB32 ((b.toNat % 8) * 4) (by omega)]
+            exact valToB32_valid ((b.toNat % 8) * 4) (by omega)
+      | cons b1 t2 =>
+        cases t2 with
+        | nil =>
+          have henc : Codec.encode b32TailElem [b, b1] = some ⟨m, t⟩ := by simpa [encodeB32Tail] using he
+          have hrel : Rel b32TailElem [b, b1] t := encode_rel b32TailElem [b, b1] henc
+          have hm8 : m = 8 := Rel_b32TailElem_len [b, b1] t hrel
+          subst m
+          right; right; left
+          refine ⟨b, b1, rfl, rfl, ?_⟩
+          unfold b32TailElem at hrel
+          rw [Rel_iso] at hrel
+          rcases hrel with ⟨a, ha, hr⟩
+          have hofn : List.ofFn t = a := Rel_count_satisfy_ofFn b32OrPad 8 a t hr
+          unfold b32TailIso at ha
+          change b32TailApply a = some [b, b1] at ha
+          have hblk : b32BlockApply a = some [b, b1] := b32TailApply_block ha
+          have hun : b32BlockUnapply [b, b1] = some a := (b32BlockIso_law a [b, b1]).1 hblk
+          simp [b32BlockUnapply] at hun
+          have ha' : a = [toByte (valToB32 (b.toNat / 8)), toByte (valToB32 ((b.toNat % 8) * 4 + b1.toNat / 64)), toByte (valToB32 ((b1.toNat / 2) % 32)), toByte (valToB32 ((b1.toNat % 2) * 16)), toByte 61, toByte 61, toByte 61, toByte 61] := hun.symm
+          have hb : b.toNat < 256 := UInt8.toNat_lt b
+          have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+          refine ⟨toByte (valToB32 (b.toNat / 8)), toByte (valToB32 ((b.toNat % 8) * 4 + b1.toNat / 64)), toByte (valToB32 ((b1.toNat / 2) % 32)), toByte (valToB32 ((b1.toNat % 2) * 16)), ?_, ?_, ?_, ?_, ?_⟩
+          · rw [hofn]; exact ha'
+          · rw [toByte_valToB32 (b.toNat / 8) (by omega)]
+            exact valToB32_valid (b.toNat / 8) (by omega)
+          · rw [toByte_valToB32 ((b.toNat % 8) * 4 + b1.toNat / 64) (by omega)]
+            exact valToB32_valid ((b.toNat % 8) * 4 + b1.toNat / 64) (by omega)
+          · rw [toByte_valToB32 ((b1.toNat / 2) % 32) (by omega)]
+            exact valToB32_valid ((b1.toNat / 2) % 32) (by omega)
+          · rw [toByte_valToB32 ((b1.toNat % 2) * 16) (by omega)]
+            exact valToB32_valid ((b1.toNat % 2) * 16) (by omega)
+        | cons b2 t3 =>
+          cases t3 with
+          | nil =>
+            have henc : Codec.encode b32TailElem [b, b1, b2] = some ⟨m, t⟩ := by simpa [encodeB32Tail] using he
+            have hrel : Rel b32TailElem [b, b1, b2] t := encode_rel b32TailElem [b, b1, b2] henc
+            have hm8 : m = 8 := Rel_b32TailElem_len [b, b1, b2] t hrel
+            subst m
+            right; right; right; left
+            refine ⟨b, b1, b2, rfl, rfl, ?_⟩
+            unfold b32TailElem at hrel
+            rw [Rel_iso] at hrel
+            rcases hrel with ⟨a, ha, hr⟩
+            have hofn : List.ofFn t = a := Rel_count_satisfy_ofFn b32OrPad 8 a t hr
+            unfold b32TailIso at ha
+            change b32TailApply a = some [b, b1, b2] at ha
+            have hblk : b32BlockApply a = some [b, b1, b2] := b32TailApply_block ha
+            have hun : b32BlockUnapply [b, b1, b2] = some a := (b32BlockIso_law a [b, b1, b2]).1 hblk
+            simp [b32BlockUnapply] at hun
+            have ha' : a = [toByte (valToB32 (b.toNat / 8)), toByte (valToB32 ((b.toNat % 8) * 4 + b1.toNat / 64)), toByte (valToB32 ((b1.toNat / 2) % 32)), toByte (valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16)), toByte (valToB32 ((b2.toNat % 16) * 2)), toByte 61, toByte 61, toByte 61] := hun.symm
+            have hb : b.toNat < 256 := UInt8.toNat_lt b
+            have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+            have hb2 : b2.toNat < 256 := UInt8.toNat_lt b2
+            refine ⟨toByte (valToB32 (b.toNat / 8)), toByte (valToB32 ((b.toNat % 8) * 4 + b1.toNat / 64)), toByte (valToB32 ((b1.toNat / 2) % 32)), toByte (valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16)), toByte (valToB32 ((b2.toNat % 16) * 2)), ?_, ?_, ?_, ?_, ?_, ?_⟩
+            · rw [hofn]; exact ha'
+            · rw [toByte_valToB32 (b.toNat / 8) (by omega)]
+              exact valToB32_valid (b.toNat / 8) (by omega)
+            · rw [toByte_valToB32 ((b.toNat % 8) * 4 + b1.toNat / 64) (by omega)]
+              exact valToB32_valid ((b.toNat % 8) * 4 + b1.toNat / 64) (by omega)
+            · rw [toByte_valToB32 ((b1.toNat / 2) % 32) (by omega)]
+              exact valToB32_valid ((b1.toNat / 2) % 32) (by omega)
+            · rw [toByte_valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16) (by omega)]
+              exact valToB32_valid ((b1.toNat % 2) * 16 + b2.toNat / 16) (by omega)
+            · rw [toByte_valToB32 ((b2.toNat % 16) * 2) (by omega)]
+              exact valToB32_valid ((b2.toNat % 16) * 2) (by omega)
+          | cons b3 t4 =>
+            cases t4 with
+            | nil =>
+              have henc : Codec.encode b32TailElem [b, b1, b2, b3] = some ⟨m, t⟩ := by simpa [encodeB32Tail] using he
+              have hrel : Rel b32TailElem [b, b1, b2, b3] t := encode_rel b32TailElem [b, b1, b2, b3] henc
+              have hm8 : m = 8 := Rel_b32TailElem_len [b, b1, b2, b3] t hrel
+              subst m
+              right; right; right; right
+              refine ⟨b, b1, b2, b3, rfl, rfl, ?_⟩
+              unfold b32TailElem at hrel
+              rw [Rel_iso] at hrel
+              rcases hrel with ⟨a, ha, hr⟩
+              have hofn : List.ofFn t = a := Rel_count_satisfy_ofFn b32OrPad 8 a t hr
+              unfold b32TailIso at ha
+              change b32TailApply a = some [b, b1, b2, b3] at ha
+              have hblk : b32BlockApply a = some [b, b1, b2, b3] := b32TailApply_block ha
+              have hun : b32BlockUnapply [b, b1, b2, b3] = some a := (b32BlockIso_law a [b, b1, b2, b3]).1 hblk
+              simp [b32BlockUnapply] at hun
+              have ha' : a = [toByte (valToB32 (b.toNat / 8)), toByte (valToB32 ((b.toNat % 8) * 4 + b1.toNat / 64)), toByte (valToB32 ((b1.toNat / 2) % 32)), toByte (valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16)), toByte (valToB32 ((b2.toNat % 16) * 2 + b3.toNat / 128)), toByte (valToB32 ((b3.toNat / 4) % 32)), toByte (valToB32 ((b3.toNat % 4) * 8)), toByte 61] := hun.symm
+              have hb : b.toNat < 256 := UInt8.toNat_lt b
+              have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+              have hb2 : b2.toNat < 256 := UInt8.toNat_lt b2
+              have hb3 : b3.toNat < 256 := UInt8.toNat_lt b3
+              refine ⟨toByte (valToB32 (b.toNat / 8)), toByte (valToB32 ((b.toNat % 8) * 4 + b1.toNat / 64)), toByte (valToB32 ((b1.toNat / 2) % 32)), toByte (valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16)), toByte (valToB32 ((b2.toNat % 16) * 2 + b3.toNat / 128)), toByte (valToB32 ((b3.toNat / 4) % 32)), toByte (valToB32 ((b3.toNat % 4) * 8)), ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+              · rw [hofn]; exact ha'
+              · rw [toByte_valToB32 (b.toNat / 8) (by omega)]
+                exact valToB32_valid (b.toNat / 8) (by omega)
+              · rw [toByte_valToB32 ((b.toNat % 8) * 4 + b1.toNat / 64) (by omega)]
+                exact valToB32_valid ((b.toNat % 8) * 4 + b1.toNat / 64) (by omega)
+              · rw [toByte_valToB32 ((b1.toNat / 2) % 32) (by omega)]
+                exact valToB32_valid ((b1.toNat / 2) % 32) (by omega)
+              · rw [toByte_valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16) (by omega)]
+                exact valToB32_valid ((b1.toNat % 2) * 16 + b2.toNat / 16) (by omega)
+              · rw [toByte_valToB32 ((b2.toNat % 16) * 2 + b3.toNat / 128) (by omega)]
+                exact valToB32_valid ((b2.toNat % 16) * 2 + b3.toNat / 128) (by omega)
+              · rw [toByte_valToB32 ((b3.toNat / 4) % 32) (by omega)]
+                exact valToB32_valid ((b3.toNat / 4) % 32) (by omega)
+              · rw [toByte_valToB32 ((b3.toNat % 4) * 8) (by omega)]
+                exact valToB32_valid ((b3.toNat % 4) * 8) (by omega)
+            | cons _ _ => simp [encodeB32Tail] at he
+
+/-- The whole-input `encodeB32` output decomposes into alphabet-only full
+blocks plus a single RFC-arity padded tail.  `[propext, Quot.sound]`-only. -/
+theorem encodeB32_canonical (bs : List UInt8) {n : Nat} {s : Bytes n}
+    (he : encodeB32 bs = some ⟨n, s⟩) :
+    ∃ (blocks : List (List UInt8)) (m₁ m₂ : Nat) (blkBytes : Bytes m₁) (tailBytes : Bytes m₂),
+      encodeRepeat b32BlockElem blocks = some ⟨m₁, blkBytes⟩ ∧
+      encodeB32Tail (b32Split_ofBytes (b32OfBytes bs)).2 = some ⟨m₂, tailBytes⟩ ∧
+      List.ofFn s = List.ofFn blkBytes ++ List.ofFn tailBytes ∧
+      (∀ b : UInt8, b ∈ List.ofFn blkBytes → b32Valid b.toNat = true) ∧
+      (List.ofFn tailBytes = [] ∨
+        (∃ c0 c1 : UInt8, List.ofFn tailBytes = [c0, c1, toByte 61, toByte 61, toByte 61, toByte 61, toByte 61, toByte 61] ∧ b32Valid c0.toNat = true ∧ b32Valid c1.toNat = true) ∨
+        (∃ c0 c1 c2 c3 : UInt8, List.ofFn tailBytes = [c0, c1, c2, c3, toByte 61, toByte 61, toByte 61, toByte 61] ∧ b32Valid c0.toNat = true ∧ b32Valid c1.toNat = true ∧ b32Valid c2.toNat = true ∧ b32Valid c3.toNat = true) ∨
+        (∃ c0 c1 c2 c3 c4 : UInt8, List.ofFn tailBytes = [c0, c1, c2, c3, c4, toByte 61, toByte 61, toByte 61] ∧ b32Valid c0.toNat = true ∧ b32Valid c1.toNat = true ∧ b32Valid c2.toNat = true ∧ b32Valid c3.toNat = true ∧ b32Valid c4.toNat = true) ∨
+        (∃ c0 c1 c2 c3 c4 c5 c6 : UInt8, List.ofFn tailBytes = [c0, c1, c2, c3, c4, c5, c6, toByte 61] ∧ b32Valid c0.toNat = true ∧ b32Valid c1.toNat = true ∧ b32Valid c2.toNat = true ∧ b32Valid c3.toNat = true ∧ b32Valid c4.toNat = true ∧ b32Valid c5.toNat = true ∧ b32Valid c6.toNat = true)) := by
+  let blocks := (b32Split_ofBytes (b32OfBytes bs)).1
+  let tail := (b32Split_ofBytes (b32OfBytes bs)).2
+  cases heb : encodeRepeat b32BlockElem blocks with
+  | none => unfold encodeB32 encodeB32' at he; simp [blocks, heb] at he
+  | some b =>
+      cases het : encodeB32Tail tail with
+      | none => unfold encodeB32 encodeB32' at he; simp [blocks, tail, heb, het] at he
+      | some t =>
+          rcases b with ⟨m₁, blkBytes⟩
+          rcases t with ⟨m₂, tailBytes⟩
+          have hpair : (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = ⟨n, s⟩ := by
+            have he' : some (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = some ⟨n, s⟩ := by
+              unfold encodeB32 encodeB32' at he
+              simpa [blocks, tail, heb, het] using he
+            exact Option.some.inj he'
+          cases hpair
+          refine ⟨blocks, m₁, m₂, blkBytes, tailBytes, ?_, ?_, ?_, ?_, ?_⟩
+          · simpa using heb
+          · rfl
+          · exact Codec.ofFn_concat blkBytes tailBytes
+          · intro b hb
+            rcases List.mem_iff_getElem.mp hb with ⟨i, hi, hi'⟩
+            have hchar : b32Char (blkBytes ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩) = true :=
+              encodeB32Block_nopad blocks (by simpa using heb) ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩
+            unfold b32Char at hchar
+            have hb_eq : b = blkBytes ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩ := by
+              exact ((List.getElem_ofFn hi).symm.trans hi').symm
+            rw [hb_eq]
+            exact hchar
+          · rcases b32TailBlock_canonical tail (by simpa using het) with h0 | h1 | h2 | h3 | h4
+            · left
+              rcases h0 with ⟨_, hm0⟩
+              subst m₂
+              subst tail
+              simp
+            · right; left
+              rcases h1 with ⟨b0, hb0, hm8, c0, c1, hofn, hc0, hc1⟩
+              subst m₂
+              refine ⟨c0, c1, ?_, ?_, ?_⟩
+              · simpa [tail] using hofn
+              · exact hc0
+              · exact hc1
+            · right; right; left
+              rcases h2 with ⟨b0, b1, hb0, hm8, c0, c1, c2, c3, hofn, hc0, hc1, hc2, hc3⟩
+              subst m₂
+              refine ⟨c0, c1, c2, c3, ?_, ?_, ?_, ?_, ?_⟩
+              · simpa [tail] using hofn
+              · exact hc0
+              · exact hc1
+              · exact hc2
+              · exact hc3
+            · right; right; right; left
+              rcases h3 with ⟨b0, b1, b2, hb0, hm8, c0, c1, c2, c3, c4, hofn, hc0, hc1, hc2, hc3, hc4⟩
+              subst m₂
+              refine ⟨c0, c1, c2, c3, c4, ?_, ?_, ?_, ?_, ?_, ?_⟩
+              · simpa [tail] using hofn
+              · exact hc0
+              · exact hc1
+              · exact hc2
+              · exact hc3
+              · exact hc4
+            · right; right; right; right
+              rcases h4 with ⟨b0, b1, b2, b3, hb0, hm8, c0, c1, c2, c3, c4, c5, c6, hofn, hc0, hc1, hc2, hc3, hc4, hc5, hc6⟩
+              subst m₂
+              refine ⟨c0, c1, c2, c3, c4, c5, c6, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+              · simpa [tail] using hofn
+              · exact hc0
+              · exact hc1
+              · exact hc2
+              · exact hc3
+              · exact hc4
+              · exact hc5
+              · exact hc6
+
 end BaseN.Base32

@@ -2084,4 +2084,185 @@ theorem decodeFullB64_reject_bad_length : decodeFullB64 zgTwo = none := by
           subst m
           omega
 
+/-! ## Conformance: canonical encoding (task 4.2, base64)
+
+The whole-input `encodeB64` output is canonical: alphabet-only full blocks
+followed by a single padded tail, whose pad is terminal and RFC-arity-correct
+(1-byte tail → `==`, 2-byte → `=`, 3-byte → none).  Stated as a decomposition
+over `List.ofFn` (no `Fin` index bookkeeping); the empty tail is reported as
+`List.ofFn tailBytes = []`.  `[propext, Quot.sound]`-only. -/
+
+/-- A tail encoding is either empty (length 0) or a single 4-byte padded block
+whose pad bytes are exactly the RFC tail (1 byte → `==`, 2 bytes → `=`).  The
+non-pad prefix is alphabet-only, the pad is terminal. -/
+theorem b64TailBlock_canonical (tail : List UInt8) {m : Nat} {t : Bytes m}
+    (he : encodeB64Tail tail = some ⟨m, t⟩) :
+    (tail = [] ∧ m = 0) ∨
+    (∃ b, tail = [b] ∧ m = 4 ∧ ∃ c0 c1 : UInt8,
+      List.ofFn t = [c0, c1, toByte 61, toByte 61] ∧
+      b64Valid c0.toNat = true ∧ b64Valid c1.toNat = true) ∨
+    (∃ b0 b1, tail = [b0, b1] ∧ m = 4 ∧ ∃ c0 c1 c2 : UInt8,
+      List.ofFn t = [c0, c1, c2, toByte 61] ∧
+      b64Valid c0.toNat = true ∧ b64Valid c1.toNat = true ∧ b64Valid c2.toNat = true) := by
+  cases tail with
+  | nil =>
+      have hs : (⟨0, (Codec.emptyBytes : Bytes 0)⟩ : Sigma fun k => Bytes k) = ⟨m, t⟩ := by
+        simpa [encodeB64Tail] using he
+      cases hs
+      left
+      simp
+  | cons b t1 =>
+      cases t1 with
+      | nil =>
+          have henc : Codec.encode b64TailElem [b] = some ⟨m, t⟩ := by simpa [encodeB64Tail] using he
+          have hrel : Rel b64TailElem [b] t := encode_rel b64TailElem [b] henc
+          have hm4 : m = 4 := Rel_b64TailElem_len [b] t hrel
+          subst m
+          right; left
+          refine ⟨b, rfl, rfl, ?_⟩
+          unfold b64TailElem at hrel
+          rw [Rel_iso] at hrel
+          rcases hrel with ⟨a, ha, hr⟩
+          have hofn : List.ofFn t = a := Rel_count_satisfy_ofFn b64OrPad 4 a t hr
+          unfold b64TailIso at ha
+          change b64TailApply a = some [b] at ha
+          unfold b64TailApply at ha
+          cases hb : b64BlockApply a with
+          | none => simp [hb] at ha
+          | some bl =>
+            cases bl with
+            | nil => simp [hb] at ha
+            | cons x bl1 =>
+              cases bl1 with
+              | nil =>
+                have hun : b64BlockUnapply [x] = some a := (b64BlockIso_law a [x]).1 (by simpa using hb)
+                simp [b64BlockUnapply] at hun
+                have ha' : a = [toByte (valToB64 (x.toNat / 4)), toByte (valToB64 ((x.toNat % 4) * 16)), toByte 61, toByte 61] := hun.symm
+                have hx : x.toNat < 256 := UInt8.toNat_lt x
+                refine ⟨toByte (valToB64 (x.toNat / 4)), toByte (valToB64 ((x.toNat % 4) * 16)), ?_, ?_, ?_⟩
+                · rw [hofn]; exact ha'
+                · rw [toByte_valToB64 (x.toNat / 4) (by omega)]
+                  exact valToB64_valid (x.toNat / 4) (by omega)
+                · rw [toByte_valToB64 ((x.toNat % 4) * 16) (by omega)]
+                  exact valToB64_valid ((x.toNat % 4) * 16) (by omega)
+              | cons b2 bl2 =>
+                cases bl2 with
+                | nil => simp [hb] at ha
+                | cons _ _ => simp [hb] at ha
+      | cons b1 t2 =>
+          cases t2 with
+          | nil =>
+            have henc : Codec.encode b64TailElem [b, b1] = some ⟨m, t⟩ := by simpa [encodeB64Tail] using he
+            have hrel : Rel b64TailElem [b, b1] t := encode_rel b64TailElem [b, b1] henc
+            have hm4 : m = 4 := Rel_b64TailElem_len [b, b1] t hrel
+            subst m
+            right; right
+            refine ⟨b, b1, rfl, rfl, ?_⟩
+            unfold b64TailElem at hrel
+            rw [Rel_iso] at hrel
+            rcases hrel with ⟨a, ha, hr⟩
+            have hofn : List.ofFn t = a := Rel_count_satisfy_ofFn b64OrPad 4 a t hr
+            unfold b64TailIso at ha
+            change b64TailApply a = some [b, b1] at ha
+            unfold b64TailApply at ha
+            cases hb : b64BlockApply a with
+            | none => simp [hb] at ha
+            | some bl =>
+              cases bl with
+              | nil => simp [hb] at ha
+              | cons x bl1 =>
+                cases bl1 with
+                | nil => simp [hb] at ha
+                | cons y bl2 =>
+                  cases bl2 with
+                  | nil =>
+                    have hun : b64BlockUnapply [x, y] = some a := (b64BlockIso_law a [x, y]).1 (by simpa using hb)
+                    simp [b64BlockUnapply] at hun
+                    have ha' : a = [toByte (valToB64 (x.toNat / 4)), toByte (valToB64 ((x.toNat % 4) * 16 + y.toNat / 16)), toByte (valToB64 ((y.toNat % 16) * 4)), toByte 61] := hun.symm
+                    have hx : x.toNat < 256 := UInt8.toNat_lt x
+                    have hy : y.toNat < 256 := UInt8.toNat_lt y
+                    refine ⟨toByte (valToB64 (x.toNat / 4)), toByte (valToB64 ((x.toNat % 4) * 16 + y.toNat / 16)), toByte (valToB64 ((y.toNat % 16) * 4)), ?_, ?_, ?_, ?_⟩
+                    · rw [hofn]; exact ha'
+                    · rw [toByte_valToB64 (x.toNat / 4) (by omega)]
+                      exact valToB64_valid (x.toNat / 4) (by omega)
+                    · rw [toByte_valToB64 ((x.toNat % 4) * 16 + y.toNat / 16) (by omega)]
+                      exact valToB64_valid ((x.toNat % 4) * 16 + y.toNat / 16) (by omega)
+                    · rw [toByte_valToB64 ((y.toNat % 16) * 4) (by omega)]
+                      exact valToB64_valid ((y.toNat % 16) * 4) (by omega)
+                  | cons _ _ => simp [hb] at ha
+          | cons _ _ => simp [encodeB64Tail] at he
+
+/-- `List.ofFn` lifts `b64Char` pointwise to list membership. -/
+private theorem ofFn_mem_b64Char {m : Nat} (s : Bytes m)
+    (h : ∀ i : Fin m, b64Char (s i) = true) :
+    ∀ b : UInt8, b ∈ List.ofFn s → b64Valid b.toNat = true := by
+  intro b hb
+  rcases List.mem_iff_getElem.mp hb with ⟨i, hi, hi'⟩
+  have hchar : b64Char (s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩) = true :=
+    h ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩
+  unfold b64Char at hchar
+  have hb_eq : b = s ⟨i, Nat.lt_of_lt_of_eq hi List.length_ofFn⟩ := by
+    exact ((List.getElem_ofFn hi).symm.trans hi').symm
+  rw [hb_eq]
+  exact hchar
+
+/-- The whole-input `encodeB64` output decomposes into alphabet-only full
+blocks plus a single RFC-arity padded tail (empty, `[·,·,=,=]`, or `[·,·,·,=]`),
+so the output is canonical: alphabet-or-pad, with terminal, arity-correct `=`.
+`[propext, Quot.sound]`-only. -/
+theorem encodeB64_canonical (bs : List UInt8) {n : Nat} {s : Bytes n}
+    (he : encodeB64 bs = some ⟨n, s⟩) :
+    ∃ (blocks : List (List UInt8)) (m₁ m₂ : Nat) (blkBytes : Bytes m₁) (tailBytes : Bytes m₂),
+      encodeRepeat b64BlockElem blocks = some ⟨m₁, blkBytes⟩ ∧
+      encodeB64Tail (b64Split_ofBytes (b64OfBytes bs)).2 = some ⟨m₂, tailBytes⟩ ∧
+      List.ofFn s = List.ofFn blkBytes ++ List.ofFn tailBytes ∧
+      (∀ b : UInt8, b ∈ List.ofFn blkBytes → b64Valid b.toNat = true) ∧
+      (List.ofFn tailBytes = [] ∨
+        (∃ c0 c1 : UInt8, List.ofFn tailBytes = [c0, c1, toByte 61, toByte 61] ∧
+          b64Valid c0.toNat = true ∧ b64Valid c1.toNat = true) ∨
+        (∃ c0 c1 c2 : UInt8, List.ofFn tailBytes = [c0, c1, c2, toByte 61] ∧
+          b64Valid c0.toNat = true ∧ b64Valid c1.toNat = true ∧ b64Valid c2.toNat = true)) := by
+  let blocks := (b64Split_ofBytes (b64OfBytes bs)).1
+  let tail := (b64Split_ofBytes (b64OfBytes bs)).2
+  cases heb : encodeRepeat b64BlockElem blocks with
+  | none => unfold encodeB64 encodeB64' at he; simp [blocks, heb] at he
+  | some b =>
+      cases het : encodeB64Tail tail with
+      | none => unfold encodeB64 encodeB64' at he; simp [blocks, tail, heb, het] at he
+      | some t =>
+          rcases b with ⟨m₁, blkBytes⟩
+          rcases t with ⟨m₂, tailBytes⟩
+          have hpair : (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = ⟨n, s⟩ := by
+            have he' : some (⟨m₁ + m₂, Codec.concat blkBytes tailBytes⟩ : Sigma fun k => Bytes k) = some ⟨n, s⟩ := by
+              unfold encodeB64 encodeB64' at he
+              simpa [blocks, tail, heb, het] using he
+            exact Option.some.inj he'
+          cases hpair
+          refine ⟨blocks, m₁, m₂, blkBytes, tailBytes, ?_, ?_, ?_, ?_, ?_⟩
+          · simpa using heb
+          · simpa [tail] using het
+          · exact Codec.ofFn_concat blkBytes tailBytes
+          · exact ofFn_mem_b64Char blkBytes (encodeB64Block_nopad blocks (by simpa using heb))
+          · rcases b64TailBlock_canonical tail (by simpa using het) with h0 | h1 | h2
+            · left
+              rcases h0 with ⟨_, hm0⟩
+              subst m₂
+              subst tail
+              simpa [Codec.emptyBytes] using (show List.ofFn (Codec.emptyBytes : Bytes 0) = [] by rfl)
+            · right; left
+              rcases h1 with ⟨b0, hb0, hm4, c0, c1, hofn, hc0, hc1⟩
+              subst m₂
+              refine ⟨c0, c1, ?_, ?_, ?_⟩
+              · simpa [tail] using hofn
+              · exact hc0
+              · exact hc1
+            · right; right
+              rcases h2 with ⟨b0, b1, hb0, hm4, c0, c1, c2, hofn, hc0, hc1, hc2⟩
+              subst m₂
+              refine ⟨c0, c1, c2, ?_, ?_, ?_, ?_⟩
+              · simpa [tail] using hofn
+              · exact hc0
+              · exact hc1
+              · exact hc2
+
 end BaseN.Base64
