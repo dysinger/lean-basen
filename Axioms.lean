@@ -272,3 +272,18 @@ padded bases' proofs go through. All `[propext, Quot.sound]`-only. -/
 /-- info: 'BaseN.Common.count_satisfy_encode_ne_none' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Common.count_satisfy_encode_ne_none
+
+/-! ## Unique canonical inverse (task 6.3)
+
+`decodeFullB{64,32}_char` states the "decode is the unique canonical inverse"
+requirement as one proposition: `decode s = some v ↔ ∃ v', encode v' = some ⟨n,s⟩
+∧ v = v'`. Pure assembly over `decodeFullB*_conv` (→) and `decodeFullB*_roundtrip`
+(←). `[propext, Quot.sound]`-only. -/
+
+/-- info: 'BaseN.Base64.decodeFullB64_char' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.decodeFullB64_char
+
+/-- info: 'BaseN.Base32.decodeFullB32_char' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_char

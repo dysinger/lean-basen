@@ -3222,4 +3222,27 @@ theorem encodeB32_injective_eq {v v' : List UInt8} (h : encodeB32 v = encodeB32 
       have hv' : encodeB32 v' = some ⟨n, s⟩ := by rw [← h]; exact hv
       exact encodeB32_injective hv hv'
 
+/-! ## The "unique canonical inverse" law (task 6.3)
+
+Base32 mirror of the base64 section: the single proposition the roundtrip +
+converse + injectivity trio jointly amounts to, i.e. **the decoder succeeds
+exactly on the encoder's image**:
+
+  `decodeFullB32 s = some v  ↔  ∃ v', encodeB32 v' = some ⟨n, s⟩ ∧ v = v'`
+
+`→` is `decodeFullB32_conv`, `←` is `decodeFullB32_roundtrip`.
+`[propext, Quot.sound]`-only. -/
+
+/-- **Base32: decode succeeds iff `s` is in `encodeB32`'s image, at that value.**
+`decodeFullB32 s = some v ↔ ∃ v', encodeB32 v' = some ⟨n, s⟩ ∧ v = v'`.
+`[propext, Quot.sound]`-only. -/
+theorem decodeFullB32_char {n : Nat} (s : Bytes n) (v : List UInt8) :
+    decodeFullB32 s = some v ↔ ∃ v', encodeB32 v' = some ⟨n, s⟩ ∧ v = v' := by
+  constructor
+  · intro h
+    exact ⟨v, decodeFullB32_conv s v h, rfl⟩
+  · rintro ⟨w, he, hv⟩
+    rw [hv]
+    exact decodeFullB32_roundtrip w he
+
 end BaseN.Base32

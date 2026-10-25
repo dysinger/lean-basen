@@ -392,6 +392,17 @@ example (h : Base32.decodeFullB32 myEqEq = some f) :
     Base32.encodeB32 f = some ⟨8, myEqEq⟩ :=
   Base32.decodeFullB32_conv myEqEq f h
 
+-- Unique canonical inverse: decode succeeds iff the input is in `encode`'s image,
+-- at that value (task 6.3). Both directions exercised at a canonical vector.
+
+example : Base64.decodeFullB64 zgEqEq = some f ↔
+    ∃ w, Base64.encodeB64 w = some ⟨4, zgEqEq⟩ ∧ f = w :=
+  Base64.decodeFullB64_char zgEqEq f
+
+example : Base32.decodeFullB32 myEqEq = some f ↔
+    ∃ w, Base32.encodeB32 w = some ⟨8, myEqEq⟩ ∧ f = w :=
+  Base32.decodeFullB32_char myEqEq f
+
 -- Injectivity, in the spec's plain `Option`-equality form
 -- (`encode{X} v = encode{X} v' → v = v'`, task 6.2). Covered for all seven bases.
 

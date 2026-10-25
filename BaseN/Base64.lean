@@ -2766,4 +2766,38 @@ theorem encodeB64_injective_eq {v v' : List UInt8} (h : encodeB64 v = encodeB64 
       have hv' : encodeB64 v' = some ⟨n, s⟩ := by rw [← h]; exact hv
       exact encodeB64_injective hv hv'
 
+/-! ## The "unique canonical inverse" law (task 6.3)
+
+The requirement is titled "Decode is the unique canonical inverse", but the
+delivered laws were roundtrip + converse + injectivity as three separate
+statements. This section states the single law they jointly amount to:
+
+  `decodeFullB64 s = some v  ↔  ∃ v', encodeB64 v' = some ⟨n, s⟩ ∧ v = v'`
+
+i.e. **the decoder succeeds exactly on the encoder's image**, and the value it
+yields is the one that encoder produced. That is what the proposal's "decode
+succeeds exactly on the RFC-valid inputs" means, and it is the "unique canonical
+inverse" claim in one proposition.
+
+The two halves are the laws already proved: `→` is `decodeFullB64_conv` (a
+successful decode re-encodes to the input) and `←` is `decodeFullB64_roundtrip`
+(the encoder's output decodes back to what it encoded). Nothing new is needed
+beyond the `Option`/`Sigma` plumbing, so this is pure assembly.
+`[propext, Quot.sound]`-only. -/
+
+/-- **Base64: decode succeeds iff `s` is in `encodeB64`'s image, at that value.**
+`decodeFullB64 s = some v ↔ ∃ v', encodeB64 v' = some ⟨n, s⟩ ∧ v = v'`.
+
+This is the "unique canonical inverse" characterization: the decoder accepts a
+byte string exactly when it is a canonical encoding, and then returns the unique
+value that encodes to it. `[propext, Quot.sound]`-only. -/
+theorem decodeFullB64_char {n : Nat} (s : Bytes n) (v : List UInt8) :
+    decodeFullB64 s = some v ↔ ∃ v', encodeB64 v' = some ⟨n, s⟩ ∧ v = v' := by
+  constructor
+  · intro h
+    exact ⟨v, decodeFullB64_conv s v h, rfl⟩
+  · rintro ⟨w, he, hv⟩
+    rw [hv]
+    exact decodeFullB64_roundtrip w he
+
 end BaseN.Base64
