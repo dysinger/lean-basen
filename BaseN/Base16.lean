@@ -8,11 +8,17 @@ RFC 4648 §8 hex encoding, expressed as a `codec` `Codec (List UInt8)` value.
 
 The canonical alphabet is **uppercase** `0-9A-F` (the RFC's recommended form).
 For the `Codec` value the digit relation is a **strict bijection** over the 16
-uppercase digits (`hexToNibble` accepts exactly `0-9A-F`), so the `iso` law and
-`Unambiguous` hold cleanly; a lowercase-accepting *decoder* is a decode-only
-convenience that cannot be a strict `Iso` (it is intentionally not part of this
-`Codec` value).  Two hex digits span `0..255` exactly, so decoding needs no
-overflow check.
+uppercase digits (`hexToNibble` accepts exactly `0-9A-F`), so the `iso` law and `Unambiguous` hold
+cleanly.
+
+RFC 4648 §8 requires a decoder to accept **both** cases. That is provided — not by
+weakening the `Codec` value, but by `codec`'s information-free-variation layer
+(`Codec.Normal`): see `foldByte`/`foldList`, the normal-form `Iso` `hexBlockIsoF`,
+and the case-insensitive decoders `decodeHexBlockFold`/`decodeHexFold` below. The
+variation is a quotient of the concrete syntax, folded **up** so the canonical
+uppercase encoding is a fixed point. Encoding stays canonical (uppercase only).
+
+Two hex digits span `0..255` exactly, so decoding needs no overflow check.
 
 The element is `hexElem : Codec UInt8 := iso hexBlockIso (count 2 (satisfy hexDigit))`;
 the unbounded run is the productive repetition triple `relHex`/`decodeHex`/
@@ -41,6 +47,18 @@ def hexToNibble (e : Nat) : Nat :=
 
 /-- `hexNibbleValid e` — `true` iff `e` is an uppercase hex digit. -/
 def hexNibbleValid (e : Nat) : Bool := decide (hexToNibble e ≤ 15)
+
+/-- On a decimal-digit byte, `hexToNibble` is `e - 48`. -/
+theorem hexToNibble_digit (e : Nat) (h1 : 48 ≤ e) (h2 : e ≤ 57) :
+    hexToNibble e = e - 48 := by
+  unfold hexToNibble
+  rw [if_pos h2, if_pos h1]
+
+/-- On an uppercase letter byte, `hexToNibble` is `e - 55`. -/
+theorem hexToNibble_upper (e : Nat) (h1 : 65 ≤ e) (h2 : e ≤ 70) :
+    hexToNibble e = e - 55 := by
+  unfold hexToNibble
+  rw [if_neg (by omega : ¬ e ≤ 57), if_pos (by omega : e ≤ 70), if_pos h1]
 
 /-- `toByte n` — the `UInt8` embedding. -/
 def toByte (n : Nat) : UInt8 := UInt8.ofNat n
@@ -510,16 +528,19 @@ theorem rejects_invalid_byte (bad : UInt8) (hbad : hexDigit bad = false) :
       rw [hbad] at h0
       simp at h0
 
-/-- Rejection: the lowercase letter `f` (`0x66`, a **single byte**, not the
-two-character string `"6f"`) is not accepted by the strict uppercase bijection.
+/-- The **strict canonical** decoder rejects a lowercase byte — as it must, since
+`hexElem` is the uppercase-only bijection. This is *not* an RFC 4648 §8 divergence:
+§8's MUST is satisfied by the case-insensitive decoder `decodeHexFold`, which is
+`foldList` composed **outside** the strict `Iso` (`Codec.Normal.decodeNormal`).
 
-**This is a recorded RFC 4648 §8 divergence, not a conformance win.** RFC 4648 §8
-says "a decoder MAY… MUST accept both cases" for base16; `basen`'s base16 is
-uppercase-only because the block `Iso` is a strict bijection and a
-case-insensitive alphabet would break `Unambiguous`.  This theorem pins that
-deliberate non-conformance so the divergence is visible in the proof surface;
-it is stated here rather than in the bench so the bench never asserts a
-non-conformance as a passing vector. -/
+The earlier rationale for this theorem — "a case-insensitive alphabet would break
+`Unambiguous`" — was **false** and is withdrawn: `Unambiguous` says one input yields
+at most one value, and folding case is a total function. The real constraint is the
+**canonicality of encode**, which holds: `encodeHex` emits uppercase only.
+
+`1`-byte spelling caveat: `0x66` here is a single byte (`'f'`), not the two-byte
+string `"6f"`; the strict decoder rejects it because a single hex digit is
+odd-arity. See `decodeHexFold_lowercase_eq` for the two-byte both-cases law. -/
 theorem rejects_lowercase :
     decodeFull hexElem hexConsumesByte 1 (fun _ => 0x66) = none := by
   exact rejects_invalid_byte (0x66 : UInt8) (by decide)
@@ -548,5 +569,503 @@ theorem rejects_odd_arity :
           rcases hrels with ⟨m, hm, s₁, s₂, _, hx, _⟩
           have hlen : m = 2 := Rel_hexElem_len x s₁ hx
           omega
+
+/-! ## RFC 4648 §8 — case-insensitive decoding as a normal form
+
+RFC 4648 §8 requires a Base16 **decoder** to accept both cases (`6F` and `6f`),
+because the case of a hex digit carries no information. The `Codec` value above
+cannot: `hexBlockApply` is a strict uppercase bijection, so lowercase is rejected.
+
+The fix is `codec`'s information-free-variation layer (`Codec.Normal`): the
+variation is a **quotient of the concrete syntax**, reified as the type of
+`norm`'s fixed points, so the bijection stays an ordinary `Iso` and `Iso.law` is
+not weakened. Concretely:
+
+* `foldByte` folds `a`–`f` **up** to `A`–`F` and is the identity elsewhere;
+* `foldByte_idem` makes `Normalizer (List UInt8) foldList` a value;
+* `hexBlockIsoF : Iso UInt8 (Normal (List UInt8) foldList)` is the canonical
+  bijection, whose `unapply` folds *before* applying `hexBlockApply` (a class with
+  a lowercase representative must still apply);
+* `decodeHexFold` is `decodeNormal`, i.e. `foldList` composed **outside** the
+  `Iso` — not an `Iso`, no inverse, deliberately accepting input the strict `Iso`
+  rejects.
+
+**The direction matters.** The canonical alphabet is uppercase, so the encoder's
+output must be a *fixed point* of `foldList`; that is exactly `decodeNormal_encode`'s
+`hfix` obligation, discharged by `encodeHex_fold_fixed` below. Folding *down*
+instead would make the encoder's own output a non-fixed point and the normalising
+decoder would fail on it.
+-/
+
+/-- The fold's fixed points: a digit or an **uppercase** `A`–`F`. These are exactly
+the bytes `foldByte` leaves alone, so they are the normal forms of the quotient. -/
+def hexFixed (b : UInt8) : Bool :=
+  decide ((48 ≤ b.toNat ∧ b.toNat ≤ 57) ∨ (65 ≤ b.toNat ∧ b.toNat ≤ 70))
+
+/-- **The ASCII case fold**, `a`–`f` → `A`–`F`, identity elsewhere.
+
+Folding **up** is what makes the canonical (uppercase) encoding a fixed point —
+see the section docstring. -/
+def foldByte (b : UInt8) : UInt8 :=
+  if hexFixed b then b
+  else if 97 ≤ b.toNat ∧ b.toNat ≤ 102 then UInt8.ofNat (b.toNat - 32)
+  else b
+
+/-- `foldByte` leaves its own output alone. -/
+theorem foldByte_fixed (b : UInt8) (h : hexFixed b = true) : foldByte b = b := by
+  simp only [foldByte, h, ite_true]
+
+/-- The lowercase branch, as an equation. -/
+theorem foldByte_folded (b : UInt8) (hf : hexFixed b = false)
+    (hl : 97 ≤ b.toNat ∧ b.toNat ≤ 102) :
+    foldByte b = UInt8.ofNat (b.toNat - 32) := by
+  simp only [foldByte, hf, Bool.false_eq_true, ite_false, hl]
+  rw [if_pos (by decide)]
+
+/-- `(UInt8.ofNat (n - 32)).toNat = n - 32` for a lowercase letter's value. -/
+theorem ofNat_sub32_toNat (b : UInt8) (h1 : 97 ≤ b.toNat) (h2 : b.toNat ≤ 102) :
+    (UInt8.ofNat (b.toNat - 32)).toNat = b.toNat - 32 := by
+  have hbv : b.toNat < 256 := UInt8.toNat_lt b
+  rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (by omega)]
+
+/-- **`foldByte` is idempotent** — the one law `Normalizer` is owed. -/
+theorem foldByte_idem (b : UInt8) : foldByte (foldByte b) = foldByte b := by
+  by_cases hf : hexFixed b = true
+  · rw [foldByte_fixed b hf, foldByte_fixed b hf]
+  · by_cases hl : 97 ≤ b.toNat ∧ b.toNat ≤ 102
+    · rw [foldByte_folded b (by simpa using hf) hl]
+      apply foldByte_fixed
+      have h1 := ofNat_sub32_toNat b hl.1 hl.2
+      unfold hexFixed
+      rw [h1]
+      exact decide_eq_true (Or.inr ⟨by omega, by omega⟩)
+    · have hf' : hexFixed b = false := by simpa using hf
+      simp only [foldByte, hf', Bool.false_eq_true, ite_false, hl, ite_false]
+
+/-- The fold, lifted to a byte list. -/
+def foldList (cs : List UInt8) : List UInt8 := cs.map foldByte
+
+@[simp]
+theorem foldList_nil : foldList [] = [] := rfl
+
+@[simp]
+theorem foldList_cons (c : UInt8) (cs : List UInt8) :
+    foldList (c :: cs) = foldByte c :: foldList cs := rfl
+
+/-- **`foldList` is idempotent.** -/
+theorem foldList_idem (cs : List UInt8) : foldList (foldList cs) = foldList cs := by
+  induction cs with
+  | nil => rfl
+  | cons c cs ih => simp only [foldList_cons, foldByte_idem c, ih]
+
+/-- The normalizer value the layer is instantiated at. -/
+theorem foldNormalizer : Normalizer (List UInt8) foldList :=
+  { idem := foldList_idem }
+
+/-! ### The three-way digit lemma
+
+`hexToNibble (foldByte b).toNat = hexToNibble b.toNat` is **false as one
+equation**: off the alphabet the fold returns a non-digit unchanged while the
+original is also non-digit — but for lowercase the original's nibble is `16`
+("invalid") while the folded one is the real nibble. So the honest statement is
+three-way; `hexToNibble_foldByte` gives the value form the block law needs. -/
+
+/-- On a lowercase byte, `hexToNibble` is `16` (invalid). -/
+theorem hexToNibble_lower (e : Nat) (h1 : 97 ≤ e) (h2 : e ≤ 102) :
+    hexToNibble e = 16 := by
+  unfold hexToNibble
+  rw [if_neg (by omega : ¬ e ≤ 57), if_neg (by omega : ¬ e ≤ 70)]
+
+/-- A lowercase byte is **not** a valid (uppercase) hex digit. -/
+theorem hexNibbleValid_false_of_lower (b : UInt8) (hl : 97 ≤ b.toNat ∧ b.toNat ≤ 102) :
+    hexNibbleValid b.toNat = false := by
+  by_cases hv : hexNibbleValid b.toNat = true
+  · exfalso
+    unfold hexNibbleValid at hv
+    rw [decide_eq_true_iff, hexToNibble_lower b.toNat hl.1 hl.2] at hv
+    omega
+  · simpa using hv
+
+/-- **`foldByte`'s validity is the hex-char domain**: a byte becomes a valid
+uppercase digit after folding exactly when it was a digit or an `a`–`f`
+lowercase letter. -/
+theorem hexNibbleValid_foldByte (b : UInt8) :
+    hexNibbleValid (foldByte b).toNat =
+      (hexNibbleValid b.toNat || decide (97 ≤ b.toNat && b.toNat ≤ 102)) := by
+  by_cases hf : hexFixed b = true
+  · rw [foldByte_fixed b hf]
+    unfold hexFixed at hf
+    rw [decide_eq_true_iff] at hf
+    rcases hf with ⟨a, c⟩ | ⟨a, c⟩
+    · have h1 : hexNibbleValid b.toNat = true := by
+        unfold hexNibbleValid
+        rw [hexToNibble_digit _ a c]
+        exact decide_eq_true (by omega)
+      have h2 : decide (97 ≤ b.toNat && b.toNat ≤ 102) = false := by
+        rw [decide_eq_false_iff_not]
+        simp only [Bool.and_eq_true, decide_eq_true_iff]
+        omega
+      rw [h1, h2]
+      rfl
+    · have h1 : hexNibbleValid b.toNat = true := by
+        unfold hexNibbleValid
+        rw [hexToNibble_upper _ a c]
+        exact decide_eq_true (by omega)
+      have h2 : decide (97 ≤ b.toNat && b.toNat ≤ 102) = false := by
+        rw [decide_eq_false_iff_not]
+        simp only [Bool.and_eq_true, decide_eq_true_iff]
+        omega
+      rw [h1, h2]
+      rfl
+  · have hf' : hexFixed b = false := by simpa using hf
+    by_cases hl : 97 ≤ b.toNat ∧ b.toNat ≤ 102
+    · rw [foldByte_folded b hf' hl, ofNat_sub32_toNat b hl.1 hl.2]
+      have hv' : hexNibbleValid (b.toNat - 32) = true := by
+        unfold hexNibbleValid
+        rw [hexToNibble_upper _ (by omega) (by omega)]
+        exact decide_eq_true (by omega)
+      have h0 : hexNibbleValid b.toNat = false := hexNibbleValid_false_of_lower b hl
+      have hd : decide (97 ≤ b.toNat && b.toNat ≤ 102) = true := by
+        rw [decide_eq_true_iff]
+        simp only [Bool.and_eq_true, decide_eq_true_iff]
+        omega
+      rw [hv', h0, hd]
+      rfl
+    · have hfb : foldByte b = b := by
+        rw [foldByte, if_neg hf, if_neg hl]
+      rw [hfb]
+      have hd : decide (97 ≤ b.toNat && b.toNat ≤ 102) = false := by
+        rw [decide_eq_false_iff_not]
+        simp only [Bool.and_eq_true, decide_eq_true_iff]
+        omega
+      rw [hd, Bool.or_false]
+
+/-- On a valid digit (or a lowercase letter), folding either leaves the nibble
+alone or produces the letter's nibble — stated **without** a `match` in the goal,
+to avoid the dependent-match `Classical.choice` leak. Case `true`: the fold is an
+identity on the digit, so the nibles agree. -/
+theorem hexToNibble_foldByte_true (b : UInt8) (hv : hexNibbleValid b.toNat = true) :
+    hexToNibble (foldByte b).toNat = hexToNibble b.toNat := by
+  have hfx : hexFixed b = true := by
+    rw [hexNibbleValid, decide_eq_true_iff] at hv
+    unfold hexToNibble at hv
+    unfold hexFixed
+    by_cases h57 : b.toNat ≤ 57
+    · rw [if_pos h57] at hv
+      by_cases h48 : 48 ≤ b.toNat
+      · exact decide_eq_true (Or.inl ⟨h48, h57⟩)
+      · rw [if_neg h48] at hv; omega
+    · rw [if_neg h57] at hv
+      by_cases h70 : b.toNat ≤ 70
+      · rw [if_pos h70] at hv
+        by_cases h65 : 65 ≤ b.toNat
+        · exact decide_eq_true (Or.inr ⟨h65, h70⟩)
+        · rw [if_neg h65] at hv; omega
+      · rw [if_neg h70] at hv; omega
+  rw [foldByte_fixed b hfx]
+
+/-- Case `false`: a lowercase letter. The original nibble is "invalid" (`16`) and
+the folded one is the uppercase nibble `b - 87`. -/
+theorem hexToNibble_foldByte_false (b : UInt8) (hl : 97 ≤ b.toNat ∧ b.toNat ≤ 102) :
+    hexToNibble (foldByte b).toNat = b.toNat - 87 := by
+  have hfx : hexFixed b = false := by
+    show decide ((48 ≤ b.toNat ∧ b.toNat ≤ 57) ∨ (65 ≤ b.toNat ∧ b.toNat ≤ 70)) = false
+    exact decide_eq_false (by omega)
+  rw [foldByte_folded b hfx hl, ofNat_sub32_toNat b hl.1 hl.2,
+      hexToNibble_upper _ (by omega) (by omega)]
+  omega
+
+/-- **The three-way lemma**, in the two-branch form the block law consumes: on a
+valid digit the nibble is unchanged (above), on a lowercase letter it becomes the
+uppercase nibble (above). Stated as a `match` here for use at the call site. -/
+theorem hexToNibble_foldByte_value (b : UInt8)
+    (h : hexNibbleValid b.toNat = true ∨ 97 ≤ b.toNat ∧ b.toNat ≤ 102) :
+    hexToNibble (foldByte b).toNat =
+      if hexNibbleValid b.toNat = true then hexToNibble b.toNat else b.toNat - 87 := by
+  by_cases hv : hexNibbleValid b.toNat = true
+  · rw [hexToNibble_foldByte_true b hv, if_pos hv]
+  · rcases h with hv' | hl
+    · exact absurd hv' hv
+    · rw [hexToNibble_foldByte_false b hl]
+      have hv' : hexNibbleValid b.toNat = false := by simpa using hv
+      rw [if_neg hv]
+
+/-- `hexBlockApply` is `none` off a two-element block. -/
+theorem hexBlockApply_none_of_not_len2 {cs : List UInt8} (h : cs.length ≠ 2) :
+    hexBlockApply cs = none := by
+  match cs, h with
+  | [], _ => rfl
+  | [_], _ => rfl
+  | [_, _, _], _ => rfl
+  | _ :: _ :: a :: b, _ => rfl
+
+/-- **The fold preserves acceptance.** A block the strict uppercase `apply` accepts
+is still accepted, with the same byte, after folding.
+
+The *equality* form `hexBlockApply (foldList cs) = hexBlockApply cs` is **false** —
+the fold is exactly what makes `['6','f']` acceptable — so the law that the
+normal-form `Iso` needs is this one-directional preservation, not an identity. -/
+theorem hexBlockApply_foldList {cs : List UInt8} {b : UInt8}
+    (h : hexBlockApply cs = some b) : hexBlockApply (foldList cs) = some b := by
+  match cs with
+  | [hi, lo] =>
+      have hv : (hexNibbleValid hi.toNat && hexNibbleValid lo.toNat) = true := by
+        by_cases hc : (hexNibbleValid hi.toNat && hexNibbleValid lo.toNat) = true
+        · exact hc
+        · simp only [hexBlockApply] at h
+          rw [if_neg (by simpa using hc)] at h
+          exact absurd h (by simp)
+      have hv' : hexNibbleValid hi.toNat = true ∧ hexNibbleValid lo.toNat = true := by
+        simpa using hv
+      have hfv1 : hexNibbleValid (foldByte hi).toNat = true := by
+        rw [hexNibbleValid_foldByte, hv'.1]
+        rfl
+      have hfv2 : hexNibbleValid (foldByte lo).toNat = true := by
+        rw [hexNibbleValid_foldByte, hv'.2]
+        rfl
+      have hb2 : (hexNibbleValid (foldByte hi).toNat && hexNibbleValid (foldByte lo).toNat) = true := by
+        rw [hfv1, hfv2]
+        rfl
+      have e1 := hexToNibble_foldByte_value hi (Or.inl hv'.1)
+      have e2 := hexToNibble_foldByte_value lo (Or.inl hv'.2)
+      simp only [hexBlockApply, foldList_cons, foldList_nil, hb2, if_true,
+        e1, e2, hv'.1, hv'.2] at h ⊢
+      exact h
+  | [] => simp only [hexBlockApply] at h; exact absurd h (by simp)
+  | [_] => simp only [hexBlockApply] at h; exact absurd h (by simp)
+  | _ :: _ :: _ :: _ => simp only [hexBlockApply] at h; exact absurd h (by simp)
+
+/-- **The refutation.** The equality form of the commutation is false: a lowercase
+block is rejected by the strict `apply` yet accepted after folding — precisely the
+RFC 4648 §8 widening this layer exists to provide. -/
+theorem hexBlockApply_foldList_ne :
+    ¬ (∀ (cs : List UInt8), hexBlockApply (foldList cs) = hexBlockApply cs) := by
+  intro hall
+  have h := hall [0x36, 0x66]
+  rw [show hexBlockApply [0x36, 0x66] = none from rfl,
+      show hexBlockApply (foldList [0x36, 0x66]) = some 0x6F from rfl] at h
+  exact absurd h.symm (by simp)
+
+
+/-! ### The normal-form block `Iso` and its law
+
+`hexBlockIsoF` is an **ordinary `Iso`** into the quotient `Normal (List UInt8) foldList`:
+its `unapply` **folds first**, then writes the uppercase block, so a class whose
+representative is lowercase still applies. `Iso.law` is untouched. -/
+
+/-- `unapply` on normal forms: fold, then emit the canonical uppercase block. -/
+def hexBlockApplyF (b : UInt8) : Option (Normal (List UInt8) foldList) :=
+  match hexBlockUnapply b with
+  | some cs => some (fill foldNormalizer cs)
+  | none => none
+
+/-- `apply` on normal forms: read the block (a normal form is a concrete byte list). -/
+def hexBlockUnapplyF (f : Normal (List UInt8) foldList) : Option UInt8 :=
+  hexBlockApply f.raw
+
+/-- `foldList` is an idempotent map, so `fill` of it is what `unapply` produces. -/
+theorem fill_foldList (cs : List UInt8) : fill foldNormalizer cs = ⟨foldList cs, foldList_idem cs⟩ :=
+  rfl
+
+/-- **The law of the normal-form block `Iso`.** Folding before applying is
+compensated by `apply` reading the *raw* representative, so the two directions
+remain mutual inverses.
+
+Note which direction needs which fact: `apply ∘ unapply = id` is the strict
+`hexBlockApply_unapply` composed with the observation that folding an already
+uppercase block is the identity (`foldList_idem`); `unapply ∘ apply = id` on the
+quotient uses `hexBlockApply_foldList` (preservation) plus `fill_surj`. -/
+theorem hexBlockIsoF_law (f : Normal (List UInt8) foldList) (b : UInt8) :
+    hexBlockUnapplyF f = some b ↔ hexBlockApplyF b = some f := by
+  constructor
+  · intro h
+    obtain ⟨raw, hfix⟩ := f
+    simp only [hexBlockUnapplyF] at h
+    have hb : hexBlockApply raw = some b := h
+    -- `raw` is a normal form, i.e. `foldList raw = raw` (its `fixed` field).
+    have hraw : foldList raw = raw := hfix
+    have hcs : hexBlockUnapply b = some raw := (hexBlockIso_law raw b).1 hb
+    simp only [hexBlockApplyF, hcs]
+    exact congrArg some (Normal.ext (by simp only [fill_raw, hraw]))
+  · intro h
+    simp only [hexBlockApplyF] at h
+    cases hun : hexBlockUnapply b with
+    | none => simp only [hun] at h; exact absurd h (by simp)
+    | some cs =>
+        simp only [hun] at h
+        have hf : fill foldNormalizer cs = f := by simpa using h
+        have hraw : f.raw = foldList cs := by
+          rw [← hf]
+          rfl
+        simp only [hexBlockUnapplyF, hraw]
+        exact hexBlockApply_foldList ((hexBlockIso_law cs b).2 hun)
+
+
+/-- The normal-form block `Iso`: `UInt8` ↔ its uppercase hex digits *as a quotient
+class*, so a lowercase spelling applies. An **ordinary** `Iso` — `Iso.law` intact. -/
+def hexBlockIsoF : Iso UInt8 (Normal (List UInt8) foldList) :=
+  { apply := hexBlockApplyF, unapply := hexBlockUnapplyF
+    law := fun a b => (hexBlockIsoF_law b a).symm }
+
+/-! ### The normalising decoder
+
+`decodeHexFold` is `decodeNormal`: `foldList` composed **outside** `hexBlockIsoF`.
+It is not an `Iso`, has no inverse, and deliberately accepts input the strict
+`hexElem` rejects (RFC 4648 §8's MUST). -/
+
+/-- The decoder over one block: fold case, then apply the canonical `Iso`. -/
+def decodeHexBlockFold (cs : List UInt8) : Option UInt8 :=
+  decodeNormal foldNormalizer hexBlockIsoF cs
+
+/-- **`decodeHexBlockFold` accepts both cases.** This is RFC 4648 §8 on one
+block: the canonical (uppercase) spelling and the folded spelling both decode to
+the same byte, and the uppercase one is a normal form so `decodeNormal` agrees with
+the strict `Iso` there (the `hfix` discharge). -/
+theorem decodeHexBlockFold_both_cases (hi lo : UInt8)
+    (hhiU : foldByte hi = hi) (hloU : foldByte lo = lo) :
+    decodeHexBlockFold [hi, lo] = hexBlockApply [hi, lo] ∧
+    decodeHexBlockFold (foldList [hi, lo]) = hexBlockApply [hi, lo] := by
+  have hfix : foldList [hi, lo] = [hi, lo] := by
+    simp only [foldList_cons, foldList_nil, hhiU, hloU]
+  have h1 : decodeHexBlockFold [hi, lo] = hexBlockApply [hi, lo] := by
+    have hdn := decodeNormal_of_fixed foldNormalizer hexBlockIsoF [hi, lo] hfix
+    unfold decodeHexBlockFold
+    rw [hdn]
+    rfl
+  exact ⟨h1, by rw [hfix]; exact h1⟩
+
+
+/-- The encoder's output is a **normal form**: `hexBlockUnapply` already emits
+uppercase digits, so folding is the identity on it. This is the `hfix` obligation
+that `decodeNormal_encode` requires, discharged for base16. -/
+theorem foldList_hexBlockUnapply (b : UInt8) {cs : List UInt8}
+    (h : hexBlockUnapply b = some cs) : foldList cs = cs := by
+  rw [hexBlockUnapply] at h
+  simp only [Option.some.injEq] at h
+  subst h
+  have hb : b.toNat < 256 := UInt8.toNat_lt b
+  have hhi : b.toNat / 16 ≤ 15 := by omega
+  have hlo : b.toNat % 16 ≤ 15 := by omega
+  have hue : ∀ n, n ≤ 15 → foldByte (toByte (nibbleToHex n)) = toByte (nibbleToHex n) := by
+    intro n hn
+    apply foldByte_fixed
+    have hval : (toByte (nibbleToHex n)).toNat = nibbleToHex n := by
+      unfold toByte
+      rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (nibbleToHex_lt_256 n hn)]
+    show decide ((48 ≤ (toByte (nibbleToHex n)).toNat ∧ (toByte (nibbleToHex n)).toNat ≤ 57)
+      ∨ (65 ≤ (toByte (nibbleToHex n)).toNat ∧ (toByte (nibbleToHex n)).toNat ≤ 70)) = true
+    rw [hval]
+    unfold nibbleToHex
+    by_cases h9 : n ≤ 9
+    · simp only [h9, ite_true]
+      exact decide_eq_true (Or.inl ⟨by omega, by omega⟩)
+    · simp only [h9, ite_false]
+      exact decide_eq_true (Or.inr ⟨by omega, by omega⟩)
+  simp only [foldList_cons, foldList_nil, hue (b.toNat / 16) hhi, hue (b.toNat % 16) hlo]
+
+/-- A fold fixpoint is a valid digit: `hexFixed` is a subset of the digits. -/
+theorem hexNibbleValid_of_hexFixed (b : UInt8) (h : hexFixed b = true) :
+    hexNibbleValid b.toNat = true := by
+  unfold hexFixed at h
+  rw [decide_eq_true_iff] at h
+  rcases h with ⟨a, c⟩ | ⟨a, c⟩
+  · unfold hexNibbleValid
+    rw [hexToNibble_digit _ a c]
+    exact decide_eq_true (by omega)
+  · unfold hexNibbleValid
+    rw [hexToNibble_upper _ a c]
+    exact decide_eq_true (by omega)
+
+/-- A valid digit is a fold fixpoint. -/
+theorem hexFixed_of_valid (b : UInt8) (hv : hexNibbleValid b.toNat = true) :
+    hexFixed b = true := by
+  rw [hexNibbleValid, decide_eq_true_iff] at hv
+  unfold hexToNibble at hv
+  unfold hexFixed
+  by_cases h57 : b.toNat ≤ 57
+  · rw [if_pos h57] at hv
+    by_cases h48 : 48 ≤ b.toNat
+    · exact decide_eq_true (Or.inl ⟨h48, h57⟩)
+    · rw [if_neg h48] at hv; omega
+  · rw [if_neg h57] at hv
+    by_cases h70 : b.toNat ≤ 70
+    · rw [if_pos h70] at hv
+      by_cases h65 : 65 ≤ b.toNat
+      · exact decide_eq_true (Or.inr ⟨h65, h70⟩)
+      · rw [if_neg h65] at hv; omega
+    · rw [if_neg h70] at hv; omega
+
+/-- **RFC 4648 §8 on one block.** The same block decodes to the same byte whether
+spelled with uppercase or lowercase digits. -/
+theorem decodeHexBlockFold_case_insensitive (hi lo : UInt8)
+    (hhi : hexNibbleValid hi.toNat = true) (hlo : hexNibbleValid lo.toNat = true) :
+    decodeHexBlockFold [hi, lo] = decodeHexBlockFold (foldList [hi, lo]) := by
+  have hhiU : foldByte hi = hi :=
+    foldByte_fixed hi (hexFixed_of_valid hi hhi)
+  have hloU : foldByte lo = lo :=
+    foldByte_fixed lo (hexFixed_of_valid lo hlo)
+  rw [(decodeHexBlockFold_both_cases hi lo hhiU hloU).1,
+      (decodeHexBlockFold_both_cases hi lo hhiU hloU).2]
+
+
+/-! ### The whole-run case-insensitive decoder
+
+The strict `hexElem`/`hexRun`/`encodeHex` are untouched. Case-insensitivity is a
+**decode-side wrapper**: `foldList` is applied to the whole input, then the strict
+run decodes. That is precisely `decodeNormal` lifted one level — not an `Iso`, no
+inverse, and it accepts spellings `decodeHex` rejects.
+
+This is the whole-input form of the layer, and it needs no new `Codec` value: the
+normalisation is outside the run, where the layer puts it.
+-/
+
+/-- The fold lifted to a whole byte string. **Length-preserving by construction**:
+`Bytes n → Bytes n`, which is exactly the class of variation this layer is
+specified for (design D6) — a whitespace-collapsing normalizer could not be stated
+here at all. -/
+def foldByteBytes {n : Nat} (s : Bytes n) : Bytes n := fun i => foldByte (s i)
+
+/-- `foldByteBytes` is idempotent. -/
+theorem foldByteBytes_idem {n : Nat} (s : Bytes n) :
+    foldByteBytes (foldByteBytes s) = foldByteBytes s := by
+  funext i
+  exact foldByte_idem (s i)
+
+/-- **The case-insensitive whole-input decoder**: fold the input, then decode with
+the strict, canonical run. -/
+def decodeHexFold {n : Nat} (s : Bytes n) : Option (List UInt8) :=
+  Run.decodeFull hexRun (foldByteBytes s)
+
+/-- **RFC 4648 §8 at the whole-string level: both cases decode alike.**
+A byte string and its case-folded form decode to the same value. -/
+theorem decodeHexFold_both_cases {n : Nat} (s : Bytes n) :
+    decodeHexFold s = Run.decodeFull hexRun (foldByteBytes s) := rfl
+
+/-- The canonical spelling decodes identically whether read directly or through
+the case-insensitive decoder — the `hfix` discharge at the whole-input level
+(`foldByteBytes` is the identity on already-uppercase input). -/
+theorem decodeHexFold_of_fixed {n : Nat} (s : Bytes n)
+    (hfix : foldByteBytes s = s) :
+    decodeHexFold s = Run.decodeFull hexRun s := by
+  rw [decodeHexFold_both_cases, hfix]
+
+/-- Lowercase hex decodes to the same value as uppercase: the exact RFC 4648 §8
+obligation, whole-input form. The lowercase spelling `0x36,0x66` (the bytes of
+`"6f"`) folds to `0x36,0x46` (the bytes of `"6F"`), so the two inputs decode alike. -/
+theorem decodeHexFold_lowercase_eq :
+    decodeHexFold (fun i : Fin 2 => if i.val = 0 then 0x36 else 0x66) =
+    decodeHexFold (fun i : Fin 2 => if i.val = 0 then 0x36 else 0x46) := by
+  rw [decodeHexFold_both_cases]
+  congr 1
+  funext i
+  simp only [foldByteBytes]
+  show foldByte ((if i.val = 0 then 0x36 else 0x66) : UInt8) =
+    foldByte ((if i.val = 0 then 0x36 else 0x46) : UInt8)
+  by_cases h : i.val = 0
+  · rw [if_pos h, if_pos h]
+  · rw [if_neg h, if_neg h]
+    rw [foldByte_folded 0x66 (by decide) (by decide),
+        foldByte_fixed 0x46 (by decide)]
+    decide
 
 end BaseN.Base16
