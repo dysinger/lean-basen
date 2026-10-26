@@ -464,6 +464,46 @@ example (n : Nat) (s : Bytes n) (v : List UInt8) :
       ∃ w, Base16.encodeHex w = some ⟨n, s⟩ ∧ v = w :=
   Base16.decodeFull_B16_char s v
 
+-- Total characterization through the canonical type (task 7.2): the decoder's image
+-- is exactly the image of `encode ∘ b*BytesOf`, so a canonical `B64`/`B32` value is
+-- the *only* shape a decoded result can take.
+
+example (n : Nat) (s : Bytes n) (v : List UInt8) :
+    Base64.decodeFullB64 s = some v ↔
+      ∃ w : Base64.B64, Base64.encodeB64 (Base64.b64BytesOf w) = some ⟨n, s⟩ ∧
+        v = Base64.b64BytesOf w :=
+  Base64.decodeFullB64_char_via_type s v
+
+example (n : Nat) (s : Bytes n) (v : List UInt8) :
+    Base32.decodeFullB32 s = some v ↔
+      ∃ w : Base32.B32, Base32.encodeB32 (Base32.b32BytesOf w) = some ⟨n, s⟩ ∧
+        v = Base32.b32BytesOf w :=
+  Base32.decodeFullB32_char_via_type s v
+
+-- Every decoded value carries a canonical spine (its tail is terminal).
+example (n : Nat) (s : Bytes n) (v : List UInt8)
+    (h : Base64.decodeFullB64 s = some v) :
+    ∃ w : Base64.B64, v = Base64.b64BytesOf w :=
+  Base64.decodeFullB64_spine h
+
+example (n : Nat) (s : Bytes n) (v : List UInt8)
+    (h : Base32.decodeFullB32 s = some v) :
+    ∃ w : Base32.B32, v = Base32.b32BytesOf w :=
+  Base32.decodeFullB32_spine h
+
+-- The discriminating fact: a tail is terminal, so a 1-byte `B64` value is exactly
+-- one byte — the `[b0, x, y, z]` shape (a tail followed by a full block) has no
+-- `B64` inhabitant at all. That is *why* `Zg==AAAA` is rejected.
+example (b0 x y z : UInt8) : Base64.b64BytesOf (Base64.B64.tail1 b0) ≠ [b0, x, y, z] := by
+  rw [Base64.b64BytesOf_tail1_eq]
+  intro h
+  simp at h
+
+example (b0 x y : UInt8) : Base32.b32BytesOf (Base32.B32.tail1 b0) ≠ [b0, x, y] := by
+  rw [Base32.b32BytesOf_tail1_eq]
+  intro h
+  simp at h
+
 -- Injectivity, in the spec's plain `Option`-equality form
 -- (`encode{X} v = encode{X} v' → v = v'`, task 6.2). Covered for all seven bases.
 

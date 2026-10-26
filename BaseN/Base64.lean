@@ -2800,6 +2800,60 @@ theorem decodeFullB64_char {n : Nat} (s : Bytes n) (v : List UInt8) :
     rw [hv]
     exact decodeFullB64_roundtrip w he
 
+/-! ## Total characterization **through the canonical type** (task 7.2)
+
+`B64` is the canonical block/tail spine: full 3-byte blocks, then **at most one
+terminal** 1- or 2-byte tail, with no constructor that continues after a tail.
+That terminality is exactly what "cannot represent trailing data" was trying to
+name, and it is a fact about the *type* — already true by construction, and
+`B64`↔`List UInt8` is a proved bijection (`b64OfBytes_bytesOf` /
+`b64BytesOf_ofBytes`).
+
+What was missing was a theorem *connecting* the type to the decoder. An earlier
+revision therefore withdrew the claim, saying "no data after `=`" is
+established by the rejection inequation "not by the type". That undersold the
+type: the two agree, and the agreement is provable. `decodeFullB64_char_via_type`
+routes the whole characterization through `B64`, so the decoder accepts `s`
+exactly when `s` is the encoding of some `B64` — i.e. exactly when `s` admits a
+block/tail split with a terminal tail. `[propext, Quot.sound]`-only. -/
+
+/-- **Base64: decode succeeds iff `s` is the encoding of a canonical `B64`.**
+
+This is the type-level characterization of task 7.2: the image of `decodeFullB64`
+is *precisely* the image of `encodeB64 ∘ b64BytesOf`. Because `B64`'s tails are
+terminal, any `s` that carries data after a terminal `=` admits no such `w`, so
+it is rejected — not by a side condition, but because the canonical value type
+has no inhabitant for that shape. `[propext, Quot.sound]`-only. -/
+theorem decodeFullB64_char_via_type {n : Nat} (s : Bytes n) (v : List UInt8) :
+    decodeFullB64 s = some v ↔
+      ∃ w : B64, encodeB64 (b64BytesOf w) = some ⟨n, s⟩ ∧ v = b64BytesOf w := by
+  rw [decodeFullB64_char]
+  constructor
+  · rintro ⟨v', he, hv⟩
+    exact ⟨b64OfBytes v', by rw [b64BytesOf_ofBytes]; exact he,
+      by rw [b64BytesOf_ofBytes]; exact hv⟩
+  · rintro ⟨w, he, hv⟩
+    exact ⟨b64BytesOf w, he, hv⟩
+
+/-- **Every decoded base64 value has a canonical `B64` spine.**
+
+The type-level content of "the decoder's output cannot carry trailing data":
+whatever `decodeFullB64` returns always *is* the flattening of a `B64`, whose
+tail is terminal by construction. `[propext, Quot.sound]`-only. -/
+theorem decodeFullB64_spine {n : Nat} {s : Bytes n} {v : List UInt8}
+    (h : decodeFullB64 s = some v) : ∃ w : B64, v = b64BytesOf w := by
+  rw [decodeFullB64_char] at h
+  obtain ⟨v', _, hv⟩ := h
+  exact ⟨b64OfBytes v', by rw [hv, b64BytesOf_ofBytes]⟩
+
+/-- **A `B64` tail is terminal — the type forbids trailing data.**
+
+A one-byte `B64` value flattens to exactly one byte; nothing can follow it.
+This is the discriminating fact: the shape `b0` followed by three more bytes has
+no `B64` inhabitant, which is why no such input survives `decodeFullB64`.
+`[propext, Quot.sound]`-only. -/
+theorem b64BytesOf_tail1_eq (b0 : UInt8) : b64BytesOf (B64.tail1 b0) = [b0] := rfl
+
 /-! ## General rejection laws (task 6.4)
 
 The named rejection vectors above (`Zg==AAAA`, `!g==`, `=g==`, `Zg`) are

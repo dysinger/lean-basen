@@ -3245,6 +3245,48 @@ theorem decodeFullB32_char {n : Nat} (s : Bytes n) (v : List UInt8) :
     rw [hv]
     exact decodeFullB32_roundtrip w he
 
+/-! ## Total characterization **through the canonical type** (task 7.2, base32 mirror)
+
+`B32` is the canonical block/tail spine: full 5-byte blocks, then **at most one
+terminal** 1–4-byte tail, with no constructor continuing after a tail. Its
+type-level content is identical in kind to base64's and is proved the same way
+(`b32OfBytes_bytesOf` / `b32BytesOf_ofBytes` are the bijection).
+
+`decodeFullB32_char_via_type` routes the characterization through `B32`, so the
+decoder accepts `s` exactly when `s` is the encoding of a canonical `B32`.
+`[propext, Quot.sound]`-only. -/
+
+/-- **Base32: decode succeeds iff `s` is the encoding of a canonical `B32`.**
+
+The image of `decodeFullB32` is *precisely* the image of `encodeB32 ∘ b32BytesOf`.
+Because `B32`'s tails are terminal, an `s` carrying data after a terminal `=`
+admits no such `w` and is rejected — the canonical type has no inhabitant for
+that shape. `[propext, Quot.sound]`-only. -/
+theorem decodeFullB32_char_via_type {n : Nat} (s : Bytes n) (v : List UInt8) :
+    decodeFullB32 s = some v ↔
+      ∃ w : B32, encodeB32 (b32BytesOf w) = some ⟨n, s⟩ ∧ v = b32BytesOf w := by
+  rw [decodeFullB32_char]
+  constructor
+  · rintro ⟨v', he, hv⟩
+    exact ⟨b32OfBytes v', by rw [b32BytesOf_ofBytes]; exact he,
+      by rw [b32BytesOf_ofBytes]; exact hv⟩
+  · rintro ⟨w, he, hv⟩
+    exact ⟨b32BytesOf w, he, hv⟩
+
+/-- **Every decoded base32 value has a canonical `B32` spine.**
+
+Whatever `decodeFullB32` returns always *is* the flattening of a `B32`, whose
+tail is terminal by construction. `[propext, Quot.sound]`-only. -/
+theorem decodeFullB32_spine {n : Nat} {s : Bytes n} {v : List UInt8}
+    (h : decodeFullB32 s = some v) : ∃ w : B32, v = b32BytesOf w := by
+  rw [decodeFullB32_char] at h
+  obtain ⟨v', _, hv⟩ := h
+  exact ⟨b32OfBytes v', by rw [hv, b32BytesOf_ofBytes]⟩
+
+/-- **A `B32` tail is terminal — the type forbids trailing data.**
+`[propext, Quot.sound]`-only. -/
+theorem b32BytesOf_tail1_eq (b0 : UInt8) : b32BytesOf (B32.tail1 b0) = [b0] := rfl
+
 /-! ## General rejection laws (task 6.4, base32 mirror)
 
 The base64 laws of the same names, mirrored over the base32 composition

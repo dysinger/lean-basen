@@ -315,6 +315,38 @@ assembled over its already-proved `decode_encode_inverse` (→) and `roundtrip`
 #guard_msgs in
 #print axioms BaseN.Base16.decodeFull_B16_char
 
+/-! ## Total characterization **through the canonical type** (task 7.2)
+
+`B64`/`B32` are the canonical block/tail spines — full blocks, then at most one
+**terminal** tail, with no constructor continuing after a tail. That terminality
+is the type-level content of "cannot represent trailing data".
+
+An earlier revision withdrew the claim, saying the property is established "by
+the rejection inequation, not by the type". That undersold the type: the decoder's
+image is *provably* the image of `encode ∘ b*BytesOf`, so the type and the
+inequation agree. `decode{B}*_char_via_type` states that agreement and
+`decode{B}*_spine` records that every decoded value is a canonical flattening.
+
+`b*BytesOf_tail1_eq` is `rfl`-true and depends on **no** axioms — the terminality
+is definitional, not inherent.
+-/
+
+/-- info: 'BaseN.Base64.decodeFullB64_char_via_type' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.decodeFullB64_char_via_type
+
+/-- info: 'BaseN.Base64.decodeFullB64_spine' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.decodeFullB64_spine
+
+/-- info: 'BaseN.Base32.decodeFullB32_char_via_type' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_char_via_type
+
+/-- info: 'BaseN.Base32.decodeFullB32_spine' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_spine
+
 /-! ## General rejection laws (task 6.4)
 
 Task 6.4 replaced the finite rejection vector set with the *general* law for both
