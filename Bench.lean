@@ -550,6 +550,28 @@ example : Codec.decodeFull Base10.digElem Base10.digConsumesByte 3
     (fun i : Fin 3 => [0x32, 0x35, 0x36][i]) = none :=
   Base10.rejects_overflow
 
+-- RFC 4648 §8: Base16 is case-insensitive on **decode**. The fold is upward, so
+-- the canonical uppercase encoding is a fixed point; `decodeHexFold` applies it
+-- outside the strict `Iso`, so encoding stays canonical.
+
+example : Base16.foldByte 0x61 = 0x41 := rfl                                   -- 'a' -> 'A'
+example : Base16.foldByte 0x66 = 0x46 := rfl                                   -- 'f' -> 'F'
+example : Base16.foldByte 0x46 = 0x46 := rfl                                   -- 'F' fixed
+example : Base16.foldByte 0x39 = 0x39 := rfl                                   -- '9' fixed
+example : Base16.foldList [0x36, 0x66] = [0x36, 0x46] := rfl                   -- "6f" -> "6F"
+
+-- The strict decoder still rejects lowercase (it is the canonical bijection)...
+example : Codec.decodeFull Base16.hexElem Base16.hexConsumesByte 1
+    (fun _ => 0x66) = none :=
+  Base16.rejects_lowercase
+
+-- ...while both cases decode to the same value through the normalising decoder.
+example : Base16.decodeHexFold
+      (fun i : Fin 2 => if i.val = 0 then 0x36 else 0x66) =          -- "6f"
+    Base16.decodeHexFold
+      (fun i : Fin 2 => if i.val = 0 then 0x36 else 0x46) :=          -- "6F"
+  Base16.decodeHexFold_lowercase_eq
+
 end Bench
 
 /-- `main` runs and exits 0 (type-checking the `example`s above is the gate;
