@@ -435,6 +435,35 @@ example : Base32.decodeFullB32 myEqEq = some f ↔
     ∃ w, Base32.encodeB32 w = some ⟨8, myEqEq⟩ ∧ f = w :=
   Base32.decodeFullB32_char myEqEq f
 
+-- Total characterization for the five fixed-width bases (task 7.1): the same iff,
+-- assembled over each base's `decode_encode_inverse` (→) and `roundtrip` (←).
+-- Quantified over every byte string, exactly like the library law.
+
+example (n : Nat) (s : Bytes n) (v : List UInt8) :
+    Codec.decodeFull Base2.bitElem Base2.bitConsumesByte n s = some v ↔
+      ∃ w, Base2.encodeBit w = some ⟨n, s⟩ ∧ v = w :=
+  Base2.decodeFull_B2_char s v
+
+example (n : Nat) (s : Bytes n) (v : List UInt8) :
+    Codec.decodeFull Base4.quartetElem Base4.quartetConsumesByte n s = some v ↔
+      ∃ w, Base4.encodeQuartet w = some ⟨n, s⟩ ∧ v = w :=
+  Base4.decodeFull_B4_char s v
+
+example (n : Nat) (s : Bytes n) (v : List UInt8) :
+    Codec.decodeFull Base8.octElem Base8.octConsumesByte n s = some v ↔
+      ∃ w, Base8.encodeOct w = some ⟨n, s⟩ ∧ v = w :=
+  Base8.decodeFull_B8_char s v
+
+example (n : Nat) (s : Bytes n) (v : List UInt8) :
+    Codec.decodeFull Base10.digElem Base10.digConsumesByte n s = some v ↔
+      ∃ w, Base10.encodeDig w = some ⟨n, s⟩ ∧ v = w :=
+  Base10.decodeFull_B10_char s v
+
+example (n : Nat) (s : Bytes n) (v : List UInt8) :
+    Codec.decodeFull Base16.hexElem Base16.hexConsumesByte n s = some v ↔
+      ∃ w, Base16.encodeHex w = some ⟨n, s⟩ ∧ v = w :=
+  Base16.decodeFull_B16_char s v
+
 -- Injectivity, in the spec's plain `Option`-equality form
 -- (`encode{X} v = encode{X} v' → v = v'`, task 6.2). Covered for all seven bases.
 

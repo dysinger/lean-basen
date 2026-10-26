@@ -495,6 +495,22 @@ theorem decodeFull_canonical {n : Nat} {s : Bytes n} {v : List UInt8} :
     exact (relRepeat_cast (Rel digElem) v (Nat.sub_zero n) s₀).1 hrel
   exact relRepeat_forall digDigit (fun x {m} t ht => Rel_digElem_canonical (t := t) ht) v n s hrels
 
+/-- **Base10: decode succeeds iff `s` is in `encodeDig`'s image, at that value.**
+`decodeFull digElem digConsumesByte n s = some v ↔ ∃ v', encodeDig v' = some ⟨n, s⟩ ∧ v = v'`.
+
+The decimal analogue of `decodeFullB64_char`/`decodeFullB32_char` (task 7.1): the
+decoder accepts a byte string exactly when it is a canonical encoding, and then
+returns the unique value that encodes to it. Pure assembly over the already-proved
+`decode_encode_inverse` (`→`) and `roundtrip` (`←`). `[propext, Quot.sound]`-only. -/
+theorem decodeFull_B10_char {n : Nat} (s : Bytes n) (v : List UInt8) :
+    decodeFull digElem digConsumesByte n s = some v ↔ ∃ v', encodeDig v' = some ⟨n, s⟩ ∧ v = v' := by
+  constructor
+  · intro h
+    exact ⟨v, decode_encode_inverse v h, rfl⟩
+  · rintro ⟨w, he, hv⟩
+    rw [hv]
+    exact roundtrip w he
+
 /-- Rejection: a byte outside the decimal alphabet is rejected. -/
 theorem rejects_invalid_byte (bad : UInt8) (hbad : digDigit bad = false) :
     decodeFull digElem digConsumesByte 1 (fun _ => bad) = none := by

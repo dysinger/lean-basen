@@ -673,6 +673,22 @@ theorem decodeFull_canonical {n : Nat} {s : Bytes n} {v : List UInt8} :
     exact (relRepeat_cast (Rel octElem) v (Nat.sub_zero n) s₀).1 hrel
   exact relRepeat_forall octDigit (fun x {m} t ht => Rel_octElem_canonical (t := t) ht) v n s hrels
 
+/-- **Base8: decode succeeds iff `s` is in `encodeOct`'s image, at that value.**
+`decodeFull octElem octConsumesByte n s = some v ↔ ∃ v', encodeOct v' = some ⟨n, s⟩ ∧ v = v'`.
+
+The octal analogue of `decodeFullB64_char`/`decodeFullB32_char` (task 7.1): the
+decoder accepts a byte string exactly when it is a canonical encoding, and then
+returns the unique value that encodes to it. Pure assembly over the already-proved
+`decode_encode_inverse` (`→`) and `roundtrip` (`←`). `[propext, Quot.sound]`-only. -/
+theorem decodeFull_B8_char {n : Nat} (s : Bytes n) (v : List UInt8) :
+    decodeFull octElem octConsumesByte n s = some v ↔ ∃ v', encodeOct v' = some ⟨n, s⟩ ∧ v = v' := by
+  constructor
+  · intro h
+    exact ⟨v, decode_encode_inverse v h, rfl⟩
+  · rintro ⟨w, he, hv⟩
+    rw [hv]
+    exact roundtrip w he
+
 /-- Rejection: a byte outside the octal alphabet is rejected. -/
 theorem rejects_invalid_byte (bad : UInt8) (hbad : octDigit bad = false) :
     decodeFull octElem octConsumesByte 1 (fun _ => bad) = none := by

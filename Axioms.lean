@@ -288,6 +288,33 @@ requirement as one proposition: `decode s = some v ↔ ∃ v', encode v' = some 
 #guard_msgs in
 #print axioms BaseN.Base32.decodeFullB32_char
 
+/-! ## Total characterization — the in-image converse for all seven bases (task 7.1)
+
+Task 6.3 gave the iff for the two padded bases. Task 7.1 promotes it to all
+seven: each fixed-width base's `decodeFull_B{x}_char` is the same proposition
+assembled over its already-proved `decode_encode_inverse` (→) and `roundtrip`
+(←). `[propext, Quot.sound]`-only. -/
+
+/-- info: 'BaseN.Base2.decodeFull_B2_char' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base2.decodeFull_B2_char
+
+/-- info: 'BaseN.Base4.decodeFull_B4_char' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base4.decodeFull_B4_char
+
+/-- info: 'BaseN.Base8.decodeFull_B8_char' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base8.decodeFull_B8_char
+
+/-- info: 'BaseN.Base10.decodeFull_B10_char' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base10.decodeFull_B10_char
+
+/-- info: 'BaseN.Base16.decodeFull_B16_char' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.decodeFull_B16_char
+
 /-! ## General rejection laws (task 6.4)
 
 Task 6.4 replaced the finite rejection vector set with the *general* law for both
