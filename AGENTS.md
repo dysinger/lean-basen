@@ -44,6 +44,25 @@ The `codec` dependency is fetched by `lake` from
   `rel* = relRepeat (Rel elem)`, and an inherited `roundtrip`. No bespoke
   `encode`/`decode`. (`Base32.lean`/`Base64.lean` remain as the block-structured
   padded codecs — tasks 3.6/3.7; see the note below.)
+
+  **`Base16.lean` additionally carries RFC 4648 §8 case-insensitive decoding**
+  (it does **not** weaken `Iso.law`). The variation is a length-preserving ASCII
+  case fold (`foldByte`/`foldList`/`foldByteBytes`) folded **up** so the canonical
+  uppercase encoding is a fixed point, with the quotient in the _object_ via
+  `codec`'s `Codec.Normal`: `hexBlockIsoF : Iso UInt8 (Normal (List UInt8)
+foldList)` is an **ordinary** `Iso`. The case-insensitive surface is decode-only
+  (`decodeHexBlockFold`, `decodeHexFold`); the strict `hexElem`/`hexRun`/
+  `encodeHex` are untouched and `encodeHex` still emits uppercase only. Do not
+  restate the §8 widening as an identity — `hexBlockApply (foldList cs) =
+hexBlockApply cs` is **false** (`['6','f']` is rejected, folds to the accepted
+  `['6','F']`); the law is the one-directional `hexBlockApply_foldList`, and the
+  refutation is `hexBlockApply_foldList_ne`.
+
+  **Do not reintroduce the `Classical.choice` leak.** `decide_eq_true (by
+omega)` on a **disjunction** goal drags in classical logic (omega case-splits);
+  build the disjunct explicitly. A `match` on a `Bool` **in the goal** leaks too;
+  split the lemma into `_true`/`_false`.
+
 - `lakefile.lean` / `flake.nix` / `default.nix` / `treefmt.nix` — build shape
   from the template (renamed to `basen`), with `native`/`check` Nix targets.
 - `openspec/` lives in the **`lean-codec`** repo (`openspec/changes/lean-basen/`),
