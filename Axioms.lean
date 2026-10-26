@@ -407,3 +407,37 @@ and the arity identity `decodeFullB*_arity`. All `[propext, Quot.sound]`-only. -
 /-- info: 'BaseN.Base32.decodeFullB32_reject_arity' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base32.decodeFullB32_reject_arity
+
+/-! ## RFC 4648 §8 — Base16 case-insensitivity (task 7.3)
+
+The information-free variation is a length-preserving ASCII case fold over the
+concrete syntax (`foldByte`/`foldList`), folded **up** so the canonical uppercase
+encoding is a fixed point. The quotient lives in the **object**
+(`Normal (List UInt8) foldList`), so the block `Iso` stays an ordinary `Iso` and
+`Iso.law` is untouched. These four gates pin: the fold's idempotence, the
+`Iso` law, the acceptance-preservation lemma the law needs, and the both-cases
+decode law. -/
+
+/-- info: 'BaseN.Base16.foldByte_idem' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.foldByte_idem
+
+/-- info: 'BaseN.Base16.foldList_idem' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.foldList_idem
+
+/-- info: 'BaseN.Base16.hexBlockIsoF_law' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.hexBlockIsoF_law
+
+/-- info: 'BaseN.Base16.hexBlockApply_foldList' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.hexBlockApply_foldList
+
+/-- info: 'BaseN.Base16.decodeHexFold_lowercase_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.decodeHexFold_lowercase_eq
+
+/-- info: 'BaseN.Base16.decodeHexFold_of_fixed' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.decodeHexFold_of_fixed
