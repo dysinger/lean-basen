@@ -24,26 +24,31 @@ lake build    # the proof gate: zero sorry, zero warnings
 ```
 
 The `codec` dependency is fetched by `lake` from
-`https://github.com/dysinger/lean-codec.git @ master` (see `lakefile.lean`).
-`lake-manifest.json` is gitignored.
+`https://github.com/dysinger/lean-codec.git @ master` (see `lakefile.lean`) —
+the floating dev-loop ref. A **Nix** build ignores that line entirely (see the
+`codec` pin note under "Map of the repo"). `lake-manifest.json` is gitignored
+and is not a pin; `flake.lock` is.
 
 ## Map of the repo
 
-- `BaseN.lean` — the facade: re-exports the per-base modules + an inductive
-  `Base` (currently scoped to B2/B4/B8/B10/B16; B32/B64 are in progress) and a
-  single `BaseN.roundtrip` dispatching per-base by `cases`.
+- `BaseN.lean` — the facade: module re-exports of the seven per-base modules
+  only. There is **no** `Base` inductive, no `encode (b : Base)` dispatcher and
+  no `BaseN.roundtrip` dispatch: each base is its own `Codec` value and the
+  radix lives in the value the caller holds, never on a dispatch index.
 - `BaseN/Common.lean` — the shared generic productivity/unambiguity lemmas
   (`Productive_iso`/`_seq_left`/`_count_succ`/`_satisfy`/
   `_count_satisfy_succ`, `Unambiguous_satisfy`/`_iso`, `Rel_count_satisfy_len`,
   `count_satisfy_unambiguous`). Each new base `open BaseN.Common` and reuses
   these instead of re-deriving them.
-- `BaseN/Base2.lean`, `Base4.lean`, `Base8.lean`, `Base10.lean`, `Base16.lean` —
-  the five landed bases, each **a `Codec` value** (`bitElem`/`quartetElem`/
-  `octElem`/`digElem`/`hexElem` : `Codec …`) plus the productive repetition
-  triple `decode* = decodeRepeat elem …` / `encode* = encodeRepeat elem` /
-  `rel* = relRepeat (Rel elem)`, and an inherited `roundtrip`. No bespoke
-  `encode`/`decode`. (`Base32.lean`/`Base64.lean` remain as the block-structured
-  padded codecs — tasks 3.6/3.7; see the note below.)
+- `BaseN/Base2.lean`, `Base4.lean`, `Base8.lean`, `Base10.lean`, `Base16.lean`,
+  `Base32.lean`, `Base64.lean` — **all seven bases are landed**, each a `Codec`
+  value: the fixed-width five (`2/4/8/10/16`) have element `Codec UInt8` and the
+  padded two (`32/64`) are a full-block `Run` (the derived `many`) followed by
+  an at-most-one-block terminal-tail element `iso`-ed to `B32`/`B64`. Every base
+  has the productive repetition triple `decode* = decodeRepeat elem …` /
+  `encode* = encodeRepeat elem` / `rel* = relRepeat (Rel elem)` and an inherited
+  `roundtrip`. **No bespoke `encode`/`decode`** — that surface was deleted by
+  `basen-uniform-leaf-api` (archived).
 
   **`Base16.lean` additionally carries RFC 4648 §8 case-insensitive decoding**
   (it does **not** weaken `Iso.law`). The variation is a length-preserving ASCII
@@ -64,35 +69,64 @@ omega)` on a **disjunction** goal drags in classical logic (omega case-splits);
   split the lemma into `_true`/`_false`.
 
 - `lakefile.lean` / `flake.nix` / `default.nix` / `treefmt.nix` — build shape
-  from the template (renamed to `basen`), with `native`/`check` Nix targets.
+  from the template (renamed to `basen`), with `native`/`check`/`bench` Nix
+  targets. `nix build .#bench` builds **and runs** the vector lane (its
+  `installPhase` executes the executable), so a wrong vector fails the build
+  rather than merely producing a binary. `bench` is a **package, not a
+  `checks` entry**, on purpose: known vectors are evidence, not a proof, so they
+  must not be able to fail the proof gate. For a fast loop, prefer the dev-shell
+  form — `lake build bench && ./.lake/build/bin/bench` — which does not go
+  through Nix at all.
 - `openspec/` lives in the **`lean-codec`** repo (`openspec/changes/lean-basen/`),
   not here — the planning ledger is cross-referenced from the codec repo.
 
-## Active work: `basen-uniform-leaf-api` (the `Codec`-value rewrite)
+### Two files that look like they pin `codec` but do not
 
-The seven bases are being re-expressed as `codec` `Codec` values over
-`satisfy`/`count`/`iso` + the repetition layer, deleting bespoke `encode`/`decode`
-(change `basen-uniform-leaf-api` in the sibling `codec` repo; see its
-`tasks.md`). **Done**: Base8 (3.1, template), Base2 (3.2), Base4 (3.3), Base10
-(3.4), Base16 (3.5). **Remaining**: Base32 (3.6) + Base64 (3.7), then facade
-(4.1) / bench (4.2) / gate (4.3).
+- **`lakefile.lean`'s `require codec from git … @ "master"`** is the _floating_
+  dev-loop ref (`master`, not the template's `main`, is genuinely this ecosystem's
+  default branch). It is never read by a Nix build: `default.nix` rewrites the
+  `require` to `require codec from "./codec-src"`. Do not pin it to a SHA.
+- **`lake-manifest.json` is gitignored and is NOT a pin.** It is whatever the
+  last local `lake update` wrote, so it drifts silently between checkouts. The
+  only reproducibility anchor is **`flake.lock`'s `nodes.codec.locked.rev`** —
+  that is the revision to quote, compare, or bump, and the one to check when a
+  sandboxed build reports a `bad import` for an import that plainly exists here.
 
-**Why 3.6/3.7 are hard (do not re-litigate):** base2/4/8/10/16 have element
-`Codec UInt8` (one byte per element), so their block `Iso` (`k` digits ↔ one
-byte) is a clean bijection — both `law` directions close with `omega`. Base32/64
-are **cross-byte bit-packing** (5 bytes = 40 bits = 8 five-bit chars; 3 bytes =
-24 bits = 4 six-bit chars), so the element is `Codec (List UInt8)` (5/3 bytes)
-via `iso blockIso (count 8 (satisfy b32OrPad))`, and its block `Iso.law` needs a
-**backward** direction (`apply cs = bs → unapply bs = cs`) that is
-**encode-injectivity / char reconstruction** — the existing code only proves
-`decode ∘ encode = id`, never `encode ∘ decode = id` on valid input. Prove it
-per-shape by `by_cases` on each `cᵢ = 61`/`b32Valid cᵢ` condition (close
-impossible branches with `simp at h` + `omega`), recover `b32ToVal cᵢ` from the
-`byte0`..`byte4` identities read in reverse, then a `char_eq_valToB32_of_valid`
-lemma (`c.toNat = valToB32 i` when `b32Valid c = true ∧ b32ToVal c.toNat = i`).
-**Do NOT use `by_contra`** (needs `Classical.choice`, breaks the
-`[propext, Quot.sound]` gate). base32 = 5 shapes (1/2/3/4/5-byte tails),
+## Active work: none in this repo — the ledger is in `lean-codec`
+
+The `Codec`-value rewrite (`basen-uniform-leaf-api`) and the RFC-conformance work
+(`basen-rfc-conformance-theorems`) are both **archived**. All seven bases are
+landed, the facade is re-exports only, the bench lane value-checks every base,
+and the gate is green.
+
+**What remains is mechanical polish**, tracked as tasks 5.2/5.3/5.4/5.8/5.9/5.12/
+5.13 of `lean-basen` in `../lean-codec/openspec/changes/lean-basen/tasks.md`. Do
+not open a new change here for it, and do not re-litigate the base32/64 shape —
+that is settled and proved (see the note below, kept because the reasoning is
+still what a future edit to `Base32.lean`/`Base64.lean` needs).
+
+## Why base32/64 are shaped differently (settled, do not re-litigate)
+
+base2/4/8/10/16 have element `Codec UInt8` (one byte per element), so their block
+`Iso` (`k` digits ↔ one byte) is a clean bijection — both `law` directions close
+with `omega`. Base32/64 are **cross-byte bit-packing** (5 bytes = 40 bits = 8
+five-bit chars; 3 bytes = 24 bits = 4 six-bit chars), so the element is
+`Codec (List UInt8)` (5/3 bytes) via `iso blockIso (count 8 (satisfy b32OrPad))`,
+and its block `Iso.law` needs a **backward** direction (`apply cs = bs →
+unapply bs = cs`) that is **encode-injectivity / char reconstruction**.
+
+The byte-reconstruction identities that direction rests on are named
+`byte0Of`…`byte4Of` in `Base32.lean` and `byte0Of`…`byte2Of` in `Base64.lean`
+(renamed from the bare `byte0`…`byte4`; they are exported, so use the `Of`
+names). They are proved per-shape by `by_cases` on each `cᵢ = 61`/
+`b32Valid cᵢ` condition (close impossible branches with `simp at h` + `omega`),
+recover `b32ToVal cᵢ` from the `byte*Of` identities read in reverse, then a
+`char_eq_valToB32_of_valid` lemma (`c.toNat = valToB32 i` when `b32Valid c =
+true ∧ b32ToVal c.toNat = i`). base32 = 5 shapes (1/2/3/4/5-byte tails),
 base64 = 3 shapes (1/2/3-byte tails).
+
+**Do NOT use `by_contra`** (needs `Classical.choice`, breaks the
+`[propext, Quot.sound]` gate).
 
 ## Proof pattern (established this session — follow it, do not re-derive)
 
