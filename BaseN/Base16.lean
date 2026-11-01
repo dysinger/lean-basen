@@ -52,13 +52,13 @@ def hexNibbleValid (e : Nat) : Bool := decide (hexToNibble e ≤ 15)
 theorem hexToNibble_digit (e : Nat) (h1 : 48 ≤ e) (h2 : e ≤ 57) :
     hexToNibble e = e - 48 := by
   unfold hexToNibble
-  rw [if_pos h2, if_pos h1]
+  rw [ite_eq_left h2, ite_eq_left h1]
 
 /-- On an uppercase letter byte, `hexToNibble` is `e - 55`. -/
 theorem hexToNibble_upper (e : Nat) (h1 : 65 ≤ e) (h2 : e ≤ 70) :
     hexToNibble e = e - 55 := by
   unfold hexToNibble
-  rw [if_neg (by omega : ¬ e ≤ 57), if_pos (by omega : e ≤ 70), if_pos h1]
+  rw [ite_eq_right (by omega : ¬ e ≤ 57), ite_eq_left (by omega : e ≤ 70), ite_eq_left h1]
 
 /-- `toByte n` — the `UInt8` embedding. -/
 def toByte (n : Nat) : UInt8 := UInt8.ofNat n
@@ -620,7 +620,7 @@ theorem foldByte_folded (b : UInt8) (hf : hexFixed b = false)
     (hl : 97 ≤ b.toNat ∧ b.toNat ≤ 102) :
     foldByte b = UInt8.ofNat (b.toNat - 32) := by
   simp only [foldByte, hf, Bool.false_eq_true, ite_false, hl]
-  rw [if_pos (by decide)]
+  rw [ite_eq_left (by decide)]
 
 /-- `(UInt8.ofNat (n - 32)).toNat = n - 32` for a lowercase letter's value. -/
 theorem ofNat_sub32_toNat (b : UInt8) (h1 : 97 ≤ b.toNat) (h2 : b.toNat ≤ 102) :
@@ -674,7 +674,7 @@ three-way; `hexToNibble_foldByte` gives the value form the block law needs. -/
 theorem hexToNibble_lower (e : Nat) (h1 : 97 ≤ e) (h2 : e ≤ 102) :
     hexToNibble e = 16 := by
   unfold hexToNibble
-  rw [if_neg (by omega : ¬ e ≤ 57), if_neg (by omega : ¬ e ≤ 70)]
+  rw [ite_eq_right (by omega : ¬ e ≤ 57), ite_eq_right (by omega : ¬ e ≤ 70)]
 
 /-- A lowercase byte is **not** a valid (uppercase) hex digit. -/
 theorem hexNibbleValid_false_of_lower (b : UInt8) (hl : 97 ≤ b.toNat ∧ b.toNat ≤ 102) :
@@ -732,7 +732,7 @@ theorem hexNibbleValid_foldByte (b : UInt8) :
       rw [hv', h0, hd]
       rfl
     · have hfb : foldByte b = b := by
-        rw [foldByte, if_neg hf, if_neg hl]
+        rw [foldByte, ite_eq_right hf, ite_eq_right hl]
       rw [hfb]
       have hd : decide (97 ≤ b.toNat && b.toNat ≤ 102) = false := by
         rw [decide_eq_false_iff_not]
@@ -751,17 +751,17 @@ theorem hexToNibble_foldByte_true (b : UInt8) (hv : hexNibbleValid b.toNat = tru
     unfold hexToNibble at hv
     unfold hexFixed
     by_cases h57 : b.toNat ≤ 57
-    · rw [if_pos h57] at hv
+    · rw [ite_eq_left h57] at hv
       by_cases h48 : 48 ≤ b.toNat
       · exact decide_eq_true (Or.inl ⟨h48, h57⟩)
-      · rw [if_neg h48] at hv; omega
-    · rw [if_neg h57] at hv
+      · rw [ite_eq_right h48] at hv; omega
+    · rw [ite_eq_right h57] at hv
       by_cases h70 : b.toNat ≤ 70
-      · rw [if_pos h70] at hv
+      · rw [ite_eq_left h70] at hv
         by_cases h65 : 65 ≤ b.toNat
         · exact decide_eq_true (Or.inr ⟨h65, h70⟩)
-        · rw [if_neg h65] at hv; omega
-      · rw [if_neg h70] at hv; omega
+        · rw [ite_eq_right h65] at hv; omega
+      · rw [ite_eq_right h70] at hv; omega
   rw [foldByte_fixed b hfx]
 
 /-- Case `false`: a lowercase letter. The original nibble is "invalid" (`16`) and
@@ -783,12 +783,12 @@ theorem hexToNibble_foldByte_value (b : UInt8)
     hexToNibble (foldByte b).toNat =
       if hexNibbleValid b.toNat = true then hexToNibble b.toNat else b.toNat - 87 := by
   by_cases hv : hexNibbleValid b.toNat = true
-  · rw [hexToNibble_foldByte_true b hv, if_pos hv]
+  · rw [hexToNibble_foldByte_true b hv, ite_eq_left hv]
   · rcases h with hv' | hl
     · exact absurd hv' hv
     · rw [hexToNibble_foldByte_false b hl]
       have hv' : hexNibbleValid b.toNat = false := by simpa using hv
-      rw [if_neg hv]
+      rw [ite_eq_right hv]
 
 /-- `hexBlockApply` is `none` off a two-element block. -/
 theorem hexBlockApply_none_of_not_len2 {cs : List UInt8} (h : cs.length ≠ 2) :
@@ -813,7 +813,7 @@ theorem hexBlockApply_foldList {cs : List UInt8} {b : UInt8}
         by_cases hc : (hexNibbleValid hi.toNat && hexNibbleValid lo.toNat) = true
         · exact hc
         · simp only [hexBlockApply] at h
-          rw [if_neg (by simpa using hc)] at h
+          rw [ite_eq_right (by simpa using hc)] at h
           exact absurd h (by simp)
       have hv' : hexNibbleValid hi.toNat = true ∧ hexNibbleValid lo.toNat = true := by
         simpa using hv
@@ -828,7 +828,7 @@ theorem hexBlockApply_foldList {cs : List UInt8} {b : UInt8}
         rfl
       have e1 := hexToNibble_foldByte_value hi (Or.inl hv'.1)
       have e2 := hexToNibble_foldByte_value lo (Or.inl hv'.2)
-      simp only [hexBlockApply, foldList_cons, foldList_nil, hb2, if_true,
+      simp only [hexBlockApply, foldList_cons, foldList_nil, hb2, ite_true,
         e1, e2, hv'.1, hv'.2] at h ⊢
       exact h
   | [] => simp only [hexBlockApply] at h; exact absurd h (by simp)
@@ -983,17 +983,17 @@ theorem hexFixed_of_valid (b : UInt8) (hv : hexNibbleValid b.toNat = true) :
   unfold hexToNibble at hv
   unfold hexFixed
   by_cases h57 : b.toNat ≤ 57
-  · rw [if_pos h57] at hv
+  · rw [ite_eq_left h57] at hv
     by_cases h48 : 48 ≤ b.toNat
     · exact decide_eq_true (Or.inl ⟨h48, h57⟩)
-    · rw [if_neg h48] at hv; omega
-  · rw [if_neg h57] at hv
+    · rw [ite_eq_right h48] at hv; omega
+  · rw [ite_eq_right h57] at hv
     by_cases h70 : b.toNat ≤ 70
-    · rw [if_pos h70] at hv
+    · rw [ite_eq_left h70] at hv
       by_cases h65 : 65 ≤ b.toNat
       · exact decide_eq_true (Or.inr ⟨h65, h70⟩)
-      · rw [if_neg h65] at hv; omega
-    · rw [if_neg h70] at hv; omega
+      · rw [ite_eq_right h65] at hv; omega
+    · rw [ite_eq_right h70] at hv; omega
 
 /-- **RFC 4648 §8 on one block.** The same block decodes to the same byte whether
 spelled with uppercase or lowercase digits. -/
@@ -1062,8 +1062,8 @@ theorem decodeHexFold_lowercase_eq :
   show foldByte ((if i.val = 0 then 0x36 else 0x66) : UInt8) =
     foldByte ((if i.val = 0 then 0x36 else 0x46) : UInt8)
   by_cases h : i.val = 0
-  · rw [if_pos h, if_pos h]
-  · rw [if_neg h, if_neg h]
+  · rw [ite_eq_left h, ite_eq_left h]
+  · rw [ite_eq_right h, ite_eq_right h]
     rw [foldByte_folded 0x66 (by decide) (by decide),
         foldByte_fixed 0x46 (by decide)]
     decide
