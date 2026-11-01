@@ -35,7 +35,17 @@ open BaseN.Common
 def bitVal (e : Nat) : Nat :=
   if e = 48 then 0 else if e = 49 then 1 else 2
 
-/-- `valToBit b` — the `0`/`1` character for bit `b` (`b ∈ {0,1}`, else `49`). -/
+/-- `valToBit b` — the `0`/`1` character for bit `b` (`b ∈ {0,1}`).
+
+**Deliberately asymmetric fallback.** This is the inverse direction of
+`bitVal`, and the two sentinels differ on purpose. `bitVal` returns `2` for an
+invalid character — out of the `{0,1}` range, so `bitValid` (defined as
+`bitVal e ≤ 1`) can detect it. `valToBit` has no such in-band sentinel: every
+`b ≠ 0` maps to `'1'` (49), so `valToBit 7 = 49 = valToBit 1`. That is sound
+only because every *use* supplies a proof `b ≤ 1` (`valToBit_valid`,
+`valToBit_lt_256`, `bitVal_valToBit`), so the total fallback is never reached
+in a proved context. Do not "fix" one sentinel to match the other: `2` is not
+a character and `48` would silently alias `b = 0`. -/
 def valToBit (b : Nat) : Nat :=
   if b = 0 then 48 else 49
 
