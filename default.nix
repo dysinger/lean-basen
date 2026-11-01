@@ -6,12 +6,21 @@
 # Takes the Lean 4 toolchain (the `lean4` derivation) as concrete inputs — no
 # `pkgs` blob, no overlay assumption — and returns:
 #   - `native` — the `lake build` library (`.olean` artifacts + `libbasen.a`),
-#   - `check`  — the Lean proof-validation gate (`lake build` with no `sorry`).
+#   - `check`  — the Lean proof-validation gate (`lake build` with no `sorry`),
+#   - `bench`  — the byte-exact vector bench lane (`lake build bench`).
 #
 # `native`/`check` are the SAME `lake build`; `check` is the proof gate and
-# `native` is the installable library.  The `codec` dependency is injected as a
-# flake input by the consumer, and via `require codec from git` for the
-# no-flakes dev loop (see `lakefile.lean`).
+# `native` is the installable library.  `bench` is a *separate* target on
+# purpose: it is the RFC 4648 §10 / hand-vector value check, not a proof, so it
+# must not be able to fail the gate and must not be required by it.
+#
+# `bench` is an `lean_exe` whose value checks are `example … := rfl`, so it has
+# to be *built* (Lake elaborates the module) and then *run* for the check to
+# happen — see `bench`'s `installPhase` below.  Marking it a package without
+# running it would build the executable and verify nothing.
+#
+# The `codec` dependency is injected as a flake input by the consumer, and via
+# `require codec from git` for the no-flakes dev loop (see `lakefile.lean`).
 #
 # Plain nixpkgs `lean4`; the codecs are pure Lean (no per-format C, no
 # @[extern] seam), so every law stays `[propext, Quot.sound]`-only.
@@ -110,6 +119,23 @@ in
       runHook preInstall
       # The check is the build itself (zero `sorry`); produce an empty `$out`.
       mkdir -p "$out"
+      runHook postInstall
+    '';
+  };
+
+  bench = mkLakeBuild {
+    name = "bench";
+    description = "${meta.description} (byte-exact vector bench lane)";
+    targets = "bench";
+    mainProgram = "bench";
+    install = ''
+      runHook preInstall
+      mkdir -p "$out/bin"
+      cp .lake/build/bin/bench "$out/bin/bench"
+      # Build it *and* run it: the lane's value checks are `example … := rfl`,
+      # which Lake only elaborates while compiling the executable.  A build that
+      # is not run has verified nothing, so `nix build .#bench` must execute it.
+      "./.lake/build/bin/bench"
       runHook postInstall
     '';
   };
