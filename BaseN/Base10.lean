@@ -84,8 +84,6 @@ theorem valToDig_digVal_of_valid (e : Nat) (h : digValid e = true) :
 /-- The reconstruction identity: `(v/100)*100 + ((v/10)%10)*10 + v%10 = v`. -/
 theorem dig_sum_eq (v : Nat) :
     (v / 100) * 100 + ((v / 10) % 10) * 10 + v % 10 = v := by
-  have hdiv100 := Nat.div_add_mod v 100
-  have hdiv10 := Nat.div_add_mod v 10
   omega
 
 /-- Uniqueness of the decimal decomposition: equal sums of digit triples (each
