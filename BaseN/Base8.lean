@@ -87,8 +87,6 @@ theorem valToOct_octToVal_of_valid (e : Nat) (h : octValid e = true) :
 /-- The reconstruction identity: `(v/64)*64 + ((v/8)%8)*8 + v%8 = v`. -/
 theorem oct_sum_eq (v : Nat) :
     (v / 64) * 64 + ((v / 8) % 8) * 8 + v % 8 = v := by
-  have hdiv64 := Nat.div_add_mod v 64
-  have hdiv8 := Nat.div_add_mod v 8
   omega
 
 /-- Uniqueness of the octal decomposition: equal sums of digit triples (each
@@ -99,18 +97,12 @@ theorem oct_decompose_unique (a b c d e f : Nat)
     a = d ∧ b = e ∧ c = f := by
   have ha_d : a = d := by
     have hm := congrArg (fun x => x / 64) h
-    have hmod : b * 8 + c < 64 := by omega
-    have hmod' : e * 8 + f < 64 := by omega
     have hm' : (a * 64 + b * 8 + c) / 64 = a := by omega
     have hm'' : (d * 64 + e * 8 + f) / 64 = d := by omega
     rw [hm', hm''] at hm
     exact hm
   have hbe : b = e := by
     have hm := congrArg (fun x => (x % 64) / 8) h
-    have hmod : b * 8 + c < 64 := by omega
-    have hmod' : e * 8 + f < 64 := by omega
-    have hc8 : c < 8 := by omega
-    have hf8 : f < 8 := by omega
     have hm' : ((a * 64 + b * 8 + c) % 64) / 8 = b := by omega
     have hm'' : ((d * 64 + e * 8 + f) % 64) / 8 = e := by omega
     rw [hm', hm''] at hm
