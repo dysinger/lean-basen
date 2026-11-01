@@ -48,6 +48,13 @@
         packages.default = _pkg.native;
         packages.native = _pkg.native;
 
+        # The byte-exact vector bench lane (`lake build bench` + run).  A
+        # *package*, not a `checks` entry: it value-checks known vectors, which
+        # is evidence, not a proof, so it must not fail the proof gate.  Its
+        # `installPhase` runs the executable, so `nix build .#bench` verifies
+        # the vectors as a build failure rather than merely producing a binary.
+        packages.bench = _pkg.bench;
+
         # Lean proof validation: the same `lake build`, no `sorry` (the gate).
         checks.lean = _pkg.check;
         # Formatting check (treefmt).
