@@ -119,8 +119,8 @@ theorem valToB64_lt_256 (i : Nat) (_hi : i ≤ 63) : valToB64 i < 256 := by
 
 -- Byte extraction identities (the structural inverses)
 
-/-- `byte0 v0 v1` — first byte reconstruction from the two leading chars. -/
-theorem byte0 (v0 v1 : Nat) (_hv0 : v0 < 256) (hv1 : v1 < 256) :
+/-- `byte0Of v0 v1` — first byte reconstruction from the two leading chars. -/
+theorem byte0Of (v0 v1 : Nat) (_hv0 : v0 < 256) (hv1 : v1 < 256) :
     (v0 / 4) * 4 + ((v0 % 4) * 16 + v1 / 16) / 16 = v0 := by
   have hd : v1 / 16 < 16 := by omega
   have hm : v0 % 4 < 16 := by omega
@@ -132,8 +132,8 @@ theorem byte0 (v0 v1 : Nat) (_hv0 : v0 < 256) (hv1 : v1 < 256) :
     simpa [Nat.mul_comm] using h
   omega
 
-/-- `byte1 v0 v1` — second byte reconstruction from the 2-byte tail chars. -/
-theorem byte1 (v0 v1 : Nat) (_hv0 : v0 < 256) (hv1 : v1 < 256) :
+/-- `byte1Of v0 v1` — second byte reconstruction from the 2-byte tail chars. -/
+theorem byte1Of (v0 v1 : Nat) (_hv0 : v0 < 256) (hv1 : v1 < 256) :
     ((v0 % 4) * 16 + v1 / 16) % 16 * 16 + ((v1 % 16) * 4) / 4 = v1 := by
   have hmod : ((v0 % 4) * 16 + v1 / 16) % 16 = v1 / 16 := by
     have h := Nat.add_mul_mod_self_right (v0 % 4) (v1 / 16) 16
@@ -145,8 +145,8 @@ theorem byte1 (v0 v1 : Nat) (_hv0 : v0 < 256) (hv1 : v1 < 256) :
     simpa [Nat.mul_comm] using h
   omega
 
-/-- `byte2 v1 v2` — third byte reconstruction from the 3-byte block chars. -/
-theorem byte2 (v1 v2 : Nat) (_hv1 : v1 < 256) (hv2 : v2 < 256) :
+/-- `byte2Of v1 v2` — third byte reconstruction from the 3-byte block chars. -/
+theorem byte2Of (v1 v2 : Nat) (_hv1 : v1 < 256) (hv2 : v2 < 256) :
     ((v1 % 16) * 4 + v2 / 64) % 4 * 64 + (v2 % 64) = v2 := by
   have hmod : ((v1 % 16) * 4 + v2 / 64) % 4 = v2 / 64 := by
     have h := Nat.add_mul_mod_self_left (v1 % 16) (v2 / 64) 4
@@ -288,7 +288,7 @@ theorem b64BlockDecodeLenient_unapply_single (b0 : UInt8) :
   rw [b64ToVal_valToB64 (b0.toNat / 4) h0, b64ToVal_valToB64 ((b0.toNat % 4) * 16) h1]
   simp only [hnp0, hnp1]
   have hb0v : (b0.toNat / 4) * 4 + (((b0.toNat % 4) * 16) / 16) = b0.toNat :=
-    byte0 b0.toNat 0 hb0 (by decide)
+    byte0Of b0.toNat 0 hb0 (by decide)
   rw [hb0v]
   simp [toByte, UInt8.ofNat_toNat]
 
@@ -313,12 +313,12 @@ theorem b64BlockDecodeLenient_unapply_pair (b0 b1 : UInt8) :
   rw [hvd0, hvd1]
   rw [b64ToVal_valToB64 (b0.toNat / 4) h0, b64ToVal_valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16) h1]
   simp only [hnp0, hnp1]
-  have hb0v : (b0.toNat / 4) * 4 + (((b0.toNat % 4) * 16 + b1.toNat / 16) / 16) = b0.toNat := byte0 b0.toNat b1.toNat hb0 hb1
+  have hb0v : (b0.toNat / 4) * 4 + (((b0.toNat % 4) * 16 + b1.toNat / 16) / 16) = b0.toNat := byte0Of b0.toNat b1.toNat hb0 hb1
   rw [hb0v]
   rw [hvd2]
   rw [b64ToVal_valToB64 ((b1.toNat % 16) * 4) h2]
   simp only [hnp2]
-  have hb1v : (((b0.toNat % 4) * 16 + b1.toNat / 16) % 16) * 16 + (((b1.toNat % 16) * 4) / 4) = b1.toNat := byte1 b0.toNat b1.toNat hb0 hb1
+  have hb1v : (((b0.toNat % 4) * 16 + b1.toNat / 16) % 16) * 16 + (((b1.toNat % 16) * 4) / 4) = b1.toNat := byte1Of b0.toNat b1.toNat hb0 hb1
   rw [hb1v]
   simp [toByte, UInt8.ofNat_toNat]
 
@@ -347,7 +347,7 @@ theorem b64BlockDecodeLenient_unapply_triple (b0 b1 b2 : UInt8) :
   rw [hvd0, hvd1]
   rw [b64ToVal_valToB64 (b0.toNat / 4) h0, b64ToVal_valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16) h1]
   simp only [hnp0, hnp1]
-  have hb0v : (b0.toNat / 4) * 4 + (((b0.toNat % 4) * 16 + b1.toNat / 16) / 16) = b0.toNat := byte0 b0.toNat b1.toNat hb0 hb1
+  have hb0v : (b0.toNat / 4) * 4 + (((b0.toNat % 4) * 16 + b1.toNat / 16) / 16) = b0.toNat := byte0Of b0.toNat b1.toNat hb0 hb1
   rw [hb0v]
   rw [hvd2]
   rw [b64ToVal_valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64) h2]
@@ -366,7 +366,7 @@ theorem b64BlockDecodeLenient_unapply_triple (b0 b1 b2 : UInt8) :
   rw [hvd3]
   rw [b64ToVal_valToB64 (b2.toNat % 64) h3]
   simp only [hnp3]
-  have hb2v : (((b1.toNat % 16) * 4 + b2.toNat / 64) % 4) * 64 + (b2.toNat % 64) = b2.toNat := byte2 b1.toNat b2.toNat hb1 hb2
+  have hb2v : (((b1.toNat % 16) * 4 + b2.toNat / 64) % 4) * 64 + (b2.toNat % 64) = b2.toNat := byte2Of b1.toNat b2.toNat hb1 hb2
   rw [hb2v]
   simp [toByte, UInt8.ofNat_toNat]
 /-- The inverse law: `apply` and `unapply` are mutual inverses. -/
