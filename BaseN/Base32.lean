@@ -2577,6 +2577,33 @@ theorem decodeFullB32_reject_bad_length : decodeFullB32 myTwo = none := by
           subst m
           omega
 
+/-! ## Pad-bit canonicality (RFC 4648 §3.5)
+
+RFC 4648 §3.5: the unused bits of the final base32 character MUST be zero.
+A tail with non-zero spare bits is a second spelling of the same bytes, so
+accepting it would break bijectivity on canonical inputs. As for base64,
+`b32BlockApply` rejects it structurally — it requires
+`b32BlockUnapply bs = some cs`, i.e. the input must be what the encoder wrote.
+
+The one-byte tail is the case with spare bits (`MY======`, where `Y` carries 2
+payload bits and 3 spare); the 2/3/4/5-byte tails end on a full 5-bit character
+and have none. -/
+
+/-- **§3.5, 1-byte tail.** The second character of a canonical `[v0]` tail has
+3 zero pad bits: its decoded value is `(v0 % 8) * 4`, a multiple of 4. -/
+theorem b32Tail1_pad_bits (v0 : UInt8) :
+    b32ToVal (toByte (valToB32 ((v0.toNat % 8) * 4))).toNat = (v0.toNat % 8) * 4 := by
+  have hv : v0.toNat < 256 := UInt8.toNat_lt v0
+  have h7 : v0.toNat % 8 ≤ 7 := by omega
+  have hle : (v0.toNat % 8) * 4 ≤ 31 := by omega
+  rw [toByte_valToB32 ((v0.toNat % 8) * 4) hle, b32ToVal_valToB32 ((v0.toNat % 8) * 4) hle]
+
+/-- **§3.5, 1-byte tail.** Those 3 spare bits really are zero. -/
+theorem b32Tail1_pad_bits_mod4 (v0 : UInt8) :
+    b32ToVal (toByte (valToB32 ((v0.toNat % 8) * 4))).toNat % 4 = 0 := by
+  rw [b32Tail1_pad_bits v0]
+  omega
+
 /-! ## Conformance: canonical encoding (task 4.2, base32)
 
 The whole-input `encodeB32` output is canonical: alphabet-only full blocks
