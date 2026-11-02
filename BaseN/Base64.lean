@@ -2095,6 +2095,60 @@ theorem decodeFullB64_reject_bad_length : decodeFullB64 zgTwo = none := by
           subst m
           omega
 
+/-! ## Pad-bit canonicality (RFC 4648 §3.5)
+
+RFC 4648 §3.5: "the pad bits MUST be set to zero" for the unused bits of the
+final base64 character. A tail whose spare bits are non-zero is a *second*
+spelling of the same bytes, so a decoder that accepts it is not a bijection on
+canonical inputs. `b64BlockApply` rejects such a tail — not by a special case,
+but because it requires `b64BlockUnapply bs = some cs`, i.e. the input must be
+what the encoder would have written, and the encoder writes zero pad bits.
+
+The lemmas below name that zero-pad-bit fact, so the rejection is stated rather
+than incidental. For a **1-byte** tail the second character carries 2 payload
+bits plus 4 spare; for a **2-byte** tail the third carries 4 payload plus 2.
+
+Concretely, with `b = 0x66`: char 2 is `valToB64 ((2 % 4) * 16) = valToB64 32`,
+whose decoded value is 32 — a multiple of 16. The non-canonical `Zh==` has `'h'`
+there, whose value is 33, so no `b` re-encodes to it. -/
+
+/-- **§3.5, 1-byte tail.** The second character of a canonical `[b]` tail has
+4 zero pad bits: its decoded value is `(b % 4) * 16`, a multiple of 16. -/
+theorem b64Tail1_pad_bits (b : UInt8) :
+    b64ToVal (toByte (valToB64 ((b.toNat % 4) * 16))).toNat = (b.toNat % 4) * 16 := by
+  have hb : b.toNat < 256 := UInt8.toNat_lt b
+  have h3 : b.toNat % 4 ≤ 3 := by omega
+  have hle : (b.toNat % 4) * 16 ≤ 63 := by omega
+  rw [toByte_valToB64 ((b.toNat % 4) * 16) hle, b64ToVal_valToB64 ((b.toNat % 4) * 16) hle]
+
+/-- **§3.5, 1-byte tail.** Those 4 spare bits really are zero. -/
+theorem b64Tail1_pad_bits_mod16 (b : UInt8) :
+    b64ToVal (toByte (valToB64 ((b.toNat % 4) * 16))).toNat % 16 = 0 := by
+  rw [b64Tail1_pad_bits b]
+  omega
+
+/-- **§3.5, 2-byte tail.** The third character of a canonical `[b0, b1]` tail has
+2 zero pad bits: its decoded value is `(b1 % 16) * 4`, a multiple of 4. -/
+theorem b64Tail2_pad_bits (b1 : UInt8) :
+    b64ToVal (toByte (valToB64 ((b1.toNat % 16) * 4))).toNat = (b1.toNat % 16) * 4 := by
+  have hb : b1.toNat < 256 := UInt8.toNat_lt b1
+  have h15 : b1.toNat % 16 ≤ 15 := by omega
+  have hle : (b1.toNat % 16) * 4 ≤ 63 := by omega
+  rw [toByte_valToB64 ((b1.toNat % 16) * 4) hle, b64ToVal_valToB64 ((b1.toNat % 16) * 4) hle]
+
+/-- **§3.5, 2-byte tail.** Those 2 spare bits really are zero. -/
+theorem b64Tail2_pad_bits_mod4 (b1 : UInt8) :
+    b64ToVal (toByte (valToB64 ((b1.toNat % 16) * 4))).toNat % 4 = 0 := by
+  rw [b64Tail2_pad_bits b1]
+  omega
+
+/-- `Zh==` — the non-canonical 1-byte base64 tail (RFC 4648 §3.5, non-zero pad
+bits): the 4 spare bits of `'h'` are `0001` rather than `0000`. -/
+def b64Zh : Bytes 4 := fun i : Fin 4 => [0x5A, 0x68, 0x3D, 0x3D][i]
+
+/-- `Zm9=` — the non-canonical 2-byte base64 tail (2 spare bits set). -/
+def b64Zm9 : Bytes 4 := fun i : Fin 4 => [0x5A, 0x6D, 0x39, 0x3D][i]
+
 /-! ## Conformance: canonical encoding (task 4.2, base64)
 
 The whole-input `encodeB64` output is canonical: alphabet-only full blocks
