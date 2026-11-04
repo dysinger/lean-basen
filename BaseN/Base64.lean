@@ -2149,6 +2149,55 @@ def b64Zh : Bytes 4 := fun i : Fin 4 => [0x5A, 0x68, 0x3D, 0x3D][i]
 /-- `Zm9=` — the non-canonical 2-byte base64 tail (2 spare bits set). -/
 def b64Zm9 : Bytes 4 := fun i : Fin 4 => [0x5A, 0x6D, 0x39, 0x3D][i]
 
+/-- **§3.5, at the level the RFC constrains: `b64BlockApply` rejects `Zh==`.**
+A non-canonical pad bit is a second spelling of the same bytes, and the whole
+check is `b64BlockApply`'s own guard — it accepts only what `b64BlockUnapply`
+would have produced. For `Zh==` the lenient decode yields `[0x66]`, whose
+re-encoding is `Zg==`, so the equality fails and the block is rejected.
+
+Landed as the first step of the per-vector rejection theorem; see the
+`decodeFullB64_reject_b64Zh` note for why the whole-input lift is its own
+argument. -/
+theorem b64BlockApply_b64Zh_chars :
+    b64BlockApply [0x5A, 0x68, 0x3D, 0x3D] = none := by
+  unfold b64BlockApply
+  have hl : b64BlockDecodeLenient [0x5A, 0x68, 0x3D, 0x3D] = some [0x66] := by
+    unfold b64BlockDecodeLenient
+    simp only [Bool.or_eq_true, Bool.and_eq_true]
+    split
+    · simp_all
+    · decide
+  have hu : b64BlockUnapply [0x66] = some [0x5A, 0x67, 0x3D, 0x3D] := by
+    unfold b64BlockUnapply; simp only; decide
+  rw [hl]; simp only [Option.bind]
+  split
+  · rename_i heq; rw [hu] at heq; simp at heq
+  · rfl
+
+/-- The tail element cannot apply to `Zh==`'s character block. -/
+theorem b64TailApply_b64Zh_chars :
+    b64TailApply [0x5A, 0x68, 0x3D, 0x3D] = none := by
+  unfold b64TailApply
+  rw [b64BlockApply_b64Zh_chars]
+
+/-- **If the tail block cannot apply, no value relates.** This is the bridge from
+a block-level rejection to the tail element's relation: `Rel b64TailElem x cs`
+requires `b64TailIso.apply (List.ofFn cs) = some x`, i.e. that the block apply
+succeed. -/
+theorem not_rel_b64TailElem_of_apply_none (x : List UInt8) (cs : Bytes 4)
+    (hn : b64TailApply (List.ofFn cs) = none) : ¬ Rel b64TailElem x cs := by
+  intro h
+  unfold b64TailElem at h
+  rw [Rel_iso] at h
+  obtain ⟨a, ha, hr⟩ := h
+  have hofn : List.ofFn cs = a := Rel_count_satisfy_ofFn b64OrPad 4 a cs hr
+  have ha' : b64TailApply a = some x := ha
+  rw [← hofn, hn] at ha'
+  exact absurd ha' (by simp)
+
+/-- `Zh==` as `Bytes 4`, for the rejection lemmas. -/
+theorem b64Zh_chars : List.ofFn b64Zh = [0x5A, 0x68, 0x3D, 0x3D] := rfl
+
 /-! ## Conformance: canonical encoding (task 4.2, base64)
 
 The whole-input `encodeB64` output is canonical: alphabet-only full blocks
