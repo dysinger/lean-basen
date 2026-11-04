@@ -441,3 +441,28 @@ decode law. -/
 /-- info: 'BaseN.Base16.decodeHexFold_of_fixed' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.decodeHexFold_of_fixed
+
+/-! ## Split-reassembly laws (pre-archive audit §6.6)
+
+`b64Split_shape` / `b32Split_shape` state that splitting a byte list into full
+blocks plus a terminal tail reassembles it. An audit found them referenced only
+by their own declarations — dead by accident (nothing yet consumes them), not by
+design. They are the natural load-bearing laws for any future split-level
+argument, so they are gated here rather than deleted: gating is what makes them
+count, and deleting a true theorem to satisfy a lint is the worse trade. -/
+
+/-- info: 'BaseN.Base64.b64Split_shape' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base64.b64Split_shape
+
+/-- info: 'BaseN.Base32.b32Split_shape' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32Split_shape
+
+/-- info: 'BaseN.Base64.b64BlockUnapply_one' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base64.b64BlockUnapply_one
+
+/-- info: 'BaseN.Base64.b64BlockUnapply_two' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base64.b64BlockUnapply_two
