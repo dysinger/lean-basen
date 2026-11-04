@@ -466,3 +466,23 @@ count, and deleting a true theorem to satisfy a lint is the worse trade. -/
 /-- info: 'BaseN.Base64.b64BlockUnapply_two' depends on axioms: [propext] -/
 #guard_msgs in
 #print axioms BaseN.Base64.b64BlockUnapply_two
+
+/-! ## RFC 4648 §3.5 non-canonical pad bits, at the block level (§6.2)
+
+`b64BlockApply_b64Zh_chars` is the §3.5 check stated where the RFC puts it: on
+the block decoder, whose whole definition is the re-encode equality. It is the
+step that makes `Zh==` unrepresentable. `b64TailApply_b64Zh_chars` lifts it to
+the tail element, and `not_rel_b64TailElem_of_apply_none` is the bridge from a
+block-level `none` to the tail element's relation. -/
+
+/-- info: 'BaseN.Base64.b64BlockApply_b64Zh_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base64.b64BlockApply_b64Zh_chars
+
+/-- info: 'BaseN.Base64.b64TailApply_b64Zh_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base64.b64TailApply_b64Zh_chars
+
+/-- info: 'BaseN.Base64.not_rel_b64TailElem_of_apply_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.not_rel_b64TailElem_of_apply_none
