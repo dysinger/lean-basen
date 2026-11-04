@@ -25,10 +25,26 @@ require codec from git "https://github.com/dysinger/lean-codec.git" @ "master"
 @[default_target]
 lean_lib basen where
   roots := #[`BaseN]
+  /- The proof gate, made real. `lake build` only *warns* on `sorry`
+  (`declaration uses 'sorry'`), so a plain build goes green with an incomplete
+  proof — verified in this repo by stubbing a theorem: exit 0 with a warning.
+  `-DwarningAsError=true` promotes that warning to an error, making the
+  **compiler** the authority instead of a parallel `sorry` lint that could drift
+  (`admit`, a tactic-generated `sorryAx`, ...). This mirrors
+  `lean-codec/lakefile.lean`, which does the same for `lean_lib codec`; the flag
+  belongs on the *library* rather than on one consumer so every path that
+  compiles `BaseN` inherits it (including `bench` and the sandboxed
+  `nix build .#checks.lean`). This is what lets `AGENTS.md` and `README.md` call
+  zero-`sorry` *enforced* rather than merely *observed*. -/
+  moreLeanArgs := #["-DwarningAsError=true"]
 
 @[default_target]
 lean_lib Axioms where
   roots := #[`Axioms]
+  /- The same flag, for the same reason. `Axioms` is the `#guard_msgs` gate
+  library, so a `sorry` reaching it must fail too — otherwise the gate could be
+  satisfied by an unproven law. -/
+  moreLeanArgs := #["-DwarningAsError=true"]
 
 lean_exe bench where
   root := `Bench
