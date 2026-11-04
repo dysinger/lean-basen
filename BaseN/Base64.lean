@@ -931,7 +931,7 @@ private theorem concat_empty_eq {n : Nat} (s : Bytes n) :
 
 /-- Decoding an encoded tail with `decodeFull b64TailElem` recovers exactly one
 tail block (or none, for the empty tail). -/
-theorem decodeFull_b64Tail_of_encode (tail : List UInt8) {q : Nat} {st : Bytes q}
+theorem decodeFullB64TailOfEncode (tail : List UInt8) {q : Nat} {st : Bytes q}
     (ht : encodeB64Tail tail = some ⟨q, st⟩) :
     decodeFull b64TailElem b64TailConsumesByte q st = (match tail with | [] => some [] | _ => some [tail]) := by
   cases tail with
@@ -1033,7 +1033,7 @@ theorem decodeFull_b64Tail_suffix_nil {q m : Nat} {st : Bytes q} (sb : Bytes m)
   change decodeFull b64TailElem b64TailConsumesByte (m + q - m)
       (cast (congrArg Bytes (Nat.add_sub_cancel_left m q).symm) st) = some []
   rw [decodeFull_cast b64TailElem b64TailConsumesByte (Nat.add_sub_cancel_left m q).symm st]
-  simpa using decodeFull_b64Tail_of_encode [] ht
+  simpa using decodeFullB64TailOfEncode [] ht
 
 /-- Decoding an encoded *non-empty* tail over a dropped suffix is `some [tail]`. -/
 theorem decodeFull_b64Tail_suffix_cons (tail : List UInt8) {q m : Nat} {st : Bytes q} (sb : Bytes m)
@@ -1046,7 +1046,7 @@ theorem decodeFull_b64Tail_suffix_cons (tail : List UInt8) {q m : Nat} {st : Byt
   change decodeFull b64TailElem b64TailConsumesByte (m + q - m)
       (cast (congrArg Bytes (Nat.add_sub_cancel_left m q).symm) st) = some [tail]
   rw [decodeFull_cast b64TailElem b64TailConsumesByte (Nat.add_sub_cancel_left m q).symm st]
-  have h := decodeFull_b64Tail_of_encode tail ht
+  have h := decodeFullB64TailOfEncode tail ht
   cases tail with
   | nil => exact False.elim (hne rfl)
   | cons x t =>
@@ -1451,7 +1451,7 @@ exactly `m₁` bytes, leaving exactly the terminal tail `m₂`.  Inputs are the
 committed block encode (`henc`), the decoded block prefix (`hblock`), the
 decoded tail (`htail`), the reassembly `t'.prepend s₀ = concat blkBytes tailBytes`,
 and the tail's `m₂ ∈ {0,4}`-plus-pad structure (`hm₂`, `hpad`). -/
-theorem b64_boundary_pin
+theorem b64BoundaryPin
     {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
     (blocks blocks' : List (List UInt8)) (tail'' : List (List UInt8))
     (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
@@ -1542,7 +1542,7 @@ consumes exactly `m₁` bytes), the decoded block prefix `s₀` is exactly `blkB
 `blocks' = blocks`.  This is substep (3) of the whole-input roundtrip: the
 block-run/tail split is unique, so the decoded full blocks are the committed
 full blocks.  `[propext, Quot.sound]`-only. -/
-theorem b64_block_run_of_boundary
+theorem b64BlockRunOfBoundary
     {m₁ m₂ : Nat} (blkBytes : Bytes m₁) (tailBytes : Bytes m₂)
     (blocks blocks' : List (List UInt8))
     (t' : Suffix (m₁ + m₂)) (s₀ : Bytes (m₁ + m₂ - t'.remaining))
@@ -1564,7 +1564,7 @@ theorem b64_block_run_of_boundary
 The roundtrip `decodeFullB64 (encodeB64 bs) = some bs`: the committed encode
 splits `bs` into full blocks `blocks` + a terminal `tail`; the decoder's
 `head?`-of-`filterMap` returns that committed result, and every other candidate
-is equal to it (the block run is unique by `b64_block_run_of_boundary`, the
+is equal to it (the block run is unique by `b64BlockRunOfBoundary`, the
 tail by `b64TailDecodeFull_unambiguous`).  `[propext, Quot.sound]`-only. -/
 
 /-- The committed encode of `bs` produces a `decodeFullB64`-candidate: the block
@@ -1704,11 +1704,11 @@ theorem decodeFullB64_roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n}
                   exact encodeB64Tail_has_pad tail (htail_ne_of_m₂ hm₂ne) het
                 -- the boundary pin
                 have hbnd : t'.remaining = m₂ :=
-                  b64_boundary_pin blkBytes tailBytes blocks blocks' tail' t' s₀ henc hblocks' htailn
+                  b64BoundaryPin blkBytes tailBytes blocks blocks' tail' t' s₀ henc hblocks' htailn
                     hs.symm hm₂ hpad
                 -- block-run uniqueness
                 have hblocks_eq : blocks' = blocks :=
-                  b64_block_run_of_boundary blkBytes tailBytes blocks blocks' t' s₀ henc hblocks'
+                  b64BlockRunOfBoundary blkBytes tailBytes blocks blocks' t' s₀ henc hblocks'
                     hs.symm hbnd
                 -- extract x from the filter step
                 have hx : x = blocks'.flatten ++ tail'.flatten := by
@@ -1741,7 +1741,7 @@ theorem decodeFullB64_roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n}
                       have het' : encodeB64Tail [] = some ⟨m₂, tailBytes⟩ := by
                         simpa [htailc] using het
                       have htail_enc' : decodeFull b64TailElem b64TailConsumesByte m₂ tailBytes = some [] := by
-                        simpa using (decodeFull_b64Tail_of_encode [] het')
+                        simpa using (decodeFullB64TailOfEncode [] het')
                       have htail' : tail' = [] := (Option.some.inj (htail_enc'.symm.trans htaildec'')).symm
                       rw [htail']
                       rfl
@@ -1749,7 +1749,7 @@ theorem decodeFullB64_roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n}
                       have het' : encodeB64Tail (b :: rest) = some ⟨m₂, tailBytes⟩ := by
                         simpa [htailc] using het
                       have htail_enc' : decodeFull b64TailElem b64TailConsumesByte m₂ tailBytes = some [b :: rest] := by
-                        simpa using (decodeFull_b64Tail_of_encode (b :: rest) het')
+                        simpa using (decodeFullB64TailOfEncode (b :: rest) het')
                       have htail' : tail' = [b :: rest] := (Option.some.inj (htail_enc'.symm.trans htaildec'')).symm
                       rw [htail']
                       simp
