@@ -2198,6 +2198,35 @@ theorem not_rel_b64TailElem_of_apply_none (x : List UInt8) (cs : Bytes 4)
 /-- `Zh==` as `Bytes 4`, for the rejection lemmas. -/
 theorem b64Zh_chars : List.ofFn b64Zh = [0x5A, 0x68, 0x3D, 0x3D] := rfl
 
+/-- `Zm9=` as `Bytes 4`, for the rejection lemmas. -/
+theorem b64Zm9_chars : List.ofFn b64Zm9 = [0x5A, 0x6D, 0x39, 0x3D] := rfl
+
+/-- **§3.5, `b64BlockApply` rejects `Zm9=`.** `Zm9` lenient-decodes to
+`[0x66, 0x6F]` (`fo`), whose canonical encoding is `Zm8=` — so the re-encode
+guard fails, exactly as for `Zh==`.  The 2-byte twin of
+`b64BlockApply_b64Zh_chars`. -/
+theorem b64BlockApply_b64Zm9_chars :
+    b64BlockApply [0x5A, 0x6D, 0x39, 0x3D] = none := by
+  unfold b64BlockApply
+  have hl : b64BlockDecodeLenient [0x5A, 0x6D, 0x39, 0x3D] = some [0x66, 0x6F] := by
+    unfold b64BlockDecodeLenient
+    simp only [Bool.or_eq_true, Bool.and_eq_true]
+    split
+    · simp_all
+    · decide
+  have hu : b64BlockUnapply [0x66, 0x6F] = some [0x5A, 0x6D, 0x38, 0x3D] := by
+    unfold b64BlockUnapply; simp only; decide
+  rw [hl]; simp only [Option.bind]
+  split
+  · rename_i heq; rw [hu] at heq; simp at heq
+  · rfl
+
+/-- The tail element cannot apply to `Zm9=`'s character block. -/
+theorem b64TailApply_b64Zm9_chars :
+    b64TailApply [0x5A, 0x6D, 0x39, 0x3D] = none := by
+  unfold b64TailApply
+  rw [b64BlockApply_b64Zm9_chars]
+
 /-! ## Conformance: canonical encoding (task 4.2, base64)
 
 The whole-input `encodeB64` output is canonical: alphabet-only full blocks
@@ -3321,5 +3350,146 @@ theorem decodeFullB64_reject_arity {n : Nat} (s : Bytes n) (hmod : n % 4 ≠ 0) 
   | none => rfl
   | some v =>
       exact absurd (decodeFullB64_arity s v h) hmod
+
+/-! ## §3.5 whole-input rejection of the non-canonical 1-byte / 2-byte tails
+
+Ledger §6.2.  `b64Zh` and `b64Zm9` were orphaned definitions: the §3.5
+rejections were true (`#eval` says `none`) but unstated.  The block-level halves
+and the block-to-relation bridge are `b64BlockApply_b64Zh_chars` /
+`b64TailApply_b64Zh_chars` / `not_rel_b64TailElem_of_apply_none` above; what was
+missing is the **whole-input lift** — that `decodeFullB64` itself says `none`.
+
+**Why this lift is small.**  A base64 full block consumes exactly 4 bytes, so a
+4-byte input cannot populate the block run and leave a non-empty tail: for
+`Zh==`, `decodeRepeat b64BlockElem b64BlockConsumesByte 4 s` yields exactly one
+decomposition, `blocks = []`, `t.remaining = 4`.  There is therefore no
+`relRepeat_cons` split over the block run to reason through and no `splice`
+index bookkeeping — the entire `ZgAAAA`-shaped difficulty (that vector is 8
+bytes) is absent.  The shape is the same as `decodeFullB32_reject_MZ`, at 4
+bytes instead of 8.
+
+The lift is proved once for a **rejected literal block** and then instantiated:
+
+* `decodeFullB64_none_of_pad_at2` — if byte 2 of the input is `=` (so the block
+  run is empty, since full blocks are alphabet-only), and the single tail
+  element's block `sb₁` reads as literal `c` with `b64TailApply c = none`, the
+  decode is `none`.  This is the whole 4-step lift
+  (`cases h : decodeFullB64 s` → `decodeFullB64_some` →
+  `decodeRepeat_nil_mem_eq_id` + `List.ext_getElem` → the bridge).
+* `decodeFullB64_reject_b64Zh` / `decodeFullB64_reject_b64Zm9` — the two
+  per-vector instances, whose only inputs are the literal bytes and the
+  corresponding `b64TailApply … = none` lemma.
+
+`List.ext_getElem` is used to read `sb₁` positionally because
+`List.length_ofFn` cannot be `▸`-applied at the `Fin`-index type. -/
+
+/-- **The 4-step whole-input lift (§6.2).**  Given a 4-byte input, a literal
+`c` its bytes read (positionally) as, a pad position `kp` whose byte in `c` is
+`=`, and a literal tail the encoder refuses (`b64TailApply c = none`),
+`decodeFullB64` is `none`.
+
+The `=` at index `kp` is what makes the block run empty without any `splice`
+reasoning: a full block is 4 bytes of alphabet characters
+(`Rel_b64BlockElem_canonical`), so it cannot contain that `=` — hence it cannot
+consume even one byte, and the run is `[]`.  `kp` is a parameter because the two
+§3.5 tails pad at different widths (`Zh==` at 2, `Zm9=` at 3), and the pad byte
+is read from `c` rather than from `s` so the caller supplies a `decide`-checkable
+literal fact. -/
+private theorem decodeFullB64_none_of_rejected_tail (s : Bytes 4) (c : List UInt8)
+    (kp : Fin 4) (hpad : (s kp).toNat = 61)
+    (hread : List.ofFn s = c)
+    (hnone : b64TailApply c = none) : decodeFullB64 s = none := by
+  cases h : decodeFullB64 s with
+  | none => rfl
+  | some v =>
+      rcases decodeFullB64_some s v h with ⟨blocks, t, tails, hmem, htail, _hlen, _hflat⟩
+      rcases (decodeRepeat_spec b64BlockElem b64BlockConsumesByte blocks 4 s t).1 hmem with
+        ⟨s₁, hs, hrel⟩
+      have hcanon : ∀ i : Fin (4 - t.remaining), b64Char (s₁ i) = true :=
+        relRepeat_forall b64Char (fun x {m} tt ht => Rel_b64BlockElem_canonical (t := tt) ht)
+          blocks (4 - t.remaining) s₁ hrel
+      -- a full block reaching index `kp` would read the `=` pad as an alphabet byte
+      have hstop : ¬ (kp.val < 4 - t.remaining) := by
+        intro hi2
+        have hread2 : s₁ ⟨kp.val, hi2⟩ = s kp := by
+          rw [hs]
+          exact (Codec.prepend_prefix_read t s₁ kp hi2).symm
+        have hch := hcanon ⟨kp.val, hi2⟩
+        unfold b64Char at hch
+        rw [hread2, hpad] at hch
+        rw [show b64Valid 61 = false from rfl] at hch
+        exact Bool.false_ne_true hch
+      -- so the block run is empty
+      have hblocks : blocks = [] := by
+        cases blocks with
+        | nil => rfl
+        | cons b bs =>
+            rw [relRepeat_cons] at hrel
+            rcases hrel with ⟨m, hm, sb, srest, _hsplice, hb, _⟩
+            have hm4 : m = 4 := Rel_b64BlockElem_len b sb hb
+            have h4le : 4 ≤ 4 - t.remaining := by simpa [hm4] using hm
+            have hkp2 : kp.val < 2 := by
+              rcases nat_lt_four kp.val kp.isLt with h | h | h | h <;> omega
+            have hle2 : 4 - t.remaining ≤ kp.val := Nat.le_of_not_gt hstop
+            exact False.elim ((by omega : ¬ (4 : Nat) ≤ kp.val) (Nat.le_trans h4le hle2))
+      subst hblocks
+      rw [relRepeat_nil] at hrel
+      -- the suffix is the whole input, so the tail run must consume all 4 bytes
+      have ht_sid : t = Suffix.id 4 s :=
+        decodeRepeat_nil_mem_eq_id b64BlockElem b64BlockConsumesByte s t hmem
+      have htail_mem : (tails, Suffix.empty t.remaining) ∈
+          decodeRepeat b64TailElem b64TailConsumesByte t.remaining t.bytes :=
+        decodeFull_some b64TailElem b64TailConsumesByte t.bytes tails htail
+      rcases (decodeRepeat_spec b64TailElem b64TailConsumesByte tails t.remaining
+        t.bytes (Suffix.empty t.remaining)).1 htail_mem with ⟨s₂, hs₂, htailrel⟩
+      have htailrel' : relRepeat (Rel b64TailElem) tails t.remaining t.bytes := by
+        have hne : t.bytes = cast (congrArg Bytes (Nat.sub_zero t.remaining)) s₂ := by
+          rw [hs₂]
+          exact prepend_empty_eq s₂
+        rw [hne]
+        exact (relRepeat_cast (Rel b64TailElem) tails (Nat.sub_zero t.remaining) s₂).1 htailrel
+      subst ht_sid
+      dsimp [Suffix.id] at htailrel' hrel
+      cases tails with
+      | nil =>
+          rw [relRepeat_nil] at htailrel'
+          exact False.elim ((by omega : ¬ (4 : Nat) = 0) htailrel')
+      | cons x xs =>
+          rw [relRepeat_cons] at htailrel'
+          rcases htailrel' with ⟨m₁, hm₁, sb₁, srest, hsplice, hx, hrest⟩
+          have hm₁4 : m₁ = 4 := Rel_b64TailElem_len x sb₁ hx
+          subst hm₁4
+          have hsb : List.ofFn sb₁ = c := by
+            have hread₄ : ∀ k (hk : k < 4), sb₁ ⟨k, hk⟩ = s ⟨k, hk⟩ := by
+              intro k hk
+              rw [hsplice]
+              exact (Codec.splice_prefix_read (m := 4) (by omega) sb₁ srest ⟨k, hk⟩ hk).symm
+            have : List.ofFn sb₁ = List.ofFn s := by
+              apply List.ext_getElem
+              · simp
+              · intro i hi hi'
+                have hlt : i < 4 := by simpa using hi
+                rw [List.getElem_ofFn, List.getElem_ofFn]
+                exact hread₄ i hlt
+            rw [this, hread]
+          exact False.elim (not_rel_b64TailElem_of_apply_none x sb₁ (by rw [hsb]; exact hnone) hx)
+
+/-- **§3.5 whole-input rejection of `Zh==` (ledger §6.2).** The non-canonical
+1-byte base64 tail is rejected end-to-end: no byte string encodes to it — the
+`'h'` at index 1 carries `0001` where §3.5 requires `0000`. -/
+theorem decodeFullB64_reject_b64Zh : decodeFullB64 (b64Zh : Bytes 4) = none := by
+  refine decodeFullB64_none_of_rejected_tail b64Zh [0x5A, 0x68, 0x3D, 0x3D]
+    ⟨2, by decide⟩ ?_ b64Zh_chars b64TailApply_b64Zh_chars
+  show (b64Zh ⟨2, by decide⟩).toNat = 61
+  decide
+
+/-- **§3.5 whole-input rejection of `Zm9=` (ledger §6.2).** The non-canonical
+2-byte base64 tail: `Zm9` lenient-decodes to `fo`, whose canonical encoding is
+`Zm8=`, so the re-encode guard refuses it. -/
+theorem decodeFullB64_reject_b64Zm9 : decodeFullB64 (b64Zm9 : Bytes 4) = none := by
+  refine decodeFullB64_none_of_rejected_tail b64Zm9 [0x5A, 0x6D, 0x39, 0x3D]
+    ⟨3, by decide⟩ ?_ b64Zm9_chars b64TailApply_b64Zm9_chars
+  show (b64Zm9 ⟨3, by decide⟩).toNat = 61
+  decide
 
 end BaseN.Base64
