@@ -2678,7 +2678,10 @@ mechanism. Each now has its pad-bit lemma, its block-level rejection
 `decodeFullB32_reject_of_pad_and_tail`. -/
 
 /-- **§3.5, 1-byte tail.** The second character of a canonical `[v0]` tail has
-3 zero pad bits: its decoded value is `(v0 % 8) * 4`, a multiple of 4. -/
+**2** zero pad bits: its decoded value is `(v0 % 8) * 4`, a multiple of 4. (A 1-byte
+tail carries 8 payload bits in 2 characters = 10 bits, leaving 2 unused. The earlier
+text said 3, which contradicted both its own `% 4 = 0` statement and the sibling
+`b32Tail2_pad_bits`.) -/
 theorem b32Tail1_pad_bits (v0 : UInt8) :
     b32ToVal (toByte (valToB32 ((v0.toNat % 8) * 4))).toNat = (v0.toNat % 8) * 4 := by
   have hv : v0.toNat < 256 := UInt8.toNat_lt v0
@@ -2686,7 +2689,7 @@ theorem b32Tail1_pad_bits (v0 : UInt8) :
   have hle : (v0.toNat % 8) * 4 ≤ 31 := by omega
   rw [toByte_valToB32 ((v0.toNat % 8) * 4) hle, b32ToVal_valToB32 ((v0.toNat % 8) * 4) hle]
 
-/-- **§3.5, 1-byte tail.** Those 3 spare bits really are zero. -/
+/-- **§3.5, 1-byte tail.** Those **2** spare bits really are zero. -/
 theorem b32Tail1_pad_bits_mod4 (v0 : UInt8) :
     b32ToVal (toByte (valToB32 ((v0.toNat % 8) * 4))).toNat % 4 = 0 := by
   rw [b32Tail1_pad_bits v0]
@@ -2710,9 +2713,11 @@ theorem b32Tail2_pad_bits_mod16 (v1 : UInt8) :
   omega
 
 /-- **§3.5, 3-byte tail.** The fifth character of a canonical `[v0, v1, v2]` tail
-has **3** zero pad bits: its decoded value is `(v2 % 16) * 2`, a multiple of 2. A
-3-byte tail carries 24 payload bits, leaving 1 of the 25 bits of five characters
-unused. -/
+has **1** zero pad bit: its decoded value is `(v2 % 16) * 2`, a multiple of 2. A
+3-byte tail carries 24 payload bits in five characters = 25 bits, leaving 1 unused.
+The earlier text said "3 zero pad bits" while its own next sentence correctly said
+"leaving 1 ... unused"; the statement (`% 2 = 0`) was always right, only the prose
+was wrong. -/
 theorem b32Tail3_pad_bits (v2 : UInt8) :
     b32ToVal (toByte (valToB32 ((v2.toNat % 16) * 2))).toNat = (v2.toNat % 16) * 2 := by
   have hv : v2.toNat < 256 := UInt8.toNat_lt v2
@@ -2720,7 +2725,7 @@ theorem b32Tail3_pad_bits (v2 : UInt8) :
   have hle : (v2.toNat % 16) * 2 ≤ 31 := by omega
   rw [toByte_valToB32 ((v2.toNat % 16) * 2) hle, b32ToVal_valToB32 ((v2.toNat % 16) * 2) hle]
 
-/-- **§3.5, 3-byte tail.** Those 3 spare bits really are zero. -/
+/-- **§3.5, 3-byte tail.** That **1** spare bit really is zero. -/
 theorem b32Tail3_pad_bits_mod2 (v2 : UInt8) :
     b32ToVal (toByte (valToB32 ((v2.toNat % 16) * 2))).toNat % 2 = 0 := by
   rw [b32Tail3_pad_bits v2]
