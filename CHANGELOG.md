@@ -71,11 +71,16 @@ change, no `nix flake update`, and no toolchain rebuild; the gates were re-run t
 confirm nothing moved (13 / 25 / 45 / 24 jobs).
 
 For context, since "is 4.34.1 current?" came up: upstream's stable is 4.35.0
-(2026-10-12) and nixpkgs master now carries it, so 4.34.1 is **one release (18
-days) behind** — current, not stale. Moving to 4.35.0 was declined as an
-unnecessary rebuild, which is a separate decision from this fix. The remaining
-honest option, if ever wanted, is to _delete_ the file rather than maintain a pin
-nothing reads; that is an owner call, but it is no longer an inconsistency.
+(2026-10-12) and nixpkgs master now carries it, so 4.34.1 was **one release (18
+days) behind** — current, not stale. At the time of that fix, moving to 4.35.0 was
+deferred as an unnecessary rebuild; **it was later taken** (see "Toolchain: upgraded
+to Lean 4.35.0" above, and `lean-toolchain` now pins `v4.35.0`). The remaining honest
+option, if ever wanted, is to _delete_ `lean-toolchain` rather than maintain a pin
+nothing reads — that is an owner call, but it is no longer an inconsistency.
+
+(An earlier version of this paragraph said the move "was declined" as though it were
+still the plan, contradicting the section 30 lines above. That was exactly the
+self-contradiction shape this repo's `AGENTS.md` names as a defect.)
 
 ## 2026-11-05 — `Zh==` and `Zm9=` are rejected, whole-input
 
