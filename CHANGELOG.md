@@ -7,6 +7,47 @@ the OpenSpec ledger in the sibling `lean-codec` repo
 (`openspec/changes/lean-basen/`) records the task-level detail, and `AGENTS.md`
 records the conventions.
 
+## 2026-11-05 — `MZ======` is rejected, for real this time
+
+Commit `3dfc249` said in its message that `MZ======` "is not an encoding of
+anything". No theorem, definition or vector named `MZ` existed in the file —
+`grep -rn 'MZ' BaseN/Base32.lean` returned zero hits. This release adds the
+theorem that claim was missing (ledger §6.3b).
+
+### Added
+
+- `MZ : Bytes 8` — the `MZ======` character block itself.
+- `b32BlockApply_b32Mz_chars : b32BlockApply MZ-charblock = none` — the §3.5
+  rejection at the block decoder, which is where the RFC puts the constraint.
+  `[propext]`-only.
+- `b32TailApply_b32Mz_chars` — the same, lifted to the tail element.
+  `[propext]`-only.
+- `not_rel_b32TailElem_of_apply_none` — the bridge from a block-level `none` to
+  the tail element's relation; the base32 twin of the base64 one.
+  `[propext, Quot.sound]`-only.
+- `decodeFullB32_reject_MZ : decodeFullB32 MZ = none` — the whole-input
+  theorem. `[propext, Quot.sound]`-only, zero `Classical.choice`.
+
+All four laws are gated in `Axioms.lean`, and the gate was verified
+**load-bearing** by mutation: stubbing `decodeFullB32_reject_MZ` to `sorry`
+fails `lake build` with `error: declaration uses 'sorry'` naming the
+declaration; restoring it is green (25 jobs).
+
+### Notes on the proof
+
+The block-level law needed `b32BlockUnapply [0x66] = some [0x4D, 0x59, …]`
+(`MY======`), **not** the `Zg`-analogue one would guess from the base64 twin:
+`102 / 8 = 12` → `M` and `(102 % 8) * 4 = 24` → `Y`. The re-encoded literal is
+a value in each base's own alphabet, so a ported rejection lemma transfers its
+_shape_ but not its constants — `decide` caught the guess.
+
+The whole-input lift mirrors `decodeFullB64_reject_ZgAAAA`: an 8-char input
+admits no full block containing `=` (a full-block element is alphabet-only), so
+the block run is empty and the single tail element consumes all 8 bytes, at
+which point the bridge applies. This is why §6.3b was simpler than §6.2 and not
+entangled with its `Suffix`/`splice` bookkeeping — **§6.2's base64 whole-input
+lift remains open**; this does not close it.
+
 ## 2026-11-04 — Pre-archive audit: the proof gate made real
 
 A hypercritical pre-archive audit compared this repo against `lean-codec` on
