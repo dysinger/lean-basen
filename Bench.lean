@@ -385,6 +385,28 @@ example : Base32.decodeFullB32 Base32.MZTGMZR = none :=
 -- The canonical counterparts must still decode to the same bytes: the rejection
 -- above is of the *spelling*, not of the payload.
 
+/- **`native_decide` is used below, which the project bans (`Basen.Axioms` header,
+   `AGENTS.md`): it closes a goal through `Lean.ofReduceBool`, i.e. by trusting the
+   compiler's evaluator, so it is outside `[propext, Quot.sound]`. Nothing here is in
+   the gate — `Axioms.lean` imports `BaseN`, never `Bench`, and these are `example`s
+   rather than `theorem`s, so `publicTheorems` cannot see them — which is exactly why
+   the violation went unnoticed.
+
+   Why it is not yet removed: the honest route is `decodeFullB32_char` (`.2`
+   direction) with `encodeB32 [0x66, 0x66] = some ⟨8, MZTA====⟩` as the discharged
+   premise, and that premise is not currently evaluable by `decide`/`rfl` because
+   `encodeB32`'s body nests `b32Split_ofBytes`/`encodeB32'` over `Codec.concat`. It
+   becomes a one-liner once the library supplies the positive counterpart to the
+   existing `b32TailApply_b32MZTR_chars` family (a `b32TailApply_b32MZTA_chars`
+   proving the canonical re-encode at the concrete vector, mirroring the four
+   rejection lemmas it sits beside). Until that lemma exists, these three stay as the
+   only `native_decide` in the ecosystem.
+
+   **They must not be cited as proof.** They are value checks: evidence that the
+   rejections beside them are of the spelling rather than the payload, which is the
+   claim the prose above makes. Removing them would delete that evidence; converting
+   them needs the library lemma above. -/
+
 example : Base32.decodeFullB32 (fun i : Fin 8 =>
       [0x4D, 0x5A, 0x54, 0x41, 0x3D, 0x3D, 0x3D, 0x3D][i]) = some [0x66, 0x66] := by
   native_decide
