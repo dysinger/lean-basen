@@ -7,6 +7,48 @@ the OpenSpec ledger in the sibling `lean-codec` repo
 (`openspec/changes/lean-basen/`) records the task-level detail, and `AGENTS.md`
 records the conventions.
 
+## 2026-11-05 — full axiom-gate coverage, and every lint suppression removed
+
+Two pre-archive audit findings (ledger §6.4 / §6.5), plus the toolchain question
+(§6.10) answered.
+
+### Coverage: 418/418 public theorems gated (was 91/404)
+
+`Axioms.lean`'s own docstring says "an un-gated law is not protected", and by
+its own standard roughly three quarters of the library was unprotected. Every
+remaining public `theorem` is now pinned by a `#guard_msgs` block.
+
+**Measured before writing anything, and the answer was the reassuring one:** all
+315 then-ungated theorems were `#print axioms`'d in a single probe, and every one
+was already clean — 272 `[propext, Quot.sound]`, 32 `[propext]`, 11 axiom-free,
+**zero** `Classical.choice`. So the gap was coverage debt, not a discipline
+failure; no proof needed repair. Final distribution across all 418: 367 / 42 / 12.
+
+The new gates were verified **load-bearing by a real leak**, not a `sorry` stub:
+injecting `Classical.choice` into `Common.Productive_iso` trips three separate
+guards (that law plus two downstream consumers), so a leak fails transitively.
+That is the stronger check — it exercises the axiom half rather than the
+completeness half.
+
+### Lint: every `set_option linter.… false` is gone
+
+Three file-wide switches (`Common.lean`, `Base64.lean`, `Bench.lean`) hid 24
+genuine redundancies — 1 + 2 `unnecessarySimpa` hits and 21 unused `simp only`
+arguments — all now **fixed rather than suppressed**. The bench lane was re-verified after
+minimising its `simp only` sets — corrupting one expected byte (`0x76` → `0x77`
+in the `Zm9v` vector) still fails the build, so tightening the simp sets did not
+turn the value check into a tautology.
+
+### Toolchain pin (§6.10): verified, deliberately not changed
+
+`lean-toolchain` pins `v4.30.0` but **nothing honours it**: `lake build -v` shows
+`…-lean4-4.34.1/bin/lean`, and `default.nix` takes nixpkgs `lean4` with no
+reference to the file. Elan has `v4.30.0` installed but the dev shell's lean
+shadows it on PATH. Both repos are identical here, so it is a shared quirk, not a
+divergence. Recorded rather than repaired: bumping the pin to 4.34.1 and pinning
+the Nix build _down_ to 4.30.0 are different repairs with different risks, and
+neither the ledger nor the READMEs state which was intended.
+
 ## 2026-11-05 — `Zh==` and `Zm9=` are rejected, whole-input
 
 The base64 half of the same story as the entry below. Commit `9d5074e` implied
