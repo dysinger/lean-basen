@@ -39,15 +39,25 @@ minimising its `simp only` sets — corrupting one expected byte (`0x76` → `0x
 in the `Zm9v` vector) still fails the build, so tightening the simp sets did not
 turn the value check into a tautology.
 
-### Toolchain pin (§6.10): verified, deliberately not changed
+### Toolchain pin (§6.10): corrected to match what builds
 
-`lean-toolchain` pins `v4.30.0` but **nothing honours it**: `lake build -v` shows
-`…-lean4-4.34.1/bin/lean`, and `default.nix` takes nixpkgs `lean4` with no
-reference to the file. Elan has `v4.30.0` installed but the dev shell's lean
-shadows it on PATH. Both repos are identical here, so it is a shared quirk, not a
-divergence. Recorded rather than repaired: bumping the pin to 4.34.1 and pinning
-the Nix build _down_ to 4.30.0 are different repairs with different risks, and
-neither the ledger nor the READMEs state which was intended.
+`lean-toolchain` said `v4.30.0` while **nothing honoured it**: `lake build -v`
+showed `…-lean4-4.34.1/bin/lean`, and `default.nix` takes nixpkgs `lean4` with no
+reference to the file (elan has 4.30.0 installed, but the dev shell's lean
+shadows it on PATH). The file now says `v4.34.1`, which is what actually builds.
+
+**This is not a `flake.lock` fix and not an upgrade.** The lock pins a nixpkgs
+that legitimately provides 4.34.1, so the lock was always right — only the
+`lean-toolchain` text was wrong. The edit is one line, with **no** `flake.lock`
+change, no `nix flake update`, and no toolchain rebuild; the gates were re-run to
+confirm nothing moved (13 / 25 / 45 / 24 jobs).
+
+For context, since "is 4.34.1 current?" came up: upstream's stable is 4.35.0
+(2026-10-12) and nixpkgs master now carries it, so 4.34.1 is **one release (18
+days) behind** — current, not stale. Moving to 4.35.0 was declined as an
+unnecessary rebuild, which is a separate decision from this fix. The remaining
+honest option, if ever wanted, is to _delete_ the file rather than maintain a pin
+nothing reads; that is an owner call, but it is no longer an inconsistency.
 
 ## 2026-11-05 — `Zh==` and `Zm9=` are rejected, whole-input
 
