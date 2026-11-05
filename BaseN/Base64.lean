@@ -3392,9 +3392,11 @@ The `=` at index `kp` is what makes the block run empty without any `splice`
 reasoning: a full block is 4 bytes of alphabet characters
 (`Rel_b64BlockElem_canonical`), so it cannot contain that `=` — hence it cannot
 consume even one byte, and the run is `[]`.  `kp` is a parameter because the two
-§3.5 tails pad at different widths (`Zh==` at 2, `Zm9=` at 3), and the pad byte
-is read from `c` rather than from `s` so the caller supplies a `decide`-checkable
-literal fact. -/
+§3.5 tails pad at different widths (`Zh==` at 2, `Zm9=` at 3), and the pad fact
+`hpad` is supplied by the caller as a literal `decide` at `Fin 4` — `Bytes n` is
+a function, so a `Fin s.length` spelling is not even well typed, and an `omega`
+inside a statement's index annotation would be elaborated without the `have`s
+that make it true. -/
 private theorem decodeFullB64_none_of_rejected_tail (s : Bytes 4) (c : List UInt8)
     (kp : Fin 4) (hpad : (s kp).toNat = 61)
     (hread : List.ofFn s = c)
