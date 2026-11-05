@@ -19,8 +19,6 @@ import BaseN.Common
 
 namespace BaseN.Base64
 
-set_option linter.unnecessarySimpa false
-
 open Codec
 open BaseN.Common
 
@@ -2383,7 +2381,7 @@ theorem encodeB64_canonical (bs : List UInt8) {n : Nat} {s : Bytes n}
           cases hpair
           refine ⟨blocks, m₁, m₂, blkBytes, tailBytes, ?_, ?_, ?_, ?_, ?_⟩
           · simpa using heb
-          · simpa [tail] using het
+          · simp
           · exact Codec.ofFn_concat blkBytes tailBytes
           · exact ofFn_mem_b64Char blkBytes (encodeB64Block_nopad blocks (by simpa using heb))
           · rcases b64TailBlock_canonical tail (by simpa using het) with h0 | h1 | h2
@@ -2391,7 +2389,7 @@ theorem encodeB64_canonical (bs : List UInt8) {n : Nat} {s : Bytes n}
               rcases h0 with ⟨_, hm0⟩
               subst m₂
               subst tail
-              simpa [Codec.emptyBytes] using (show List.ofFn (Codec.emptyBytes : Bytes 0) = [] by rfl)
+              simp
             · right; left
               rcases h1 with ⟨b0, hb0, hm4, c0, c1, hofn, hc0, hc1⟩
               subst m₂

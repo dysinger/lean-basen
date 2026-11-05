@@ -107,22 +107,21 @@ A deliberately broken encoder — lowercase alphabet, a short pad run, one pad t
 many, wrong pad placement — changes one of these indices and **fails this file**.
 
 The unfold is deliberately uniform across all eleven vectors, so for a
-multi-block input (e.g. `foobar`) no terminal-tail branch is reachable and some
-of the ticket's simp lemmas are unused; that is why the unused-`simp` linter is
-off for that block only. -/
-
-set_option linter.unusedSimpArgs false
-
-
+multi-block input (e.g. `foobar`) no terminal-tail branch is reachable.  The
+simp sets below were originally wider and the unused-`simp` linter was switched
+off file-wide to stay green; the sets are now minimised instead (only
+`b64Split`/`b64Split_ofBytes_ofBytes`/`encodeB64'`/`encodeB64Tail`/
+`encodeRepeat`, and the base32 twin), so the linter runs at its default strength
+and all three `set_option linter.… false` switches in this repo are gone.  Only
+`encodeRepeat` is `[propext]`-free unfolding; every other lemma the earlier
+ticket listed is genuinely unused here. -/
 
 /-- `0x66` -> `Zg==` (RFC 4648 §10). -/
 example : Base64.encodeB64 [0x66] =
     some ⟨4, fun i : Fin 4 => [0x5A, 0x67, 0x3D, 0x3D][i]⟩ := by
   rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
   simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
-    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
-    Codec.count, Base64.b64TailUnapply,
-    Base64.b64BlockUnapply, Base64.valToB64]
+    Codec.encodeRepeat]
   refine congrArg some ?_
   apply Sigma.ext
   · rfl
@@ -140,9 +139,7 @@ example : Base64.encodeB64 [0x66, 0x6F] =
     some ⟨4, fun i : Fin 4 => [0x5A, 0x6D, 0x38, 0x3D][i]⟩ := by
   rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
   simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
-    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
-    Codec.count, Base64.b64TailUnapply,
-    Base64.b64BlockUnapply, Base64.valToB64]
+    Codec.encodeRepeat]
   refine congrArg some ?_
   apply Sigma.ext
   · rfl
@@ -160,9 +157,7 @@ example : Base64.encodeB64 [0x66, 0x6F, 0x6F] =
     some ⟨4, fun i : Fin 4 => [0x5A, 0x6D, 0x39, 0x76][i]⟩ := by
   rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
   simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
-    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
-    Codec.count, Base64.b64TailUnapply,
-    Base64.b64BlockUnapply, Base64.valToB64]
+    Codec.encodeRepeat]
   refine congrArg some ?_
   apply Sigma.ext
   · rfl
@@ -180,9 +175,7 @@ example : Base64.encodeB64 [0x66, 0x6F, 0x6F, 0x62] =
     some ⟨8, fun i : Fin 8 => [0x5A, 0x6D, 0x39, 0x76, 0x59, 0x67, 0x3D, 0x3D][i]⟩ := by
   rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
   simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
-    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
-    Codec.count, Base64.b64TailUnapply,
-    Base64.b64BlockUnapply, Base64.valToB64]
+    Codec.encodeRepeat]
   refine congrArg some ?_
   apply Sigma.ext
   · rfl
@@ -204,9 +197,7 @@ example : Base64.encodeB64 [0x66, 0x6F, 0x6F, 0x62, 0x61] =
     some ⟨8, fun i : Fin 8 => [0x5A, 0x6D, 0x39, 0x76, 0x59, 0x6D, 0x45, 0x3D][i]⟩ := by
   rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
   simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
-    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
-    Codec.count, Base64.b64TailUnapply,
-    Base64.b64BlockUnapply, Base64.valToB64]
+    Codec.encodeRepeat]
   refine congrArg some ?_
   apply Sigma.ext
   · rfl
@@ -228,9 +219,7 @@ example : Base64.encodeB64 [0x66, 0x6F, 0x6F, 0x62, 0x61, 0x72] =
     some ⟨8, fun i : Fin 8 => [0x5A, 0x6D, 0x39, 0x76, 0x59, 0x6D, 0x46, 0x79][i]⟩ := by
   rw [Base64.encodeB64, Base64.b64Split_ofBytes_ofBytes]
   simp only [Base64.b64Split, Base64.encodeB64', Base64.encodeB64Tail,
-    Codec.encodeRepeat, Codec.encode, Base64.b64TailElem, Base64.b64TailIso,
-    Codec.count, Base64.b64TailUnapply,
-    Base64.b64BlockUnapply, Base64.valToB64]
+    Codec.encodeRepeat]
   refine congrArg some ?_
   apply Sigma.ext
   · rfl
@@ -252,9 +241,7 @@ example : Base32.encodeB32 [0x66] =
     some ⟨8, fun i : Fin 8 => [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D][i]⟩ := by
   rw [Base32.encodeB32, Base32.b32Split_ofBytes_ofBytes]
   simp only [Base32.b32Split, Base32.encodeB32', Base32.encodeB32Tail,
-    Codec.encodeRepeat, Codec.encode, Base32.b32TailElem, Base32.b32TailIso,
-    Codec.count, Base32.b32TailUnapply,
-    Base32.b32BlockUnapply, Base32.valToB32]
+    Codec.encodeRepeat]
   refine congrArg some ?_
   apply Sigma.ext
   · rfl
@@ -276,9 +263,7 @@ example : Base32.encodeB32 [0x66, 0x6F] =
     some ⟨8, fun i : Fin 8 => [0x4D, 0x5A, 0x58, 0x51, 0x3D, 0x3D, 0x3D, 0x3D][i]⟩ := by
   rw [Base32.encodeB32, Base32.b32Split_ofBytes_ofBytes]
   simp only [Base32.b32Split, Base32.encodeB32', Base32.encodeB32Tail,
-    Codec.encodeRepeat, Codec.encode, Base32.b32TailElem, Base32.b32TailIso,
-    Codec.count, Base32.b32TailUnapply,
-    Base32.b32BlockUnapply, Base32.valToB32]
+    Codec.encodeRepeat]
   refine congrArg some ?_
   apply Sigma.ext
   · rfl
@@ -300,9 +285,7 @@ example : Base32.encodeB32 [0x66, 0x6F, 0x6F] =
     some ⟨8, fun i : Fin 8 => [0x4D, 0x5A, 0x58, 0x57, 0x36, 0x3D, 0x3D, 0x3D][i]⟩ := by
   rw [Base32.encodeB32, Base32.b32Split_ofBytes_ofBytes]
   simp only [Base32.b32Split, Base32.encodeB32', Base32.encodeB32Tail,
-    Codec.encodeRepeat, Codec.encode, Base32.b32TailElem, Base32.b32TailIso,
-    Codec.count, Base32.b32TailUnapply,
-    Base32.b32BlockUnapply, Base32.valToB32]
+    Codec.encodeRepeat]
   refine congrArg some ?_
   apply Sigma.ext
   · rfl
@@ -324,9 +307,7 @@ example : Base32.encodeB32 [0x66, 0x6F, 0x6F, 0x62] =
     some ⟨8, fun i : Fin 8 => [0x4D, 0x5A, 0x58, 0x57, 0x36, 0x59, 0x51, 0x3D][i]⟩ := by
   rw [Base32.encodeB32, Base32.b32Split_ofBytes_ofBytes]
   simp only [Base32.b32Split, Base32.encodeB32', Base32.encodeB32Tail,
-    Codec.encodeRepeat, Codec.encode, Base32.b32TailElem, Base32.b32TailIso,
-    Codec.count, Base32.b32TailUnapply,
-    Base32.b32BlockUnapply, Base32.valToB32]
+    Codec.encodeRepeat]
   refine congrArg some ?_
   apply Sigma.ext
   · rfl
@@ -348,9 +329,7 @@ example : Base32.encodeB32 [0x66, 0x6F, 0x6F, 0x62, 0x61] =
     some ⟨8, fun i : Fin 8 => [0x4D, 0x5A, 0x58, 0x57, 0x36, 0x59, 0x54, 0x42][i]⟩ := by
   rw [Base32.encodeB32, Base32.b32Split_ofBytes_ofBytes]
   simp only [Base32.b32Split, Base32.encodeB32', Base32.encodeB32Tail,
-    Codec.encodeRepeat, Codec.encode, Base32.b32TailElem, Base32.b32TailIso,
-    Codec.count, Base32.b32TailUnapply,
-    Base32.b32BlockUnapply, Base32.valToB32]
+    Codec.encodeRepeat]
   refine congrArg some ?_
   apply Sigma.ext
   · rfl

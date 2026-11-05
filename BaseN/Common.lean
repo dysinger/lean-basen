@@ -19,8 +19,6 @@ Everything here is `[propext, Quot.sound]`-only, stdlib-only (no mathlib, no
 
 namespace BaseN.Common
 
-set_option linter.unnecessarySimpa false
-
 open Codec
 
 /-! ## Generic productivity lemmas (composition preserves `Productive`) -/
@@ -631,7 +629,7 @@ theorem decodeRepeat_nil_mem_eq_id {α : Type} (p : Codec α) (h : ConsumesByte 
     rw [List.mem_map] at ha
     rcases ha with ⟨b, _, hb⟩
     rcases b with ⟨xs, _⟩
-    simpa using hb
+    simp at hb
 
 /-! ## Block-run facts shared by the padded bases (task 6.8)
 
