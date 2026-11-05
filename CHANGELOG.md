@@ -39,12 +39,30 @@ minimising its `simp only` sets — corrupting one expected byte (`0x76` → `0x
 in the `Zm9v` vector) still fails the build, so tightening the simp sets did not
 turn the value check into a tautology.
 
+### Toolchain: upgraded to Lean 4.35.0
+
+`lean4` 4.34.1 → **4.35.0** (nixpkgs `1d06008`, 2026-11-03), and `codec` →
+`3277d48`. This was taken because the cost turned out to be **one line**, not a
+rebuild: the 4.35.0 toolchain is a cache substitution (`cache.nixos.org` serves
+it, HTTP 200), and compiling both libraries against it first showed `basen`
+needed **no** source changes at all — `lake build` 25, `bench` 45, `Axioms` 24,
+all green as-is. The single break was in `codec`, `Codec/Packed.lean`'s
+`decodeFullArraySearch_cons`, where 4.35.0 closes the goal at the `conv`+`rw`
+that 4.34.1 left open; the fix is a `first | (tail) | skip` wrapper chosen so
+the law stays green on _both_ toolchains.
+
+**A segfault worth knowing about:** immediately after the bump,
+`lake build bench` aborted with `lean::exception: unsupported IRType` (exit
+139). That was **not** the upgrade — it was stale `.lake` artifacts from the
+4.34 build. `rm -rf .lake` and the same command is green (28 jobs). After a
+toolchain bump, clean the build directory before believing a crash.
+
 ### Toolchain pin (§6.10): corrected to match what builds
 
-`lean-toolchain` said `v4.30.0` while **nothing honoured it**: `lake build -v`
+Before the upgrade, `lean-toolchain` said `v4.30.0` while **nothing honoured it**: `lake build -v`
 showed `…-lean4-4.34.1/bin/lean`, and `default.nix` takes nixpkgs `lean4` with no
 reference to the file (elan has 4.30.0 installed, but the dev shell's lean
-shadows it on PATH). The file now says `v4.34.1`, which is what actually builds.
+shadows it on PATH). It was corrected to `v4.34.1`, and now to `v4.35.0` to match the bump.
 
 **This is not a `flake.lock` fix and not an upgrade.** The lock pins a nixpkgs
 that legitimately provides 4.34.1, so the lock was always right — only the
