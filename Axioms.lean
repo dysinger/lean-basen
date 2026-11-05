@@ -22,13 +22,22 @@ appears or disappears changes the message and trips the guard.
 A `Classical.choice` regression therefore cannot land silently.  If you add a
 law, add it here too — an un-gated law is not protected.
 
-**Coverage is complete as of `codec-audit-round-two` §4:** all **440** public
-`theorem`s of
-`Base2`/`Base4`/`Base8`/`Base10`/`Base16`/`Base32`/`Base64`/`Common` are pinned
-by a `#guard_msgs` below, so there is no un-gated law left.  (The audit that
-prompted this found 91 of 404, i.e. 22.5% — the gap was real and took two
-sessions to close.)  The distribution is 377 `[propext, Quot.sound]`, **48
-`[propext]`-only**, and **15 axiom-free**; `Classical.choice` appears nowhere.
+**Coverage is complete and now *enforced*:** every public `theorem` of
+`Base2`/`Base4`/`Base8`/`Base10`/`Base16`/`Base32`/`Base64`/`Common` is either
+pinned by a `#guard_msgs` below or recorded in `generatedAuxAllowlist` with a reason.
+(The audit that prompted this found 91 of 404, i.e. 22.5% — the gap was real and took
+two sessions to close.)
+
+**The counts, stated correctly, because an earlier version of this paragraph
+over-counted by conflating two namespaces.** The file carries **440 pins**: **437**
+are `BaseN.*` laws and **3** are `Codec.*` (`roundtrip`, `bidir`, `decode_spec`) —
+the *dependency's* laws, pinned for discipline and outside this repo's own universe.
+`publicTheorems` walks only `BaseN`, so the gate's own universe is
+**483 = 437 + 46 allowlisted**. The 437 pinned footprints are 375
+`[propext, Quot.sound]`, 48 `[propext]`-only, 15 axiom-free, and the 3 `Codec.*` pins
+add 2 more `[propext, Quot.sound]` and 1 `[Quot.sound]`-only (`Codec.Bytes.ext`).
+`Classical.choice` appears nowhere. The "universe, as measured" table further down
+states 483/437/46 and is asserted by a `run_cmd`, so it cannot drift again.
 
 The 22 theorems added by §4 are the base32 §3.5 family: the 2/3/4-byte pad-bit
 lemmas, their block-level rejections, and the three whole-input rejections plus
@@ -724,9 +733,9 @@ which is exactly the failure mode this block exists to make impossible. -/
 /-- info: 'BaseN.Base2.rejects_invalid_byte' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base2.rejects_invalid_byte
-/-- info: 'BaseN.Base2.rejects_bad_arity' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'BaseN.Base2.rejects_single_char' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms BaseN.Base2.rejects_bad_arity
+#print axioms BaseN.Base2.rejects_single_char
 
 /- Every `Base4` law not gated above (ledger §6.4 complete coverage). -/
 /-- info: 'BaseN.Base4.quartetVal_valToQuartet' depends on axioms: [propext, Quot.sound] -/
@@ -801,9 +810,9 @@ which is exactly the failure mode this block exists to make impossible. -/
 /-- info: 'BaseN.Base4.rejects_invalid_byte' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base4.rejects_invalid_byte
-/-- info: 'BaseN.Base4.rejects_bad_arity' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'BaseN.Base4.rejects_single_char' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms BaseN.Base4.rejects_bad_arity
+#print axioms BaseN.Base4.rejects_single_char
 
 /- Every `Base8` law not gated above (ledger §6.4 complete coverage). -/
 /-- info: 'BaseN.Base8.octToVal_valToOct' depends on axioms: [propext, Quot.sound] -/
@@ -875,9 +884,9 @@ which is exactly the failure mode this block exists to make impossible. -/
 /-- info: 'BaseN.Base8.rejects_invalid_byte' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base8.rejects_invalid_byte
-/-- info: 'BaseN.Base8.rejects_bad_arity' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'BaseN.Base8.rejects_single_char' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms BaseN.Base8.rejects_bad_arity
+#print axioms BaseN.Base8.rejects_single_char
 /-- info: 'BaseN.Base8.rejects_overflow' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base8.rejects_overflow
@@ -952,9 +961,9 @@ which is exactly the failure mode this block exists to make impossible. -/
 /-- info: 'BaseN.Base10.rejects_invalid_byte' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base10.rejects_invalid_byte
-/-- info: 'BaseN.Base10.rejects_bad_arity' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'BaseN.Base10.rejects_single_char' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms BaseN.Base10.rejects_bad_arity
+#print axioms BaseN.Base10.rejects_single_char
 /-- info: 'BaseN.Base10.rejects_overflow' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base10.rejects_overflow
@@ -1035,9 +1044,12 @@ which is exactly the failure mode this block exists to make impossible. -/
 /-- info: 'BaseN.Base16.rejects_lowercase' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.rejects_lowercase
-/-- info: 'BaseN.Base16.rejects_odd_arity' depends on axioms: [propext, Quot.sound] -/
+/-- info: 'BaseN.Base16.rejects_lowercase_even_arity' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
-#print axioms BaseN.Base16.rejects_odd_arity
+#print axioms BaseN.Base16.rejects_lowercase_even_arity
+/-- info: 'BaseN.Base16.rejects_single_char' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.rejects_single_char
 /-- info: 'BaseN.Base16.foldByte_fixed' depends on axioms: [propext] -/
 #guard_msgs in
 #print axioms BaseN.Base16.foldByte_fixed
@@ -1627,19 +1639,30 @@ the `BaseN` namespace:
 
 | side | count |
 | --- | --- |
-| public theorems in the `BaseN` namespace | **446** |
-| pinned by a `#guard_msgs` above (`gatedNames`) | **437** |
-| allowlisted (`generatedAuxAllowlist`) | **9** |
+| public theorems in the `BaseN` namespace | **484** |
+| pinned by a `#guard_msgs` above (`gatedNames`) | **438** |
+| allowlisted (`generatedAuxAllowlist`) | **46** |
 | un-gated and unlisted | **0** |
 
-The 9 are all compiler-generated and each carries its reason in the allowlist below.
-The 3 `Codec.*` pins (roundtrip/bidir/decode_spec) are the dependency's laws and lie
-*outside* this namespace — pinned for discipline, not partitioned.
+484 = 438 + 46, with no third route. Of the 46 allowlisted, **37** are the ones the
+suffix classifier drops (`*.inj` ×9, `*.injEq` ×9, `*.sizeOf_spec` ×11, `*.eq_def`
+×8) and **9** are the hand-reviewed ones that the classifier does *not* match
+(`brecOn.eq` ×2, `*.go` ×6, `Run.step`) — the `*.go` helpers are the trap, since
+`.go` is not in the suffix list, so they land on the kept side and only `partition`
+catches them.
 
-**A stale count this section caught on its first run.** The header above said "all
-**440** public theorems"; the environment reports 446. The 3 `Codec.*` pins are not
-`BaseN` theorems, so the honest figure for this file's own namespace was always
-437 + 9 = 446, and the "440" conflated the two namespaces.
+The 3 `Codec.*` pins (roundtrip/bidir/decode_spec) are the dependency's laws and lie
+*outside* this namespace — pinned for discipline, not partitioned, which is why
+`grep -c '^#print axioms'` reports 440 against `gatedNames`' 437.
+
+**Two counts this section got wrong in its first version, both now corrected in
+place.** The header said "all **440** public theorems" (conflating the 3 `Codec.*`
+pins with this namespace), and this table then said 446 / 437 / **9**, because the
+9 hand-reviewed entries were written before the 37 suffix-dropped ones were added to
+the allowlist and the prose was never updated to match. The `run_cmd` output was
+right both times — `basen axiom gate: 483 public theorems partitioned, 437 pinned
+and 46 allowlisted` — which is the argument for deriving these numbers rather than
+transcribing them (see the `run_cmd` below, which prints all three).
 -/
 
 namespace BaseNAxioms
@@ -1707,7 +1730,8 @@ environment (so the list cannot name something that does not exist), requires ev
 public theorem to appear here **or** in the pinned set (so nothing falls between the
 two), and requires the list to be disjoint from the pinned set.
 
-Why each of the 9 is not a law, in three groups:
+Why each of the 46 is not a law, in the groups below (the 37 suffix-dropped
+entries are grouped by suffix at the end; the 9 hand-reviewed ones come first):
 
 * **`brecOn.eq` (×2)** — the recursion equation Lean derives for `B32.brecOn` /
   `B64.brecOn`, the below/`brecOn` eliminator of an inductive. Part of the
@@ -1832,7 +1856,7 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base10.encodeDig_injective_eq,
   `BaseN.Base10.encodeDig_ne_none,
   `BaseN.Base10.encode_injective,
-  `BaseN.Base10.rejects_bad_arity,
+  `BaseN.Base10.rejects_single_char,
   `BaseN.Base10.rejects_invalid_byte,
   `BaseN.Base10.rejects_overflow,
   `BaseN.Base10.relDig_unambiguous,
@@ -1897,7 +1921,8 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base16.ofNat_sub32_toNat,
   `BaseN.Base16.rejects_invalid_byte,
   `BaseN.Base16.rejects_lowercase,
-  `BaseN.Base16.rejects_odd_arity,
+  `BaseN.Base16.rejects_lowercase_even_arity,
+  `BaseN.Base16.rejects_single_char,
   `BaseN.Base16.relHex_unambiguous,
   `BaseN.Base16.roundtrip,
   `BaseN.Base2.Rel_bitElem_canonical,
@@ -1924,7 +1949,7 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base2.encodeBit_injective_eq,
   `BaseN.Base2.encodeBit_ne_none,
   `BaseN.Base2.encode_injective,
-  `BaseN.Base2.rejects_bad_arity,
+  `BaseN.Base2.rejects_single_char,
   `BaseN.Base2.rejects_invalid_byte,
   `BaseN.Base2.relBit_unambiguous,
   `BaseN.Base2.roundtrip,
@@ -2076,7 +2101,7 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base4.quartetValid_of_decide,
   `BaseN.Base4.quartetsVal_quartetsOf,
   `BaseN.Base4.quartets_decompose_unique,
-  `BaseN.Base4.rejects_bad_arity,
+  `BaseN.Base4.rejects_single_char,
   `BaseN.Base4.rejects_invalid_byte,
   `BaseN.Base4.relQuartet_unambiguous,
   `BaseN.Base4.roundtrip,
@@ -2209,7 +2234,7 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base8.octValid_of_decide,
   `BaseN.Base8.oct_decompose_unique,
   `BaseN.Base8.oct_sum_eq,
-  `BaseN.Base8.rejects_bad_arity,
+  `BaseN.Base8.rejects_single_char,
   `BaseN.Base8.rejects_invalid_byte,
   `BaseN.Base8.rejects_overflow,
   `BaseN.Base8.relOct_unambiguous,
@@ -2282,7 +2307,7 @@ run_cmd do
       msg := msg ++ m!"pinned names with no matching theorem:\n" ++
         m!"{String.join (stale.toList.map fun n => s!"  {Name.toString n}\n")}"
     throwError msg
-  logInfo m!"basen axiom gate: {actual.size} public theorems covered ({excluded.size} explicit exclusion(s))"
+  logInfo m!"basen axiom gate: {covered.size} pinned + {BaseNAxioms.generatedAuxAllowlist.size} allowlisted = {actual.size} of {BaseNAxioms.publicTheorems env |>.size} public theorems ({excluded.size} explicit exclusion(s))"
 
 /-! **Partition check**, run on every `lake build`. The coverage check above only
 compares `gatedNames` against the *kept* side of the classifier, so a theorem the
@@ -2326,3 +2351,33 @@ run_cmd do
         m!"{String.join (exclusionOverlap.toList.map fun n => s!"  {Name.toString n}\n")}"
     throwError msg
   logInfo m!"basen axiom gate: {pub.size} public theorems partitioned, {BaseNAxioms.gatedNames.length} pinned and {BaseNAxioms.generatedAuxAllowlist.size} allowlisted"
+
+/-! **Header check** — the numbers this file's prose quotes are asserted here, so a
+stale table is a build failure rather than an unnoticed lie. This is the fix for the
+defect that motivated it: the partition above was green while the table above said
+`446 / 437 / 9` and the truth was `483 / 437 / 46`, because `partition` compares sets
+and never reads the prose. Transcribing a count is what makes this class of error
+possible; asserting it closes it. If you legitimately add laws or allowlist entries,
+update BOTH the table and these constants — the failure prints both. -/
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let pub := BaseNAxioms.publicTheorems env
+  let gated := BaseNAxioms.gatedNames.length
+  let allow := BaseNAxioms.generatedAuxAllowlist.size
+  -- Keep these in lockstep with the "universe, as measured" table above.
+  let expectedPub := 484
+  let expectedGated := 438
+  let expectedAllow := 46
+  let mut bad : Array String := #[]
+  if pub.size != expectedPub then
+    bad := bad.push s!"public theorems: table says {expectedPub}, environment has {pub.size}"
+  if gated != expectedGated then
+    bad := bad.push s!"pinned: table says {expectedGated}, gatedNames has {gated}"
+  if allow != expectedAllow then
+    bad := bad.push s!"allowlisted: table says {expectedAllow}, generatedAuxAllowlist has {allow}"
+  if gated + allow != pub.size then
+    bad := bad.push s!"table does not add up: {gated} + {allow} != {pub.size}"
+  if !bad.isEmpty then
+    throwError m!"the \"universe, as measured\" table is stale (update it and expected* in the header check):\n{String.join (bad.toList.map fun s => s!"  {s}\n")}"
+  logInfo m!"basen axiom gate: header numbers verified ({expectedPub} = {expectedGated} + {expectedAllow})"
