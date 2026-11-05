@@ -538,15 +538,45 @@ The earlier rationale for this theorem — "a case-insensitive alphabet would br
 at most one value, and folding case is a total function. The real constraint is the
 **canonicality of encode**, which holds: `encodeHex` emits uppercase only.
 
-`1`-byte spelling caveat: `0x66` here is a single byte (`'f'`), not the two-byte
-string `"6f"`; the strict decoder rejects it because a single hex digit is
-odd-arity. See `decodeHexFold_lowercase_eq` for the two-byte both-cases law. -/
+**`1`-byte spelling caveat, and why the real witness is below.** `0x66` here is a
+single byte (`'f'`), not the two-byte string `"6f"`, so this rejection has **two**
+possible causes: the alphabet *and* odd arity (`rejects_single_char` rejects `'6'` at
+`n = 1` for the same arity reason). It therefore cannot discriminate case from arity,
+and an earlier revision cited it as evidence that lowercase is rejected *as* lowercase
+when nothing here supported that. `rejects_lowercase_even_arity` below is the witness
+that can: `"6f"` is a well-formed pair whose only defect is the lowercase digit. See
+`decodeHexFold_lowercase_eq` for the two-byte both-cases law. -/
 theorem rejects_lowercase :
     decodeFull hexElem hexConsumesByte 1 (fun _ => 0x66) = none := by
   exact rejects_invalid_byte (0x66 : UInt8) (by decide)
 
-/-- Rejection: wrong arity (an odd number of hex digits does not form a byte). -/
-theorem rejects_odd_arity :
+/-- **Lowercase is rejected *as* lowercase**, at an even arity where the arity
+cannot be the reason.
+
+`"6f"` is a complete two-digit pair: `'6'` is a valid uppercase digit and `'f'` is
+the same digit in lowercase, so the *only* difference from a well-formed `"6F"` is
+case. That makes this the witness `rejects_lowercase` cannot be.
+
+`codec-audit-round-three` §2.3.4: the `n = 1` version above is true but
+non-discriminating, since odd arity alone rejects every byte there. -/
+theorem rejects_lowercase_even_arity :
+    decodeFull hexElem hexConsumesByte 2 (s := fun i : Fin 2 => [0x36, 0x66][i]) = none := by
+  cases h : decodeFull hexElem hexConsumesByte 2
+      (s := fun i : Fin 2 => [0x36, 0x66][i]) with
+  | none => rfl
+  | some v =>
+      have hall : ∀ i : Fin 2, hexDigit ((fun i : Fin 2 => [0x36, 0x66][i]) i) = true :=
+        decodeFull_canonical (v := v) h
+      have h1 : hexDigit (0x66 : UInt8) = true := by simpa using (hall ⟨1, by decide⟩)
+      exact absurd h1 (by decide)
+
+/-- Rejection: **a single hex digit** is rejected, because two are required per byte.
+
+A single-point witness of odd-arity rejection, not the general law
+(`n % 2 ≠ 0 → none`); see `rejects_single_char`'s note in `Base2` for why the
+general form is still open. Renamed from `rejects_odd_arity` under
+`codec-audit-round-three` §2.3.3 so the name matches the statement. -/
+theorem rejects_single_char :
     decodeFull hexElem hexConsumesByte 1 (fun _ => 0x36) = none := by
   cases h : decodeFull hexElem hexConsumesByte 1 (fun _ => 0x36) with
   | none => rfl

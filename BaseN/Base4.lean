@@ -567,8 +567,17 @@ theorem rejects_invalid_byte (bad : UInt8) (hbad : quartetDigit bad = false) :
       rw [hbad] at h0
       simp at h0
 
-/-- Rejection: wrong arity (not a multiple of 4 digits) is rejected. -/
-theorem rejects_bad_arity :
+/-- Rejection: **a 1-digit input** is rejected, because 4 digits are required per byte.
+
+This is a single-point witness, not the general law. Named `rejects_bad_arity`
+until `codec-audit-round-three` §2.3.3, which was misleading: the statement is
+`n = 1`, while `Base32`/`Base64` prove the *general* form
+(`decodeFullB32_reject_arity : n % 8 ≠ 0 → none`, likewise `% 4` for base64).
+The general form here needs a `decodeFull`-length lemma that does not exist yet
+(the per-element length is available — `Rel_bitElem_len` and friends — but no
+`decodeFull` consumed-length result is), so the general law is **open** and this
+is honestly named as the witness it is. -/
+theorem rejects_single_char :
     decodeFull quartetElem quartetConsumesByte 1 (fun _ => 0x30) = none := by
   cases h : decodeFull quartetElem quartetConsumesByte 1 (fun _ => 0x30) with
   | none => rfl
