@@ -21,12 +21,20 @@ appears or disappears changes the message and trips the guard.
 A `Classical.choice` regression therefore cannot land silently.  If you add a
 law, add it here too — an un-gated law is not protected.
 
-**Coverage is complete as of ledger §6.4:** all **418** public `theorem`s of
+**Coverage is complete as of `codec-audit-round-two` §4:** all **440** public
+`theorem`s of
 `Base2`/`Base4`/`Base8`/`Base10`/`Base16`/`Base32`/`Base64`/`Common` are pinned
 by a `#guard_msgs` below, so there is no un-gated law left.  (The audit that
 prompted this found 91 of 404, i.e. 22.5% — the gap was real and took two
-sessions to close.)  The distribution is 367 `[propext, Quot.sound]`, **42
-`[propext]`-only**, and **12 axiom-free**; `Classical.choice` appears nowhere.
+sessions to close.)  The distribution is 377 `[propext, Quot.sound]`, **48
+`[propext]`-only**, and **15 axiom-free**; `Classical.choice` appears nowhere.
+
+The 22 theorems added by §4 are the base32 §3.5 family: the 2/3/4-byte pad-bit
+lemmas, their block-level rejections, and the three whole-input rejections plus
+the general `decodeFullB32_reject_of_pad_and_tail` they are instances of.  **Gate
+coverage is not §3.5 coverage** — the gate says a law's *logic* is clean; that the
+*behaviour* is canonical is what §4's theorems now pin, and before §4 three of the
+four non-canonical tail shapes had neither.
 
 Adding a law therefore means adding its gate: the count above is checkable with
 `grep -c '^#print axioms' Axioms.lean` against a `grep` of the modules'
@@ -1522,3 +1530,61 @@ which is exactly the failure mode this block exists to make impossible. -/
 /-- info: 'BaseN.Base64.b64BytesOf_tail1_eq' does not depend on any axioms -/
 #guard_msgs in
 #print axioms BaseN.Base64.b64BytesOf_tail1_eq
+
+/-- info: 'BaseN.Base32.b32Tail2_pad_bits' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32Tail2_pad_bits
+/-- info: 'BaseN.Base32.b32Tail2_pad_bits_mod16' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32Tail2_pad_bits_mod16
+/-- info: 'BaseN.Base32.b32Tail3_pad_bits' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32Tail3_pad_bits
+/-- info: 'BaseN.Base32.b32Tail3_pad_bits_mod2' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32Tail3_pad_bits_mod2
+/-- info: 'BaseN.Base32.b32Tail4_pad_bits' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32Tail4_pad_bits
+/-- info: 'BaseN.Base32.b32Tail4_pad_bits_mod8' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32Tail4_pad_bits_mod8
+/-- info: 'BaseN.Base32.b32MZTR_chars' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32MZTR_chars
+/-- info: 'BaseN.Base32.b32MZTGN_chars' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32MZTGN_chars
+/-- info: 'BaseN.Base32.b32MZTGMZR_chars' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32MZTGMZR_chars
+/-- info: 'BaseN.Base32.b32BlockApply_b32MZTR_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32BlockApply_b32MZTR_chars
+/-- info: 'BaseN.Base32.b32BlockApply_b32MZTGN_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32BlockApply_b32MZTGN_chars
+/-- info: 'BaseN.Base32.b32BlockApply_b32MZTGMZR_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32BlockApply_b32MZTGMZR_chars
+/-- info: 'BaseN.Base32.b32TailApply_b32MZTR_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32TailApply_b32MZTR_chars
+/-- info: 'BaseN.Base32.b32TailApply_b32MZTGN_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32TailApply_b32MZTGN_chars
+/-- info: 'BaseN.Base32.b32TailApply_b32MZTGMZR_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32TailApply_b32MZTGMZR_chars
+/-- info: 'BaseN.Base32.decodeFullB32_reject_of_pad_and_tail' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_reject_of_pad_and_tail
+/-- info: 'BaseN.Base32.decodeFullB32_reject_MZTR' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_reject_MZTR
+/-- info: 'BaseN.Base32.decodeFullB32_reject_MZTGN' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_reject_MZTGN
+/-- info: 'BaseN.Base32.decodeFullB32_reject_MZTGMZR' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_reject_MZTGMZR

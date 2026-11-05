@@ -364,6 +364,40 @@ example : Base64.decodeFullB64 Base64.b64Zh = none :=
 example : Base64.decodeFullB64 Base64.b64Zm9 = none :=
   Base64.decodeFullB64_reject_b64Zm9
 
+-- Base32 §3.5 for the **2/3/4-byte tails**. Those shapes also carry spare bits —
+-- 4, 1 and 3 respectively — and until now only the 1-byte shape (`MZ======`) had a
+-- rejection theorem. Each pair below is (non-canonical, canonical) so the behaviour
+-- is value-checked in both directions rather than merely asserted.
+--
+--   MZTA==== -> some [102,102]            MZTR==== -> none
+--   MZTGM=== -> some [102,102,102]        MZTGN=== -> none
+--   MZTGMZQ= -> some [102,102,102,102]    MZTGMZR= -> none
+
+example : Base32.decodeFullB32 Base32.MZTR = none :=
+  Base32.decodeFullB32_reject_MZTR
+
+example : Base32.decodeFullB32 Base32.MZTGN = none :=
+  Base32.decodeFullB32_reject_MZTGN
+
+example : Base32.decodeFullB32 Base32.MZTGMZR = none :=
+  Base32.decodeFullB32_reject_MZTGMZR
+
+-- The canonical counterparts must still decode to the same bytes: the rejection
+-- above is of the *spelling*, not of the payload.
+
+example : Base32.decodeFullB32 (fun i : Fin 8 =>
+      [0x4D, 0x5A, 0x54, 0x41, 0x3D, 0x3D, 0x3D, 0x3D][i]) = some [0x66, 0x66] := by
+  native_decide
+
+example : Base32.decodeFullB32 (fun i : Fin 8 =>
+      [0x4D, 0x5A, 0x54, 0x47, 0x4D, 0x3D, 0x3D, 0x3D][i]) = some [0x66, 0x66, 0x66] := by
+  native_decide
+
+example : Base32.decodeFullB32 (fun i : Fin 8 =>
+      [0x4D, 0x5A, 0x54, 0x47, 0x4D, 0x5A, 0x51, 0x3D][i]) =
+    some [0x66, 0x66, 0x66, 0x66] := by
+  native_decide
+
 /-- `Zg==` as a `Bytes 4` (a canonical 1-byte base64 tail). -/
 def zgEqEq : Bytes 4 := fun i => [0x5A, 0x67, 0x3D, 0x3D][i]
 

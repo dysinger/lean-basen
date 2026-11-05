@@ -2651,9 +2651,31 @@ accepting it would break bijectivity on canonical inputs. As for base64,
 `b32BlockApply` rejects it structurally — it requires
 `b32BlockUnapply bs = some cs`, i.e. the input must be what the encoder wrote.
 
-The one-byte tail is the case with spare bits (`MY======`, where `Y` carries 2
-payload bits and 3 spare); the 2/3/4/5-byte tails end on a full 5-bit character
-and have none. -/
+**Every non-full tail carries spare bits — four of the five shapes, not one.**
+Base32 packs 5 bits per character, so a partial tail always ends mid-character:
+
+| tail bytes | characters | payload bits | spare bits | final character value | theorem |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 2 | 8 | **2** | `(v0 % 8) * 4` | `b32Tail1_pad_bits` |
+| 2 | 4 | 16 | **4** | `(v1 % 2) * 16` | `b32Tail2_pad_bits` |
+| 3 | 5 | 24 | **1** | `(v2 % 16) * 2` | `b32Tail3_pad_bits` |
+| 4 | 7 | 32 | **3** | `(v3 % 4) * 8` | `b32Tail4_pad_bits` |
+| 5 (full block) | 8 | 40 | 0 | — | `Rel_b32BlockElem_canonical` |
+
+Only the **5-byte full block** has no spare bits, because it is the only tail that
+is a whole number of characters.
+
+**This paragraph used to say the opposite** — that "the 2/3/4/5-byte tails end on a
+full 5-bit character and have none". Reading `b32BlockUnapply` four lines away
+disproves it: the 2-byte tail's fourth character is `(v1 % 2) * 16` (4 spare bits),
+the 3-byte's fifth is `(v2 % 16) * 2` (1 spare bit), and the 4-byte's seventh is
+`(v3 % 4) * 8` (3 spare) — matching the table above. The *behaviour* was correct
+because `b32BlockApply` re-encodes and compares, but only the 1-byte shape had a
+theorem, so three of the four non-canonical shapes were guarded by nothing but the
+mechanism. Each now has its pad-bit lemma, its block-level rejection
+(`b32BlockApply_b32MZTR_chars` etc.) and its whole-input rejection
+(`decodeFullB32_reject_MZTR`, `_MZTGN`, `_MZTGMZR`), all instances of the general
+`decodeFullB32_reject_of_pad_and_tail`. -/
 
 /-- **§3.5, 1-byte tail.** The second character of a canonical `[v0]` tail has
 3 zero pad bits: its decoded value is `(v0 % 8) * 4`, a multiple of 4. -/
@@ -2670,18 +2692,76 @@ theorem b32Tail1_pad_bits_mod4 (v0 : UInt8) :
   rw [b32Tail1_pad_bits v0]
   omega
 
-/-- **§3.5 rejection of `MZ======` (ledger §6.3b).** The whole-input decoder
-returns `none`: `MZ` is a 1-byte tail with non-zero pad bits, so no byte string
-encodes to it.
+/-- **§3.5, 2-byte tail.** The fourth character of a canonical `[v0, v1]` tail has
+**4** zero pad bits: its decoded value is `(v1 % 2) * 16`, a multiple of 16. A
+2-byte tail carries 16 payload bits, which leaves 4 of the 20 bits of four
+characters unused — the character's low 4 bits. -/
+theorem b32Tail2_pad_bits (v1 : UInt8) :
+    b32ToVal (toByte (valToB32 ((v1.toNat % 2) * 16))).toNat = (v1.toNat % 2) * 16 := by
+  have hv : v1.toNat < 256 := UInt8.toNat_lt v1
+  have h1 : v1.toNat % 2 ≤ 1 := by omega
+  have hle : (v1.toNat % 2) * 16 ≤ 31 := by omega
+  rw [toByte_valToB32 ((v1.toNat % 2) * 16) hle, b32ToVal_valToB32 ((v1.toNat % 2) * 16) hle]
 
-The lift mirrors `decodeFullB64_reject_ZgAAAA`.  `decodeFullB32_some`
-decomposes a success into a full-block run plus a terminal tail; an 8-char input
-admits no full block containing `=` (its element is alphabet-only), so the run
-must be empty and the single tail element must consume all 8 bytes — at which
-point `not_rel_b32TailElem_of_apply_none` applies to the literal block. -/
-theorem decodeFullB32_reject_MZ : decodeFullB32 (MZ : Bytes 8) = none := by
-  let s₀ : Bytes 8 := MZ
-  change decodeFullB32 s₀ = none
+/-- **§3.5, 2-byte tail.** Those 4 spare bits really are zero. -/
+theorem b32Tail2_pad_bits_mod16 (v1 : UInt8) :
+    b32ToVal (toByte (valToB32 ((v1.toNat % 2) * 16))).toNat % 16 = 0 := by
+  rw [b32Tail2_pad_bits v1]
+  omega
+
+/-- **§3.5, 3-byte tail.** The fifth character of a canonical `[v0, v1, v2]` tail
+has **3** zero pad bits: its decoded value is `(v2 % 16) * 2`, a multiple of 2. A
+3-byte tail carries 24 payload bits, leaving 1 of the 25 bits of five characters
+unused. -/
+theorem b32Tail3_pad_bits (v2 : UInt8) :
+    b32ToVal (toByte (valToB32 ((v2.toNat % 16) * 2))).toNat = (v2.toNat % 16) * 2 := by
+  have hv : v2.toNat < 256 := UInt8.toNat_lt v2
+  have h15 : v2.toNat % 16 ≤ 15 := by omega
+  have hle : (v2.toNat % 16) * 2 ≤ 31 := by omega
+  rw [toByte_valToB32 ((v2.toNat % 16) * 2) hle, b32ToVal_valToB32 ((v2.toNat % 16) * 2) hle]
+
+/-- **§3.5, 3-byte tail.** Those 3 spare bits really are zero. -/
+theorem b32Tail3_pad_bits_mod2 (v2 : UInt8) :
+    b32ToVal (toByte (valToB32 ((v2.toNat % 16) * 2))).toNat % 2 = 0 := by
+  rw [b32Tail3_pad_bits v2]
+  omega
+
+/-- **§3.5, 4-byte tail.** The seventh character of a canonical `[v0, v1, v2, v3]`
+tail has **3** zero pad bits: its decoded value is `(v3 % 4) * 8`, a multiple of 8.
+A 4-byte tail carries 32 payload bits, leaving 3 of the 35 bits of seven
+characters unused. -/
+theorem b32Tail4_pad_bits (v3 : UInt8) :
+    b32ToVal (toByte (valToB32 ((v3.toNat % 4) * 8))).toNat = (v3.toNat % 4) * 8 := by
+  have hv : v3.toNat < 256 := UInt8.toNat_lt v3
+  have h3 : v3.toNat % 4 ≤ 3 := by omega
+  have hle : (v3.toNat % 4) * 8 ≤ 31 := by omega
+  rw [toByte_valToB32 ((v3.toNat % 4) * 8) hle, b32ToVal_valToB32 ((v3.toNat % 4) * 8) hle]
+
+/-- **§3.5, 4-byte tail.** Those 3 spare bits really are zero. -/
+theorem b32Tail4_pad_bits_mod8 (v3 : UInt8) :
+    b32ToVal (toByte (valToB32 ((v3.toNat % 4) * 8))).toNat % 8 = 0 := by
+  rw [b32Tail4_pad_bits v3]
+  omega
+
+/-! ### The general whole-input rejection
+
+`decodeFullB32_some` decomposes a success into a full-block run plus a terminal
+tail. Two facts pin an 8-character input hard enough that the run must be empty and
+the single tail element must consume all 8 bytes:
+
+* **index 2 is a pad byte (`=`)** — a full block is 8 *alphabet* characters
+  (`Rel_b32BlockElem_canonical`), so no block can reach index 2; and
+* **the input's own character block is not what the encoder writes** — so the tail
+  apply returns `none` (`not_rel_b32TailElem_of_apply_none`).
+
+Stated once as `decodeFullB32_reject_of_pad_and_tail` so that every §3.5
+non-canonical vector is an instance rather than a 90-line copy. This is the
+general form the task list recorded as the intended upgrade over per-vector
+repetition. -/
+theorem decodeFullB32_reject_of_pad_and_tail (s₀ : Bytes 8) (k : Nat) (hk : k < 8)
+    (hpad : (s₀ ⟨k, hk⟩).toNat = 61)
+    (hL : b32TailApply (List.ofFn s₀) = none) :
+    decodeFullB32 s₀ = none := by
   cases h : decodeFullB32 s₀ with
   | none => rfl
   | some v =>
@@ -2693,17 +2773,16 @@ theorem decodeFullB32_reject_MZ : decodeFullB32 (MZ : Bytes 8) = none := by
           blocks (8 - t.remaining) s₁ hrel
       -- s₀ 2 = 61 (`=`): a full block reaching index 2 would read that pad as an
       -- alphabet byte, which `Rel_b32BlockElem_canonical` forbids.
-      have hblock_stop : ¬ (2 < 8 - t.remaining) := by
-        intro hi2
-        have hs₁2 : s₁ ⟨2, hi2⟩ = s₀ ⟨2, by decide⟩ := by
+      have hblock_stop : ¬ (k < 8 - t.remaining) := by
+        intro hik
+        have hs₁k : s₁ ⟨k, hik⟩ = s₀ ⟨k, hk⟩ := by
           rw [hs]
-          exact (Codec.prepend_prefix_read t s₁ ⟨2, by decide⟩ hi2).symm
-        have hs₁2pad : (s₁ ⟨2, hi2⟩).toNat = 61 := by
-          rw [hs₁2]
-          rfl
-        have hch := hcanon ⟨2, hi2⟩
+          exact (Codec.prepend_prefix_read t s₁ ⟨k, hk⟩ hik).symm
+        have hs₁kpad : (s₁ ⟨k, hik⟩).toNat = 61 := by
+          rw [hs₁k, hpad]
+        have hch := hcanon ⟨k, hik⟩
         unfold b32Char at hch
-        rw [hs₁2pad] at hch
+        rw [hs₁kpad] at hch
         have hfalse : b32Valid 61 = false := by rfl
         rw [hfalse] at hch
         exact Bool.false_ne_true hch
@@ -2714,8 +2793,8 @@ theorem decodeFullB32_reject_MZ : decodeFullB32 (MZ : Bytes 8) = none := by
           have hm8 : m = 8 := Rel_b32BlockElem_len b sb hb
           have h8le : 8 ≤ 8 - t.remaining := by
             simpa [hm8] using hm
-          have hle2 : 8 - t.remaining ≤ 2 := Nat.le_of_not_gt hblock_stop
-          exact False.elim ((by omega : ¬ (8 : Nat) ≤ 2) (Nat.le_trans h8le hle2))
+          have hlek : 8 - t.remaining ≤ k := Nat.le_of_not_gt hblock_stop
+          exact False.elim ((by omega : ¬ (8 : Nat) ≤ k) (Nat.le_trans h8le hlek))
       | nil =>
           rw [relRepeat_nil] at hrel
           have hrem8 : t.remaining = 8 := by
@@ -2748,25 +2827,112 @@ theorem decodeFullB32_reject_MZ : decodeFullB32 (MZ : Bytes 8) = none := by
               have hm₁8 : m₁ = 8 := Rel_b32TailElem_len x sb₁ hx
               subst hm₁8
               -- the single tail element consumes the whole input, so `sb₁`
-              -- reads exactly as `MZ`
-              have hsb_eq : List.ofFn sb₁ = [0x4D, 0x5A, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] := by
-                have hread : ∀ k (hk : k < 8),
-                    sb₁ ⟨k, hk⟩ = s₀ ⟨k, hk⟩ := by
-                  intro k hk
-                  rw [hsplice1]
-                  exact (Codec.splice_prefix_read hm₁ sb₁ srest ⟨k, hk⟩ hk).symm
-                apply List.ext_getElem
-                · simp
-                · intro i hi hi'
-                  have hlt : i < 8 := by simpa using hi
-                  rw [List.getElem_ofFn]
-                  show sb₁ ⟨i, hlt⟩ = _
-                  rw [hread i hlt]
-                  rfl
+              -- reads exactly as `s₀`, and the tail apply is the one rejecting it
+              have hsb_eq : ∀ k (hk : k < 8), sb₁ ⟨k, hk⟩ = s₀ ⟨k, hk⟩ := by
+                intro k hk
+                rw [hsplice1]
+                exact (Codec.splice_prefix_read hm₁ sb₁ srest ⟨k, hk⟩ hk).symm
+              have hofn : List.ofFn sb₁ = List.ofFn s₀ := by
+                congr 1
+                funext i
+                exact hsb_eq i.1 i.2
               have hnon' : b32TailApply (List.ofFn sb₁) = none := by
-                rw [hsb_eq]
-                exact b32TailApply_b32Mz_chars
+                rw [hofn]
+                exact hL
               exact False.elim (not_rel_b32TailElem_of_apply_none x sb₁ hnon' hx)
+
+/-- **§3.5 rejection of `MZ======` (ledger §6.3b).** The whole-input decoder
+returns `none`: `MZ` is a 1-byte tail with non-zero pad bits, so no byte string
+encodes to it. An instance of `decodeFullB32_reject_of_pad_and_tail`. -/
+theorem decodeFullB32_reject_MZ : decodeFullB32 (MZ : Bytes 8) = none :=
+  decodeFullB32_reject_of_pad_and_tail MZ 2 (by decide) (by decide)
+    b32TailApply_b32Mz_chars
+
+/-! ### The 2-, 3- and 4-byte §3.5 vectors
+
+`MZ======` was the only shape proved. The 2/3/4-byte tails also carry spare bits —
+the **2-byte** tail's fourth character is `(v1 % 2) * 16` (4 spare), the **3-byte**
+tail's fifth is `(v2 % 16) * 2` (3 spare), the **4-byte** tail's seventh is
+`(v3 % 4) * 8` (3 spare) — and each has a canonical/non-canonical pair. Proved
+here in full: the pad-bit facts above, the block-level rejections, and the
+whole-input rejections.
+
+Measured through `decodeFullB32` before being written down:
+
+```
+MZTA==== -> some [102,102]            MZTR==== -> none
+MZTGM=== -> some [102,102,102]        MZTGN=== -> none
+MZTGMZQ= -> some [102,102,102,102]    MZTGMZR= -> none
+``` -/
+
+/-- `MZTR====` — non-canonical 2-byte tail: `'R'` (value 17, `10001`) has its low
+4 spare bits set (`0001`), so it is a second spelling of `MZTA====`'s bytes. -/
+def MZTR : Bytes 8 := fun i : Fin 8 => [0x4D, 0x5A, 0x54, 0x52, 0x3D, 0x3D, 0x3D, 0x3D][i]
+
+/-- `MZTGN===` — non-canonical 3-byte tail (`'N'`, value 13, low 3 bits `101`). -/
+def MZTGN : Bytes 8 := fun i : Fin 8 => [0x4D, 0x5A, 0x54, 0x47, 0x4E, 0x3D, 0x3D, 0x3D][i]
+
+/-- `MZTGMZR=` — non-canonical 4-byte tail (`'R'` in the seventh slot, low 3 bits
+`001` set). -/
+def MZTGMZR : Bytes 8 := fun i : Fin 8 => [0x4D, 0x5A, 0x54, 0x47, 0x4D, 0x5A, 0x52, 0x3D][i]
+
+theorem b32MZTR_chars : List.ofFn (MZTR : Bytes 8) = [0x4D, 0x5A, 0x54, 0x52, 0x3D, 0x3D, 0x3D, 0x3D] :=
+  rfl
+
+theorem b32MZTGN_chars : List.ofFn (MZTGN : Bytes 8) = [0x4D, 0x5A, 0x54, 0x47, 0x4E, 0x3D, 0x3D, 0x3D] :=
+  rfl
+
+theorem b32MZTGMZR_chars : List.ofFn (MZTGMZR : Bytes 8) = [0x4D, 0x5A, 0x54, 0x47, 0x4D, 0x5A, 0x52, 0x3D] :=
+  rfl
+
+/-- The block decoder rejects `MZTR====`: `MZTA` lenient-decodes to `[0x66, 0x66]`,
+whose canonical encoding is `MZTA====`, so the re-encode guard fails. -/
+theorem b32BlockApply_b32MZTR_chars :
+    b32BlockApply [0x4D, 0x5A, 0x54, 0x52, 0x3D, 0x3D, 0x3D, 0x3D] = none := by
+  unfold b32BlockApply; decide
+
+theorem b32TailApply_b32MZTR_chars :
+    b32TailApply [0x4D, 0x5A, 0x54, 0x52, 0x3D, 0x3D, 0x3D, 0x3D] = none := by
+  unfold b32TailApply
+  rw [b32BlockApply_b32MZTR_chars]
+
+/-- **§3.5 rejection of `MZTR====`** — the 2-byte-tail mirror of
+`decodeFullB32_reject_MZ`. -/
+theorem decodeFullB32_reject_MZTR : decodeFullB32 (MZTR : Bytes 8) = none :=
+  decodeFullB32_reject_of_pad_and_tail MZTR 4 (by decide) (by decide)
+    b32TailApply_b32MZTR_chars
+
+/-- The block decoder rejects `MZTGN===`: `MZTGM` lenient-decodes to
+`[0x66, 0x66, 0x66]`, whose canonical encoding is `MZTGM===`. -/
+theorem b32BlockApply_b32MZTGN_chars :
+    b32BlockApply [0x4D, 0x5A, 0x54, 0x47, 0x4E, 0x3D, 0x3D, 0x3D] = none := by
+  unfold b32BlockApply; decide
+
+theorem b32TailApply_b32MZTGN_chars :
+    b32TailApply [0x4D, 0x5A, 0x54, 0x47, 0x4E, 0x3D, 0x3D, 0x3D] = none := by
+  unfold b32TailApply
+  rw [b32BlockApply_b32MZTGN_chars]
+
+/-- **§3.5 rejection of `MZTGN===`** — the 3-byte-tail mirror. -/
+theorem decodeFullB32_reject_MZTGN : decodeFullB32 (MZTGN : Bytes 8) = none :=
+  decodeFullB32_reject_of_pad_and_tail MZTGN 5 (by decide) (by decide)
+    b32TailApply_b32MZTGN_chars
+
+/-- The block decoder rejects `MZTGMZR=`: `MZTGMZQ` lenient-decodes to
+`[0x66, 0x66, 0x66, 0x66]`, whose canonical encoding is `MZTGMZQ=`. -/
+theorem b32BlockApply_b32MZTGMZR_chars :
+    b32BlockApply [0x4D, 0x5A, 0x54, 0x47, 0x4D, 0x5A, 0x52, 0x3D] = none := by
+  unfold b32BlockApply; decide
+
+theorem b32TailApply_b32MZTGMZR_chars :
+    b32TailApply [0x4D, 0x5A, 0x54, 0x47, 0x4D, 0x5A, 0x52, 0x3D] = none := by
+  unfold b32TailApply
+  rw [b32BlockApply_b32MZTGMZR_chars]
+
+/-- **§3.5 rejection of `MZTGMZR=`** — the 4-byte-tail mirror. -/
+theorem decodeFullB32_reject_MZTGMZR : decodeFullB32 (MZTGMZR : Bytes 8) = none :=
+  decodeFullB32_reject_of_pad_and_tail MZTGMZR 7 (by decide) (by decide)
+    b32TailApply_b32MZTGMZR_chars
 
 /-! ## Conformance: canonical encoding (task 4.2, base32)
 
