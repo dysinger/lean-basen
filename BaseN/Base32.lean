@@ -1171,6 +1171,72 @@ theorem relB32Tail_unambiguous : relUnambiguous (relRepeat (Rel b32TailElem)) :=
             exact ih s₂x hxs (by simpa [htaily] using hys)
           rw [hhead, htail]
 
+/-! ## RFC 4648 §3.5 pad-bit rejection: the `MZ======` vector (ledger §6.3b)
+
+`MZ======` is the one-byte tail whose two data characters `M`,`Z` name values
+`12` and `25`.  A 1-byte tail carries 8 payload bits in 10 bits of alphabet
+space, so the low 2 bits of the second character are **pad bits** and RFC 4648
+§3.5 requires them to be zero.  `25 % 4 = 1`, so `MZ` is non-canonical.
+
+The block layer rejects it structurally: `b32BlockDecodeLenient` happily reads
+`MZ` as the byte `0x66` (`'f'`), but `b32BlockApply`'s re-encode guard then
+notices that `0x66` canonically encodes as `MY======`, not `MZ======`.
+
+Proof shape mirrors `Base64.b64BlockApply_b64Zh_chars` (see ledger §6.2):
+`unfold` the guard, pin the lenient decode and the re-encode by `decide`, and
+the two disagree.  Per the ledger's §6.3b note this is a `decide`, not an
+induction — only the whole-input lift is work. -/
+
+/-- `MZ======` — the non-canonical 1-byte base32 tail (RFC 4648 §3.5, non-zero
+pad bits): the 2 spare bits of `'Z'` (value 25, `11001`, low two bits `01`) are
+`01` rather than `00`.
+
+The commit `3dfc249` named this vector without a theorem behind it; the three
+lemmas below are that theorem. -/
+def MZ : Bytes 8 := fun i : Fin 8 => [0x4D, 0x5A, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D][i]
+
+/-- The `MZ======` character block, as a literal for the rejection lemmas. -/
+theorem b32Mz_chars :
+    List.ofFn (MZ : Bytes 8) = [0x4D, 0x5A, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] := rfl
+
+/-- The block decoder rejects `MZ======`: `MZ` lenient-decodes to `0x66`, whose
+canonical encoding is `MY======`, so `b32BlockApply`'s re-encode guard fails. -/
+theorem b32BlockApply_b32Mz_chars :
+    b32BlockApply [0x4D, 0x5A, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] = none := by
+  unfold b32BlockApply
+  have hl : b32BlockDecodeLenient
+      [0x4D, 0x5A, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] = some [0x66] := by
+    unfold b32BlockDecodeLenient; decide
+  have hu : b32BlockUnapply [0x66] =
+      some [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] := by
+    unfold b32BlockUnapply; simp only; decide
+  rw [hl]; simp only [Option.bind]
+  split
+  · rename_i heq
+    rw [hu] at heq
+    exact absurd (Option.some.inj heq) (by decide)
+  · rfl
+
+/-- The tail element cannot apply to `MZ======`'s character block. -/
+theorem b32TailApply_b32Mz_chars :
+    b32TailApply [0x4D, 0x5A, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] = none := by
+  unfold b32TailApply
+  rw [b32BlockApply_b32Mz_chars]
+
+/-- **If the tail block cannot apply, no value relates.** The base32 twin of
+`Base64.not_rel_b64TailElem_of_apply_none`: `Rel b32TailElem x cs` requires
+`b32TailIso.apply (List.ofFn cs) = some x`, i.e. that the block apply succeed. -/
+theorem not_rel_b32TailElem_of_apply_none (x : List UInt8) (cs : Bytes 8)
+    (hn : b32TailApply (List.ofFn cs) = none) : ¬ Rel b32TailElem x cs := by
+  intro h
+  unfold b32TailElem at h
+  rw [Rel_iso] at h
+  obtain ⟨a, ha, hr⟩ := h
+  have hofn : List.ofFn cs = a := Rel_count_satisfy_ofFn b32OrPad 8 a cs hr
+  have ha' : b32TailApply a = some x := ha
+  rw [← hofn, hn] at ha'
+  exact absurd ha' (by simp)
+
 /-- Full-consumption decode is unambiguous for `b32TailElem`. -/
 theorem b32TailDecodeFull_unambiguous {x y : List (List UInt8)} {n : Nat} (s : Bytes n) :
     (x, Suffix.empty n) ∈ decodeRepeat b32TailElem b32TailConsumesByte n s →
@@ -2603,6 +2669,104 @@ theorem b32Tail1_pad_bits_mod4 (v0 : UInt8) :
     b32ToVal (toByte (valToB32 ((v0.toNat % 8) * 4))).toNat % 4 = 0 := by
   rw [b32Tail1_pad_bits v0]
   omega
+
+/-- **§3.5 rejection of `MZ======` (ledger §6.3b).** The whole-input decoder
+returns `none`: `MZ` is a 1-byte tail with non-zero pad bits, so no byte string
+encodes to it.
+
+The lift mirrors `decodeFullB64_reject_ZgAAAA`.  `decodeFullB32_some`
+decomposes a success into a full-block run plus a terminal tail; an 8-char input
+admits no full block containing `=` (its element is alphabet-only), so the run
+must be empty and the single tail element must consume all 8 bytes — at which
+point `not_rel_b32TailElem_of_apply_none` applies to the literal block. -/
+theorem decodeFullB32_reject_MZ : decodeFullB32 (MZ : Bytes 8) = none := by
+  let s₀ : Bytes 8 := MZ
+  change decodeFullB32 s₀ = none
+  cases h : decodeFullB32 s₀ with
+  | none => rfl
+  | some v =>
+      rcases decodeFullB32_some s₀ v h with ⟨blocks, t, tails, hmem, htail, _, _⟩
+      rcases (decodeRepeat_spec b32BlockElem b32BlockConsumesByte blocks 8 s₀ t).1 hmem with
+        ⟨s₁, hs, hrel⟩
+      have hcanon : ∀ i : Fin (8 - t.remaining), b32Char (s₁ i) = true :=
+        relRepeat_forall b32Char (fun x {m} tt ht => Rel_b32BlockElem_canonical ht)
+          blocks (8 - t.remaining) s₁ hrel
+      -- s₀ 2 = 61 (`=`): a full block reaching index 2 would read that pad as an
+      -- alphabet byte, which `Rel_b32BlockElem_canonical` forbids.
+      have hblock_stop : ¬ (2 < 8 - t.remaining) := by
+        intro hi2
+        have hs₁2 : s₁ ⟨2, hi2⟩ = s₀ ⟨2, by decide⟩ := by
+          rw [hs]
+          exact (Codec.prepend_prefix_read t s₁ ⟨2, by decide⟩ hi2).symm
+        have hs₁2pad : (s₁ ⟨2, hi2⟩).toNat = 61 := by
+          rw [hs₁2]
+          rfl
+        have hch := hcanon ⟨2, hi2⟩
+        unfold b32Char at hch
+        rw [hs₁2pad] at hch
+        have hfalse : b32Valid 61 = false := by rfl
+        rw [hfalse] at hch
+        exact Bool.false_ne_true hch
+      cases blocks with
+      | cons b bs =>
+          rw [relRepeat_cons] at hrel
+          rcases hrel with ⟨m, hm, sb, srest, hsplice, hb, _⟩
+          have hm8 : m = 8 := Rel_b32BlockElem_len b sb hb
+          have h8le : 8 ≤ 8 - t.remaining := by
+            simpa [hm8] using hm
+          have hle2 : 8 - t.remaining ≤ 2 := Nat.le_of_not_gt hblock_stop
+          exact False.elim ((by omega : ¬ (8 : Nat) ≤ 2) (Nat.le_trans h8le hle2))
+      | nil =>
+          rw [relRepeat_nil] at hrel
+          have hrem8 : t.remaining = 8 := by
+            have hz : 8 - t.remaining = 0 := hrel
+            have htle : t.remaining ≤ 8 := t.hle
+            have hle8 : 8 ≤ t.remaining := Nat.sub_eq_zero_iff_le.mp hz
+            exact Nat.le_antisymm htle hle8
+          have htail_mem : (tails, Suffix.empty t.remaining) ∈
+              decodeRepeat b32TailElem b32TailConsumesByte t.remaining t.bytes :=
+            decodeFull_some b32TailElem b32TailConsumesByte t.bytes tails htail
+          rcases (decodeRepeat_spec b32TailElem b32TailConsumesByte tails t.remaining
+            t.bytes (Suffix.empty t.remaining)).1 htail_mem with ⟨s₂, hs₂, htailrel⟩
+          have htailrel' : relRepeat (Rel b32TailElem) tails t.remaining t.bytes := by
+            have hne : t.bytes = cast (congrArg Bytes (Nat.sub_zero t.remaining)) s₂ := by
+              rw [hs₂]
+              exact prepend_empty_eq s₂
+            rw [hne]
+            exact (relRepeat_cast (Rel b32TailElem) tails (Nat.sub_zero t.remaining) s₂).1 htailrel
+          have ht_sid : t = Suffix.id 8 s₀ :=
+            decodeRepeat_nil_mem_eq_id b32BlockElem b32BlockConsumesByte s₀ t hmem
+          subst t
+          dsimp [Suffix.id] at htailrel'
+          cases tails with
+          | nil =>
+              rw [relRepeat_nil] at htailrel'
+              exact False.elim ((by omega : ¬ (8 : Nat) = 0) htailrel')
+          | cons x xs =>
+              rw [relRepeat_cons] at htailrel'
+              rcases htailrel' with ⟨m₁, hm₁, sb₁, srest, hsplice1, hx, hrest⟩
+              have hm₁8 : m₁ = 8 := Rel_b32TailElem_len x sb₁ hx
+              subst hm₁8
+              -- the single tail element consumes the whole input, so `sb₁`
+              -- reads exactly as `MZ`
+              have hsb_eq : List.ofFn sb₁ = [0x4D, 0x5A, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D] := by
+                have hread : ∀ k (hk : k < 8),
+                    sb₁ ⟨k, hk⟩ = s₀ ⟨k, hk⟩ := by
+                  intro k hk
+                  rw [hsplice1]
+                  exact (Codec.splice_prefix_read hm₁ sb₁ srest ⟨k, hk⟩ hk).symm
+                apply List.ext_getElem
+                · simp
+                · intro i hi hi'
+                  have hlt : i < 8 := by simpa using hi
+                  rw [List.getElem_ofFn]
+                  show sb₁ ⟨i, hlt⟩ = _
+                  rw [hread i hlt]
+                  rfl
+              have hnon' : b32TailApply (List.ofFn sb₁) = none := by
+                rw [hsb_eq]
+                exact b32TailApply_b32Mz_chars
+              exact False.elim (not_rel_b32TailElem_of_apply_none x sb₁ hnon' hx)
 
 /-! ## Conformance: canonical encoding (task 4.2, base32)
 
