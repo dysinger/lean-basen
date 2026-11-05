@@ -7,6 +7,56 @@ the OpenSpec ledger in the sibling `lean-codec` repo
 (`openspec/changes/lean-basen/`) records the task-level detail, and `AGENTS.md`
 records the conventions.
 
+## 2026-11-05 — `Zh==` and `Zm9=` are rejected, whole-input
+
+The base64 half of the same story as the entry below. Commit `9d5074e` implied
+that the non-canonical pad-bit vectors `Zh==` / `Zm9=` were rejected, but
+`b64Zh` and `b64Zm9` were **orphaned definitions**: `grep -rn '\bb64Zh\b'`
+returned one hit, the definition itself. The rejection was true (`#eval` said
+`none`) and unstated. This release adds the whole-input theorem
+(ledger §6.2 / §6.3a).
+
+### Added
+
+- `b64Zm9_chars`, `b64BlockApply_b64Zm9_chars`, `b64TailApply_b64Zm9_chars` —
+  the `Zm9=` block-level triple, twin of the `Zh==` one that already existed.
+  The first is axiom-free, the other two `[propext]`-only.
+- `decodeFullB64_reject_b64Zh : decodeFullB64 b64Zh = none` — the whole-input
+  rejection of the non-canonical **1-byte** tail. `[propext, Quot.sound]`-only.
+- `decodeFullB64_reject_b64Zm9 : decodeFullB64 b64Zm9 = none` — the whole-input
+  rejection of the non-canonical **2-byte** tail. `[propext, Quot.sound]`-only.
+
+All five are gated in `Axioms.lean` under a §6.2 block, verified
+**load-bearing** by mutation (stubbing `decodeFullB64_reject_b64Zh` to `sorry`
+fails `lake build` with `error: BaseN/Base64.lean:3480:8: declaration uses
+'sorry'`; restoring it is green, 25 jobs). Both vectors are also
+`example`-checked in `Bench.lean` (`lake build bench`, 45 jobs).
+
+### Notes on the proof
+
+The lift is factored as **one** private theorem,
+`decodeFullB64_none_of_rejected_tail`, plus two thin instances — not duplicated
+per vector. It is parameterised by the pad **position** `kp : Fin 4`, which is
+not an accident: the two tails pad at different widths (`Zh==` at index 2,
+`Zm9=` at index 3), so the "a twin transfers the proof shape, never the
+constants" rule bites _inside_ base64, not only across bases.
+
+The recorded history of this item said it was "blocked on `Suffix`/`splice`
+index bookkeeping in the `blocks = []` branch". That was **wrong**, and the
+`#eval` check that refuted it was re-run first this time:
+`decodeRepeat b64BlockElem b64BlockConsumesByte 4 b64Zh` yields exactly one
+decomposition, `(blocks.length, t.remaining) = (0, 4)` — a base64 full block is
+4 bytes, so a 4-byte input cannot populate the block run at all. The proof kills
+the `cons` branch anyway (a two-line `omega`: `4 ≤ 4 - t.remaining` against
+`¬ (kp.val < 4 - t.remaining)`), because a theorem must not rest on a `#eval`
+about one literal. No `splice` reasoning and no index transport were needed.
+
+The cost that did appear was in the plumbing: `splice_prefix_read` needs its
+`hm : m ≤ n` argument supplied explicitly, and the pad fact must be stated at
+`Fin 4` on the _input_ type — `Bytes n` is a function, so `Fin s.length` is not
+even well typed, and an `omega` inside a statement's index annotation is
+elaborated without the `have`s that make it true.
+
 ## 2026-11-05 — `MZ======` is rejected, for real this time
 
 Commit `3dfc249` said in its message that `MZ======` "is not an encoding of
