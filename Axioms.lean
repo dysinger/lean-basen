@@ -486,3 +486,28 @@ block-level `none` to the tail element's relation. -/
 /-- info: 'BaseN.Base64.not_rel_b64TailElem_of_apply_none' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base64.not_rel_b64TailElem_of_apply_none
+
+/-! ## RFC 4648 §3.5 non-canonical pad bits, the `MZ======` vector (§6.3b)
+
+The base32 twin of the block above. `b32BlockApply_b32Mz_chars` rejects the
+`MZ======` character block at the re-encode guard (`MZ` lenient-decodes to
+`0x66`, whose canonical encoding is `MY======`), `b32TailApply_b32Mz_chars`
+lifts that to the tail element, and `not_rel_b32TailElem_of_apply_none` is the
+block-to-relation bridge. `decodeFullB32_reject_MZ` is the whole-input theorem:
+the thing commit `3dfc249` claimed in a message with no theorem behind it. -/
+
+/-- info: 'BaseN.Base32.b32BlockApply_b32Mz_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32BlockApply_b32Mz_chars
+
+/-- info: 'BaseN.Base32.b32TailApply_b32Mz_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base32.b32TailApply_b32Mz_chars
+
+/-- info: 'BaseN.Base32.not_rel_b32TailElem_of_apply_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.not_rel_b32TailElem_of_apply_none
+
+/-- info: 'BaseN.Base32.decodeFullB32_reject_MZ' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeFullB32_reject_MZ
