@@ -375,6 +375,16 @@ example : Base64.decodeFullB64 Base64.zgAAAA = none :=
 example : Base32.decodeFullB32 Base32.myAAAA = none :=
   Base32.decodeFullB32_reject_MYAAAA
 
+-- RFC 4648 §3.5 non-canonical pad bits: the whole-input rejection, not just the
+-- block-level one.  `Zh==` is a 1-byte tail with `0001` in the 4 spare bits;
+-- `Zm9=` is a 2-byte tail whose third char has `01` in its 2 spare bits.
+
+example : Base64.decodeFullB64 Base64.b64Zh = none :=
+  Base64.decodeFullB64_reject_b64Zh
+
+example : Base64.decodeFullB64 Base64.b64Zm9 = none :=
+  Base64.decodeFullB64_reject_b64Zm9
+
 /-- `Zg==` as a `Bytes 4` (a canonical 1-byte base64 tail). -/
 def zgEqEq : Bytes 4 := fun i => [0x5A, 0x67, 0x3D, 0x3D][i]
 

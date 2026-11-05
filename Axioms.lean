@@ -511,3 +511,32 @@ the thing commit `3dfc249` claimed in a message with no theorem behind it. -/
 /-- info: 'BaseN.Base32.decodeFullB32_reject_MZ' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base32.decodeFullB32_reject_MZ
+
+/-! ## RFC 4648 §3.5 non-canonical pad bits, whole-input (§6.2)
+
+The base64 half of the same family.  The block-level halves and the
+block-to-relation bridge are gated above; these are the **whole-input lifts** —
+that `decodeFullB64` itself says `none` for the two non-canonical pad-bit
+vectors, which is what commit `9d5074e` claimed in a message while `b64Zh` and
+`b64Zm9` were orphaned definitions with no theorem behind them (ledger §6.2 /
+§6.3a). -/
+
+/-- info: 'BaseN.Base64.b64Zm9_chars' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.Base64.b64Zm9_chars
+
+/-- info: 'BaseN.Base64.b64BlockApply_b64Zm9_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base64.b64BlockApply_b64Zm9_chars
+
+/-- info: 'BaseN.Base64.b64TailApply_b64Zm9_chars' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Base64.b64TailApply_b64Zm9_chars
+
+/-- info: 'BaseN.Base64.decodeFullB64_reject_b64Zh' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.decodeFullB64_reject_b64Zh
+
+/-- info: 'BaseN.Base64.decodeFullB64_reject_b64Zm9' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base64.decodeFullB64_reject_b64Zm9
