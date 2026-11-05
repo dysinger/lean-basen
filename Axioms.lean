@@ -3,6 +3,7 @@
 
 import BaseN
 import Codec
+import Lean.Elab.Command
 
 /-!
 # Axiom gate (`lake build`-enforced)
@@ -1588,3 +1589,740 @@ which is exactly the failure mode this block exists to make impossible. -/
 /-- info: 'BaseN.Base32.decodeFullB32_reject_MZTGMZR' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base32.decodeFullB32_reject_MZTGMZR
+
+/-! ## Mechanism: the gate's universe, enumerated from the environment
+
+Everything above is a **hand-written** `#guard_msgs` block per law. That is a
+statement of intent, not a check: nothing fails when a new law is added and its
+block forgotten. Measured before this section existed —
+`grep -cE 'run_cmd|Lean\.Elab|Environment|partitionInto|getEnv' Axioms.lean` → `0` —
+so the 437 `BaseN.*` pins plus the 3 `Codec.*` pins agreed with the module theorems
+**by maintenance discipline only**, and one added law would have shrunk the gate
+silently. That is precisely the hole `lean-codec` closed in its first audit round
+(`Axioms.lean`'s `partition`/`gateCoverage` checks); this section adopts the
+mechanism back. The *shape* (a `@[default_target]` `Axioms` lib) originated here, but
+the *mechanism* was `lean-codec`'s strengthening, and a reader who copies the shape
+alone copies the weaker version.
+
+Two `run_cmd` checks make the gate a **partition** with no third route:
+
+* `coverage` — the set the environment reports agrees with the names pinned above,
+  so a law landing un-gated fails the build naming it, and a stale pin fails too.
+* `partition` — every public theorem is in the pinned set **xor**
+  `generatedAuxAllowlist`; both at once is a self-contradiction, and neither at
+  once is an un-gated law.
+
+### What this is, and what it is not
+
+It is a **membership proxy**, not a proof of law strength: "is this a real law?" is
+not decidable from the environment, while "is this constant in the pinned set?" is.
+What the partition guarantees is that no public theorem can be covered by
+**silence** — the failure mode that was actually present — and that the allowlist
+cannot smuggle a law out of the gate. Do not read a green build as soundness.
+
+### The universe, as measured (2026-11-05)
+
+`publicTheorems` walks `Environment.constants` and keeps every `thmInfo` constant in
+the `BaseN` namespace:
+
+| side | count |
+| --- | --- |
+| public theorems in the `BaseN` namespace | **446** |
+| pinned by a `#guard_msgs` above (`gatedNames`) | **437** |
+| allowlisted (`generatedAuxAllowlist`) | **9** |
+| un-gated and unlisted | **0** |
+
+The 9 are all compiler-generated and each carries its reason in the allowlist below.
+The 3 `Codec.*` pins (roundtrip/bidir/decode_spec) are the dependency's laws and lie
+*outside* this namespace — pinned for discipline, not partitioned.
+
+**A stale count this section caught on its first run.** The header above said "all
+**440** public theorems"; the environment reports 446. The 3 `Codec.*` pins are not
+`BaseN` theorems, so the honest figure for this file's own namespace was always
+437 + 9 = 446, and the "440" conflated the two namespaces.
+-/
+
+namespace BaseNAxioms
+
+open Lean Elab Command
+
+/-- Default classifier for non-authorial theorem names: the ones the compiler emits
+for every structure or `def`.
+
+**This is a heuristic, not an authority.** It exists so `partition` has a default
+split, and every decision it makes is audited below — each dropped name must appear
+in `generatedAuxAllowlist` with a reason. A wrong decision is a build failure, not a
+silent gap. Never read this rule as "therefore not a law". -/
+def isGeneratedAux (n : Name) : Bool := Id.run do
+  let s := n.components.getLast!.toString
+  return s == "eq_def" || s == "inj" || s == "injEq" || s == "sizeOf_spec" ||
+    s == "congr_simp" || s == "dec" || s == "induct" || s == "eq_irrel"
+
+/-- Every public theorem candidate in the `BaseN` namespace, **before** any
+name-based declination. This is the universe `gatedNames` and
+`generatedAuxAllowlist` must partition.
+
+The unsafe / private / internal-detail filter is *not* a declination: those are not
+public surface at all, so they are outside the universe rather than dropped from it.
+The allowlist only ever describes names a reader could cite. -/
+def publicTheorems (env : Environment) : Array Name := Id.run do
+  let mut thms : Array Name := #[]
+  for (name, ci) in env.constants.toList do
+    if (`BaseN).isPrefixOf name then
+      match ci with
+      | .thmInfo _ =>
+        if ci.isUnsafe || isPrivateName name || name.isInternalDetail then
+          pure ()
+        else
+          thms := thms.push name
+      | _ => pure ()
+  return thms.qsort (fun a b => Name.toString a < Name.toString b)
+
+/-- The membership decisions of `isGeneratedAux`, per name — the candidate set split
+into the two sets the partition requires. -/
+def partitionInto (env : Environment) : Array Name × Array Name := Id.run do
+  let mut dropped : Array Name := #[]
+  let mut kept : Array Name := #[]
+  for n in publicTheorems env do
+    if isGeneratedAux n then dropped := dropped.push n else kept := kept.push n
+  return (kept, dropped)
+
+/-- The kept side of the classifier: the universe minus the names `isGeneratedAux`
+drops — the set the pinned names mirror. -/
+def gatedTheorems (env : Environment) : Array Name := partitionInto env |>.1
+
+/-- Declarations knowingly excluded from the `[propext, Quot.sound]`-only discipline,
+by name. Each must also appear in an "Explicit exclusion" note with its measured
+footprint and the reason. An exclusion is a decision on the record — never a silent
+omission, and never described in prose as clean.
+
+**Currently empty.** -/
+def exclusions : Array Name := #[]
+
+/-- The other half of the gate's partition: every public theorem listed here **by
+name with the reason it is not a law**.
+
+`BaseNAxioms.partition` requires every name here to be a real public theorem of the
+environment (so the list cannot name something that does not exist), requires every
+public theorem to appear here **or** in the pinned set (so nothing falls between the
+two), and requires the list to be disjoint from the pinned set.
+
+Why each of the 9 is not a law, in three groups:
+
+* **`brecOn.eq` (×2)** — the recursion equation Lean derives for `B32.brecOn` /
+  `B64.brecOn`, the below/`brecOn` eliminator of an inductive. Part of the
+  eliminator's compilation, like `eq_def` for a `def`; it states nothing about which
+  bytes a base accepts.
+* **`*.go` (×6)** — the `where`-clause helper of a structural induction
+  (`b32BytesOf_ofBytes.go` and friends). Lean gives it a public name, but it is a
+  *step* of the enclosing proof, not an independent statement, and it is meaningful
+  only relative to that proof's induction.
+* **`Run.step`** — a `Prop`-valued **structure field projection**: the
+  `ConsumesByte elem` productivity witness a caller *supplies* to `Run`, not a
+  theorem about it. Same shape as `Iso.MeasureDecreases.dec` in `lean-codec`, where
+  the obligation's *satisfiability* is the law and the projection itself is not. -/
+def generatedAuxAllowlist : Array Name := #[
+
+-- **`brecOn.eq` (×2)** — the recursion equation Lean derives for `B32.brecOn` /
+-- `B64.brecOn`, the below/`brecOn` eliminator of an inductive. Part of the
+-- eliminator's compilation, like `eq_def` for a `def`; it states nothing about which
+-- bytes a base accepts.
+  `BaseN.Base32.B32.brecOn.eq,
+  `BaseN.Base64.B64.brecOn.eq,
+
+
+-- **`*.go` (×6)** — the `where`-clause helper of a structural induction
+-- (`b32BytesOf_ofBytes.go` and friends). Lean gives it a public name, but it is a
+-- *step* of the enclosing proof, not an independent statement, and it is meaningful
+-- only relative to that proof's induction.
+  `BaseN.Base32.b32BytesOf_ofBytes.go,
+  `BaseN.Base32.b32Split_ofBytes_ofBytes.go,
+  `BaseN.Base32.b32Split_shape.go,
+  `BaseN.Base64.b64BytesOf_ofBytes.go,
+  `BaseN.Base64.b64Split_ofBytes_ofBytes.go,
+  `BaseN.Base64.b64Split_shape.go,
+
+
+-- **`Run.step`** — a `Prop`-valued **structure field projection**: the
+-- `ConsumesByte elem` productivity witness a caller *supplies* to `Run`, not a theorem
+-- about it. Same shape as `Iso.MeasureDecreases.dec` in `lean-codec`, where the
+-- obligation's *satisfiability* is the law and the projection itself is not.
+  `BaseN.Common.Run.step,
+
+-- **`inj` — the injectivity equation of a constructor.** Lean emits it for every
+-- inductive constructor and structure `mk`: two applications are equal iff their
+-- fields are, which the constructor's own typing already gives. It states nothing
+-- about which bytes a base accepts.
+  `BaseN.Base32.B32.full.inj,
+  `BaseN.Base32.B32.tail1.inj,
+  `BaseN.Base32.B32.tail2.inj,
+  `BaseN.Base32.B32.tail3.inj,
+  `BaseN.Base32.B32.tail4.inj,
+  `BaseN.Base64.B64.full.inj,
+  `BaseN.Base64.B64.tail1.inj,
+  `BaseN.Base64.B64.tail2.inj,
+  `BaseN.Common.Run.mk.inj,
+
+-- **`injEq` — the `Bool`-valued form of the same equation**, the shape `simp`
+-- consumes. An auxiliary of `inj`, not an independent statement.
+  `BaseN.Base32.B32.full.injEq,
+  `BaseN.Base32.B32.tail1.injEq,
+  `BaseN.Base32.B32.tail2.injEq,
+  `BaseN.Base32.B32.tail3.injEq,
+  `BaseN.Base32.B32.tail4.injEq,
+  `BaseN.Base64.B64.full.injEq,
+  `BaseN.Base64.B64.tail1.injEq,
+  `BaseN.Base64.B64.tail2.injEq,
+  `BaseN.Common.Run.mk.injEq,
+
+-- **`sizeOf_spec` — the defining equation of the derived `SizeOf` instance.**
+-- Part of Lean's termination machinery; about the size of a description value, not
+-- about a codec's behaviour.
+  `BaseN.Base32.B32.full.sizeOf_spec,
+  `BaseN.Base32.B32.nil.sizeOf_spec,
+  `BaseN.Base32.B32.tail1.sizeOf_spec,
+  `BaseN.Base32.B32.tail2.sizeOf_spec,
+  `BaseN.Base32.B32.tail3.sizeOf_spec,
+  `BaseN.Base32.B32.tail4.sizeOf_spec,
+  `BaseN.Base64.B64.full.sizeOf_spec,
+  `BaseN.Base64.B64.nil.sizeOf_spec,
+  `BaseN.Base64.B64.tail1.sizeOf_spec,
+  `BaseN.Base64.B64.tail2.sizeOf_spec,
+  `BaseN.Common.Run.mk.sizeOf_spec,
+
+-- **`eq_def` — the compiled-body equation of a `def`** (`f x = body`). It unfolds
+-- a definition the source already states; nobody cites it as an authority, and it
+-- is regenerated automatically whenever the body changes.
+  `BaseN.Base32.b32BytesOf.eq_def,
+  `BaseN.Base32.b32OfBytes.eq_def,
+  `BaseN.Base32.b32Split.eq_def,
+  `BaseN.Base32.b32Split_ofBytes.eq_def,
+  `BaseN.Base64.b64BytesOf.eq_def,
+  `BaseN.Base64.b64OfBytes.eq_def,
+  `BaseN.Base64.b64Split.eq_def,
+  `BaseN.Base64.b64Split_ofBytes.eq_def
+]
+
+-- BEGIN PINNED gatedNames
+/-- The `BaseN.*` names this file pins a `#guard_msgs` block for. Kept in lockstep
+with the blocks above by the `coverage` check, which fails on any drift. Written
+from the `#print axioms` lines, so it is a record of what is gated rather than a
+second list to maintain by hand. -/
+def gatedNames : List Lean.Name := [
+  `BaseN.Base10.Rel_digElem_canonical,
+  `BaseN.Base10.Rel_digElem_len,
+  `BaseN.Base10.decodeFull_B10_char,
+  `BaseN.Base10.decodeFull_canonical,
+  `BaseN.Base10.decode_encode_inverse,
+  `BaseN.Base10.digBlockApply_unapply,
+  `BaseN.Base10.digBlockIso_law,
+  `BaseN.Base10.digBlockUnapply_digits,
+  `BaseN.Base10.digConsumesByte,
+  `BaseN.Base10.digDecodeFull_unambiguous,
+  `BaseN.Base10.digDigit_valid_of_byte,
+  `BaseN.Base10.digElem_encode_ne_none,
+  `BaseN.Base10.digElem_functional,
+  `BaseN.Base10.digElem_unambiguous,
+  `BaseN.Base10.digVal_toByte_valToDig,
+  `BaseN.Base10.digVal_valToDig,
+  `BaseN.Base10.digValid_of_decide,
+  `BaseN.Base10.dig_decompose_unique,
+  `BaseN.Base10.dig_sum_eq,
+  `BaseN.Base10.encodeDig_canonical,
+  `BaseN.Base10.encodeDig_injective_eq,
+  `BaseN.Base10.encodeDig_ne_none,
+  `BaseN.Base10.encode_injective,
+  `BaseN.Base10.rejects_bad_arity,
+  `BaseN.Base10.rejects_invalid_byte,
+  `BaseN.Base10.rejects_overflow,
+  `BaseN.Base10.relDig_unambiguous,
+  `BaseN.Base10.roundtrip,
+  `BaseN.Base10.valToDig_digVal_of_valid,
+  `BaseN.Base10.valToDig_lt_256,
+  `BaseN.Base10.valToDig_valid,
+  `BaseN.Base16.Rel_hexElem_canonical,
+  `BaseN.Base16.Rel_hexElem_len,
+  `BaseN.Base16.decodeFull_B16_char,
+  `BaseN.Base16.decodeFull_canonical,
+  `BaseN.Base16.decodeHexBlockFold_both_cases,
+  `BaseN.Base16.decodeHexBlockFold_case_insensitive,
+  `BaseN.Base16.decodeHexFold_both_cases,
+  `BaseN.Base16.decodeHexFold_lowercase_eq,
+  `BaseN.Base16.decodeHexFold_of_fixed,
+  `BaseN.Base16.decode_encode_inverse,
+  `BaseN.Base16.encodeHex_canonical,
+  `BaseN.Base16.encodeHex_injective_eq,
+  `BaseN.Base16.encodeHex_ne_none,
+  `BaseN.Base16.encode_injective,
+  `BaseN.Base16.fill_foldList,
+  `BaseN.Base16.foldByteBytes_idem,
+  `BaseN.Base16.foldByte_fixed,
+  `BaseN.Base16.foldByte_folded,
+  `BaseN.Base16.foldByte_idem,
+  `BaseN.Base16.foldList_cons,
+  `BaseN.Base16.foldList_hexBlockUnapply,
+  `BaseN.Base16.foldList_idem,
+  `BaseN.Base16.foldList_nil,
+  `BaseN.Base16.foldNormalizer,
+  `BaseN.Base16.hexBlockApply_foldList,
+  `BaseN.Base16.hexBlockApply_foldList_ne,
+  `BaseN.Base16.hexBlockApply_none_of_not_len2,
+  `BaseN.Base16.hexBlockApply_unapply,
+  `BaseN.Base16.hexBlockIsoF_law,
+  `BaseN.Base16.hexBlockIso_law,
+  `BaseN.Base16.hexBlockUnapply_digits,
+  `BaseN.Base16.hexConsumesByte,
+  `BaseN.Base16.hexDecodeFull_unambiguous,
+  `BaseN.Base16.hexDigit_valid_of_byte,
+  `BaseN.Base16.hexElem_encode_ne_none,
+  `BaseN.Base16.hexElem_functional,
+  `BaseN.Base16.hexElem_unambiguous,
+  `BaseN.Base16.hexFixed_of_valid,
+  `BaseN.Base16.hexNibbleValid_false_of_lower,
+  `BaseN.Base16.hexNibbleValid_foldByte,
+  `BaseN.Base16.hexNibbleValid_of_decide,
+  `BaseN.Base16.hexNibbleValid_of_hexFixed,
+  `BaseN.Base16.hexToNibble_digit,
+  `BaseN.Base16.hexToNibble_foldByte_false,
+  `BaseN.Base16.hexToNibble_foldByte_true,
+  `BaseN.Base16.hexToNibble_foldByte_value,
+  `BaseN.Base16.hexToNibble_lower,
+  `BaseN.Base16.hexToNibble_nibbleToHex,
+  `BaseN.Base16.hexToNibble_toByte_nibbleToHex,
+  `BaseN.Base16.hexToNibble_upper,
+  `BaseN.Base16.hex_decompose_unique,
+  `BaseN.Base16.nibbleToHex_hexToNibble_of_valid,
+  `BaseN.Base16.nibbleToHex_lt_256,
+  `BaseN.Base16.nibbleToHex_valid,
+  `BaseN.Base16.ofNat_sub32_toNat,
+  `BaseN.Base16.rejects_invalid_byte,
+  `BaseN.Base16.rejects_lowercase,
+  `BaseN.Base16.rejects_odd_arity,
+  `BaseN.Base16.relHex_unambiguous,
+  `BaseN.Base16.roundtrip,
+  `BaseN.Base2.Rel_bitElem_canonical,
+  `BaseN.Base2.Rel_bitElem_len,
+  `BaseN.Base2.bitAt_le_one,
+  `BaseN.Base2.bitBlockApply_unapply,
+  `BaseN.Base2.bitBlockIso_law,
+  `BaseN.Base2.bitBlockUnapply_digits,
+  `BaseN.Base2.bitConsumesByte,
+  `BaseN.Base2.bitDecodeFull_unambiguous,
+  `BaseN.Base2.bitDigit_valid_of_byte,
+  `BaseN.Base2.bitElem_encode_ne_none,
+  `BaseN.Base2.bitElem_functional,
+  `BaseN.Base2.bitElem_unambiguous,
+  `BaseN.Base2.bitVal_toByte_valToBit,
+  `BaseN.Base2.bitVal_valToBit,
+  `BaseN.Base2.bitValid_of_decide,
+  `BaseN.Base2.bitsVal_bitsOf,
+  `BaseN.Base2.bits_decompose_unique,
+  `BaseN.Base2.decodeFull_B2_char,
+  `BaseN.Base2.decodeFull_canonical,
+  `BaseN.Base2.decode_encode_inverse,
+  `BaseN.Base2.encodeBit_canonical,
+  `BaseN.Base2.encodeBit_injective_eq,
+  `BaseN.Base2.encodeBit_ne_none,
+  `BaseN.Base2.encode_injective,
+  `BaseN.Base2.rejects_bad_arity,
+  `BaseN.Base2.rejects_invalid_byte,
+  `BaseN.Base2.relBit_unambiguous,
+  `BaseN.Base2.roundtrip,
+  `BaseN.Base2.valToBit_bitVal_of_valid,
+  `BaseN.Base2.valToBit_lt_256,
+  `BaseN.Base2.valToBit_valid,
+  `BaseN.Base32.Rel_b32BlockElem_canonical,
+  `BaseN.Base32.Rel_b32BlockElem_len,
+  `BaseN.Base32.Rel_b32BlockElem_not_tail,
+  `BaseN.Base32.Rel_b32BlockElem_size,
+  `BaseN.Base32.Rel_b32TailElem_first_char,
+  `BaseN.Base32.Rel_b32TailElem_has_pad,
+  `BaseN.Base32.Rel_b32TailElem_len,
+  `BaseN.Base32.Rel_b32TailElem_pad_pos,
+  `BaseN.Base32.Rel_b32TailElem_size,
+  `BaseN.Base32.b32BlockApply_b32MZTGMZR_chars,
+  `BaseN.Base32.b32BlockApply_b32MZTGN_chars,
+  `BaseN.Base32.b32BlockApply_b32MZTR_chars,
+  `BaseN.Base32.b32BlockApply_b32Mz_chars,
+  `BaseN.Base32.b32BlockConsumesByte,
+  `BaseN.Base32.b32BlockDecodeFull_unambiguous,
+  `BaseN.Base32.b32BlockDecodeLenient_unapply_pair,
+  `BaseN.Base32.b32BlockDecodeLenient_unapply_quad,
+  `BaseN.Base32.b32BlockDecodeLenient_unapply_quintet,
+  `BaseN.Base32.b32BlockDecodeLenient_unapply_single,
+  `BaseN.Base32.b32BlockDecodeLenient_unapply_triple,
+  `BaseN.Base32.b32BlockElem_encode_ne_none,
+  `BaseN.Base32.b32BlockElem_functional,
+  `BaseN.Base32.b32BlockElem_unambiguous,
+  `BaseN.Base32.b32BlockIso_law,
+  `BaseN.Base32.b32BlockRunOfBoundary,
+  `BaseN.Base32.b32BlockUnapply_chars,
+  `BaseN.Base32.b32BlockUnapply_len5,
+  `BaseN.Base32.b32BlockUnapply_len8,
+  `BaseN.Base32.b32BlockUnapply_total,
+  `BaseN.Base32.b32BoundaryPin,
+  `BaseN.Base32.b32BytesOf_ofBytes,
+  `BaseN.Base32.b32BytesOf_tail1_eq,
+  `BaseN.Base32.b32Char_pad_false,
+  `BaseN.Base32.b32MZTGMZR_chars,
+  `BaseN.Base32.b32MZTGN_chars,
+  `BaseN.Base32.b32MZTR_chars,
+  `BaseN.Base32.b32Mz_chars,
+  `BaseN.Base32.b32OfBytes_bytesOf,
+  `BaseN.Base32.b32OrPad_of_valid,
+  `BaseN.Base32.b32OrPad_pad,
+  `BaseN.Base32.b32OrPad_toByte_valToB32,
+  `BaseN.Base32.b32Split_blocks_tail,
+  `BaseN.Base32.b32Split_ofBytes_ofBytes,
+  `BaseN.Base32.b32Split_ofBytes_shape_bounds,
+  `BaseN.Base32.b32Split_shape,
+  `BaseN.Base32.b32Tail1_pad_bits,
+  `BaseN.Base32.b32Tail1_pad_bits_mod4,
+  `BaseN.Base32.b32Tail2_pad_bits,
+  `BaseN.Base32.b32Tail2_pad_bits_mod16,
+  `BaseN.Base32.b32Tail3_pad_bits,
+  `BaseN.Base32.b32Tail3_pad_bits_mod2,
+  `BaseN.Base32.b32Tail4_pad_bits,
+  `BaseN.Base32.b32Tail4_pad_bits_mod8,
+  `BaseN.Base32.b32TailApply_b32MZTGMZR_chars,
+  `BaseN.Base32.b32TailApply_b32MZTGN_chars,
+  `BaseN.Base32.b32TailApply_b32MZTR_chars,
+  `BaseN.Base32.b32TailApply_b32Mz_chars,
+  `BaseN.Base32.b32TailBlock_canonical,
+  `BaseN.Base32.b32TailConsumesByte,
+  `BaseN.Base32.b32TailDecodeFull_unambiguous,
+  `BaseN.Base32.b32TailElem_encode_ne_none,
+  `BaseN.Base32.b32TailElem_functional,
+  `BaseN.Base32.b32TailElem_unambiguous,
+  `BaseN.Base32.b32TailIso_law,
+  `BaseN.Base32.b32TailUnapply_len14,
+  `BaseN.Base32.b32ToVal_valToB32,
+  `BaseN.Base32.b32Valid_of_decide,
+  `BaseN.Base32.byte0Of,
+  `BaseN.Base32.byte1Of,
+  `BaseN.Base32.byte2Of,
+  `BaseN.Base32.byte3Of,
+  `BaseN.Base32.byte4Of,
+  `BaseN.Base32.decodeFullB32TailOfEncode,
+  `BaseN.Base32.decodeFullB32_arity,
+  `BaseN.Base32.decodeFullB32_char,
+  `BaseN.Base32.decodeFullB32_char_via_type,
+  `BaseN.Base32.decodeFullB32_consumed_alphabet,
+  `BaseN.Base32.decodeFullB32_conv,
+  `BaseN.Base32.decodeFullB32_mem_encode,
+  `BaseN.Base32.decodeFullB32_reject_MYAAAA,
+  `BaseN.Base32.decodeFullB32_reject_MZ,
+  `BaseN.Base32.decodeFullB32_reject_MZTGMZR,
+  `BaseN.Base32.decodeFullB32_reject_MZTGN,
+  `BaseN.Base32.decodeFullB32_reject_MZTR,
+  `BaseN.Base32.decodeFullB32_reject_arity,
+  `BaseN.Base32.decodeFullB32_reject_bad_length,
+  `BaseN.Base32.decodeFullB32_reject_first_invalid,
+  `BaseN.Base32.decodeFullB32_reject_invalid_at,
+  `BaseN.Base32.decodeFullB32_reject_invalid_char,
+  `BaseN.Base32.decodeFullB32_reject_of_pad_and_tail,
+  `BaseN.Base32.decodeFullB32_reject_pad_at_low_slot,
+  `BaseN.Base32.decodeFullB32_reject_pad_first,
+  `BaseN.Base32.decodeFullB32_roundtrip,
+  `BaseN.Base32.decodeFullB32_some,
+  `BaseN.Base32.decodeFullB32_spine,
+  `BaseN.Base32.decodeFull_b32Tail_suffix_cons,
+  `BaseN.Base32.decodeFull_b32Tail_suffix_nil,
+  `BaseN.Base32.decodeFull_cast,
+  `BaseN.Base32.encodeB32'_ne_none,
+  `BaseN.Base32.encodeB32Block_nopad,
+  `BaseN.Base32.encodeB32Tail_has_pad,
+  `BaseN.Base32.encodeB32Tail_len,
+  `BaseN.Base32.encodeB32Tail_ne_none,
+  `BaseN.Base32.encodeB32Tail_of_rel,
+  `BaseN.Base32.encodeB32_canonical,
+  `BaseN.Base32.encodeB32_injective,
+  `BaseN.Base32.encodeB32_injective_eq,
+  `BaseN.Base32.encodeB32_ne_none,
+  `BaseN.Base32.not_rel_b32BlockElem_of_pad,
+  `BaseN.Base32.not_rel_b32TailElem_of_apply_none,
+  `BaseN.Base32.prepend_concat_prefix_cast,
+  `BaseN.Base32.prepend_concat_suffix,
+  `BaseN.Base32.relB32Block_len,
+  `BaseN.Base32.relB32Block_len5,
+  `BaseN.Base32.relB32Block_unambiguous,
+  `BaseN.Base32.relB32Tail_len,
+  `BaseN.Base32.relB32Tail_unambiguous,
+  `BaseN.Base32.valToB32_b32ToVal_of_valid,
+  `BaseN.Base32.valToB32_lt_256,
+  `BaseN.Base32.valToB32_not_pad,
+  `BaseN.Base32.valToB32_valid,
+  `BaseN.Base4.Rel_quartetElem_canonical,
+  `BaseN.Base4.Rel_quartetElem_len,
+  `BaseN.Base4.decodeFull_B4_char,
+  `BaseN.Base4.decodeFull_canonical,
+  `BaseN.Base4.decode_encode_inverse,
+  `BaseN.Base4.encodeQuartet_canonical,
+  `BaseN.Base4.encodeQuartet_injective_eq,
+  `BaseN.Base4.encodeQuartet_ne_none,
+  `BaseN.Base4.encode_injective,
+  `BaseN.Base4.quartetAt_le,
+  `BaseN.Base4.quartetBlockApply_unapply,
+  `BaseN.Base4.quartetBlockIso_law,
+  `BaseN.Base4.quartetBlockUnapply_digits,
+  `BaseN.Base4.quartetConsumesByte,
+  `BaseN.Base4.quartetDecodeFull_unambiguous,
+  `BaseN.Base4.quartetDigit_valid_of_byte,
+  `BaseN.Base4.quartetElem_encode_ne_none,
+  `BaseN.Base4.quartetElem_functional,
+  `BaseN.Base4.quartetElem_unambiguous,
+  `BaseN.Base4.quartetVal_toByte_valToQuartet,
+  `BaseN.Base4.quartetVal_valToQuartet,
+  `BaseN.Base4.quartetValid_of_decide,
+  `BaseN.Base4.quartetsVal_quartetsOf,
+  `BaseN.Base4.quartets_decompose_unique,
+  `BaseN.Base4.rejects_bad_arity,
+  `BaseN.Base4.rejects_invalid_byte,
+  `BaseN.Base4.relQuartet_unambiguous,
+  `BaseN.Base4.roundtrip,
+  `BaseN.Base4.valToQuartet_lt_256,
+  `BaseN.Base4.valToQuartet_quartetVal_of_valid,
+  `BaseN.Base4.valToQuartet_valid,
+  `BaseN.Base64.Rel_b64BlockElem_canonical,
+  `BaseN.Base64.Rel_b64BlockElem_len,
+  `BaseN.Base64.Rel_b64BlockElem_not_tail,
+  `BaseN.Base64.Rel_b64BlockElem_size,
+  `BaseN.Base64.Rel_b64TailElem_first_char,
+  `BaseN.Base64.Rel_b64TailElem_has_pad,
+  `BaseN.Base64.Rel_b64TailElem_len,
+  `BaseN.Base64.Rel_b64TailElem_pad_pos,
+  `BaseN.Base64.Rel_b64TailElem_size,
+  `BaseN.Base64.b64BlockApply_b64Zh_chars,
+  `BaseN.Base64.b64BlockApply_b64Zm9_chars,
+  `BaseN.Base64.b64BlockConsumesByte,
+  `BaseN.Base64.b64BlockDecodeFull_unambiguous,
+  `BaseN.Base64.b64BlockDecodeLenient_unapply_pair,
+  `BaseN.Base64.b64BlockDecodeLenient_unapply_single,
+  `BaseN.Base64.b64BlockDecodeLenient_unapply_triple,
+  `BaseN.Base64.b64BlockElem_encode_ne_none,
+  `BaseN.Base64.b64BlockElem_functional,
+  `BaseN.Base64.b64BlockElem_unambiguous,
+  `BaseN.Base64.b64BlockIso_law,
+  `BaseN.Base64.b64BlockRunOfBoundary,
+  `BaseN.Base64.b64BlockUnapply_len3,
+  `BaseN.Base64.b64BlockUnapply_one,
+  `BaseN.Base64.b64BlockUnapply_two,
+  `BaseN.Base64.b64BoundaryPin,
+  `BaseN.Base64.b64BytesOf_ofBytes,
+  `BaseN.Base64.b64BytesOf_tail1_eq,
+  `BaseN.Base64.b64Char_pad_false,
+  `BaseN.Base64.b64OfBytes_bytesOf,
+  `BaseN.Base64.b64OrPad_of_valid,
+  `BaseN.Base64.b64OrPad_pad,
+  `BaseN.Base64.b64Split_blocks_tail,
+  `BaseN.Base64.b64Split_ofBytes_ofBytes,
+  `BaseN.Base64.b64Split_ofBytes_shape_bounds,
+  `BaseN.Base64.b64Split_shape,
+  `BaseN.Base64.b64Tail1_pad_bits,
+  `BaseN.Base64.b64Tail1_pad_bits_mod16,
+  `BaseN.Base64.b64Tail2_pad_bits,
+  `BaseN.Base64.b64Tail2_pad_bits_mod4,
+  `BaseN.Base64.b64TailApply_b64Zh_chars,
+  `BaseN.Base64.b64TailApply_b64Zm9_chars,
+  `BaseN.Base64.b64TailBlock_canonical,
+  `BaseN.Base64.b64TailConsumesByte,
+  `BaseN.Base64.b64TailDecodeFull_unambiguous,
+  `BaseN.Base64.b64TailElem_encode_ne_none,
+  `BaseN.Base64.b64TailElem_functional,
+  `BaseN.Base64.b64TailElem_unambiguous,
+  `BaseN.Base64.b64TailIso_law,
+  `BaseN.Base64.b64TailUnapply_len12,
+  `BaseN.Base64.b64ToVal_valToB64,
+  `BaseN.Base64.b64Valid_of_decide,
+  `BaseN.Base64.b64Zh_chars,
+  `BaseN.Base64.b64Zm9_chars,
+  `BaseN.Base64.byte0Of,
+  `BaseN.Base64.byte1Of,
+  `BaseN.Base64.byte2Of,
+  `BaseN.Base64.decodeFullB64TailOfEncode,
+  `BaseN.Base64.decodeFullB64_arity,
+  `BaseN.Base64.decodeFullB64_block_region,
+  `BaseN.Base64.decodeFullB64_char,
+  `BaseN.Base64.decodeFullB64_char_via_type,
+  `BaseN.Base64.decodeFullB64_consumed_alphabet,
+  `BaseN.Base64.decodeFullB64_conv,
+  `BaseN.Base64.decodeFullB64_mem_encode,
+  `BaseN.Base64.decodeFullB64_reject_ZgAAAA,
+  `BaseN.Base64.decodeFullB64_reject_arity,
+  `BaseN.Base64.decodeFullB64_reject_b64Zh,
+  `BaseN.Base64.decodeFullB64_reject_b64Zm9,
+  `BaseN.Base64.decodeFullB64_reject_bad_length,
+  `BaseN.Base64.decodeFullB64_reject_first_invalid,
+  `BaseN.Base64.decodeFullB64_reject_invalid_at,
+  `BaseN.Base64.decodeFullB64_reject_invalid_char,
+  `BaseN.Base64.decodeFullB64_reject_pad_at_low_slot,
+  `BaseN.Base64.decodeFullB64_reject_pad_first,
+  `BaseN.Base64.decodeFullB64_roundtrip,
+  `BaseN.Base64.decodeFullB64_some,
+  `BaseN.Base64.decodeFullB64_spine,
+  `BaseN.Base64.decodeFull_b64Tail_suffix_cons,
+  `BaseN.Base64.decodeFull_b64Tail_suffix_nil,
+  `BaseN.Base64.decodeFull_cast,
+  `BaseN.Base64.encodeB64'_ne_none,
+  `BaseN.Base64.encodeB64Block_nopad,
+  `BaseN.Base64.encodeB64Tail_has_pad,
+  `BaseN.Base64.encodeB64Tail_len,
+  `BaseN.Base64.encodeB64Tail_ne_none,
+  `BaseN.Base64.encodeB64Tail_of_rel,
+  `BaseN.Base64.encodeB64_canonical,
+  `BaseN.Base64.encodeB64_injective,
+  `BaseN.Base64.encodeB64_injective_eq,
+  `BaseN.Base64.encodeB64_ne_none,
+  `BaseN.Base64.not_rel_b64BlockElem_of_pad,
+  `BaseN.Base64.not_rel_b64TailElem_of_apply_none,
+  `BaseN.Base64.prepend_concat_prefix_cast,
+  `BaseN.Base64.prepend_concat_suffix,
+  `BaseN.Base64.relB64Block_len,
+  `BaseN.Base64.relB64Block_len3,
+  `BaseN.Base64.relB64Block_unambiguous,
+  `BaseN.Base64.relB64Tail_len,
+  `BaseN.Base64.relB64Tail_unambiguous,
+  `BaseN.Base64.valToB64_b64ToVal_of_valid,
+  `BaseN.Base64.valToB64_lt_256,
+  `BaseN.Base64.valToB64_not_pad,
+  `BaseN.Base64.valToB64_valid,
+  `BaseN.Base8.Rel_octElem_canonical,
+  `BaseN.Base8.Rel_octElem_len,
+  `BaseN.Base8.decodeFull_B8_char,
+  `BaseN.Base8.decodeFull_canonical,
+  `BaseN.Base8.decode_encode_inverse,
+  `BaseN.Base8.encodeOct_canonical,
+  `BaseN.Base8.encodeOct_injective_eq,
+  `BaseN.Base8.encodeOct_ne_none,
+  `BaseN.Base8.encode_injective,
+  `BaseN.Base8.octBlockApply_unapply,
+  `BaseN.Base8.octBlockIso_law,
+  `BaseN.Base8.octBlockUnapply_digits,
+  `BaseN.Base8.octConsumesByte,
+  `BaseN.Base8.octDecodeFull_unambiguous,
+  `BaseN.Base8.octDigit_valid_of_byte,
+  `BaseN.Base8.octElem_encode_ne_none,
+  `BaseN.Base8.octElem_functional,
+  `BaseN.Base8.octElem_unambiguous,
+  `BaseN.Base8.octToVal_ofNat_valToOct,
+  `BaseN.Base8.octToVal_valToOct,
+  `BaseN.Base8.octValid_of_decide,
+  `BaseN.Base8.oct_decompose_unique,
+  `BaseN.Base8.oct_sum_eq,
+  `BaseN.Base8.rejects_bad_arity,
+  `BaseN.Base8.rejects_invalid_byte,
+  `BaseN.Base8.rejects_overflow,
+  `BaseN.Base8.relOct_unambiguous,
+  `BaseN.Base8.roundtrip,
+  `BaseN.Base8.valToOct_lt_256,
+  `BaseN.Base8.valToOct_octToVal_of_valid,
+  `BaseN.Base8.valToOct_valid,
+  `BaseN.Common.Functional_count_satisfy,
+  `BaseN.Common.Functional_iso,
+  `BaseN.Common.Functional_satisfy,
+  `BaseN.Common.Productive_count_satisfy_succ,
+  `BaseN.Common.Productive_count_succ,
+  `BaseN.Common.Productive_iso,
+  `BaseN.Common.Productive_satisfy,
+  `BaseN.Common.Productive_seq_left,
+  `BaseN.Common.Rel_count_satisfy_forall,
+  `BaseN.Common.Rel_count_satisfy_len,
+  `BaseN.Common.Rel_count_satisfy_length,
+  `BaseN.Common.Rel_count_satisfy_ofFn,
+  `BaseN.Common.Unambiguous_iso,
+  `BaseN.Common.Unambiguous_satisfy,
+  `BaseN.Common.bdrop_concat,
+  `BaseN.Common.concat_eq_drop_prepend,
+  `BaseN.Common.consumesByte_count_satisfy_succ,
+  `BaseN.Common.count_satisfy_encode_ne_none,
+  `BaseN.Common.count_satisfy_unambiguous,
+  `BaseN.Common.decodeRepeat_nil_mem_eq_id,
+  `BaseN.Common.decodeRepeat_prefix_concat,
+  `BaseN.Common.encodeRepeat_of_rel,
+  `BaseN.Common.encode_satisfy_ne_none,
+  `BaseN.Common.encode_seq_ne_none,
+  `BaseN.Common.head?_eq_some_of_mem_eq,
+  `BaseN.Common.nat_lt_four,
+  `BaseN.Common.relRepeat_block_len,
+  `BaseN.Common.relRepeat_forall,
+  `BaseN.Common.relRepeat_functional
+]
+-- END PINNED gatedNames
+
+end BaseNAxioms
+
+/-! **Coverage check**, run on every `lake build`. Fails when the set of public
+theorems the environment exports differs from the set pinned in this file: a missing
+name means a theorem landed un-gated, and a name with no theorem means a stale entry
+(and, likely, a rename). Both are build failures, so the gate cannot rot into a
+snapshot of a past tree. -/
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let covered := Std.HashSet.ofList BaseNAxioms.gatedNames
+  let excluded := Std.HashSet.ofList BaseNAxioms.exclusions.toList
+  -- Names the partition records as *not laws* are satisfied by the allowlist: the
+  -- partition check below is what makes that claim, so this check need not repeat it.
+  -- Reading them here is what lets the two checks agree instead of contradicting.
+  let allow := Std.HashSet.ofList BaseNAxioms.generatedAuxAllowlist.toList
+  let actual := BaseNAxioms.partitionInto env |>.1
+  let mut unGated : Array Name := #[]
+  let mut coveredSet : Std.HashSet Name := {}
+  for n in actual do
+    coveredSet := coveredSet.insert n
+    if !covered.contains n && !excluded.contains n && !allow.contains n then
+      unGated := unGated.push n
+  let stale : Array Name := covered.toArray.filter fun n => !coveredSet.contains n
+  if !unGated.isEmpty || !stale.isEmpty then
+    let mut msg : MessageData := ""
+    if !unGated.isEmpty then
+      msg := msg ++ m!"theorems not pinned by this gate (add a `#guard_msgs` block):\n" ++
+        m!"{String.join (unGated.toList.map fun n => s!"  {Name.toString n}\n")}"
+    if !stale.isEmpty then
+      msg := msg ++ m!"pinned names with no matching theorem:\n" ++
+        m!"{String.join (stale.toList.map fun n => s!"  {Name.toString n}\n")}"
+    throwError msg
+  logInfo m!"basen axiom gate: {actual.size} public theorems covered ({excluded.size} explicit exclusion(s))"
+
+/-! **Partition check**, run on every `lake build`. The coverage check above only
+compares `gatedNames` against the *kept* side of the classifier, so a theorem the
+classifier drops is invisible to it. This second check closes that path: the pinned
+set and `generatedAuxAllowlist` must **partition** the public theorems, with no third
+route out of the gate.
+
+Four failures, each naming what is wrong:
+
+* a public theorem in **neither** set — a law nothing footprint-checks;
+* a name in **both** — the gate's own record contradicts itself;
+* an allowlist entry that is **not a public theorem** — a typo or a stale name, or an
+  attempt to un-gate something that is not a theorem at all;
+* a name in both `exclusions` and the allowlist — an exclusion is a *measured
+  footprint with a reason*, an allowlist entry is *not a law*, so they cannot
+  describe the same declaration. -/
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let gated := Std.HashSet.ofList BaseNAxioms.gatedNames
+  let allow := Std.HashSet.ofList BaseNAxioms.generatedAuxAllowlist.toList
+  let pub := BaseNAxioms.publicTheorems env
+  let noPath := pub.filter fun n => !gated.contains n && !allow.contains n
+  let both := pub.filter fun n => gated.contains n && allow.contains n
+  let notTheorems := BaseNAxioms.generatedAuxAllowlist.filter fun n => !pub.contains n
+  let exclusionOverlap := BaseNAxioms.exclusions.filter allow.contains
+  if !noPath.isEmpty || !both.isEmpty || !notTheorems.isEmpty ||
+      !exclusionOverlap.isEmpty then
+    let mut msg : MessageData := ""
+    if !noPath.isEmpty then
+      msg := msg ++ m!"public theorems in NEITHER the pinned set nor the allowlist (un-gated: add a `#guard_msgs` block):\n" ++
+        m!"{String.join (noPath.toList.map fun n => s!"  {Name.toString n}\n")}"
+    if !both.isEmpty then
+      msg := msg ++ m!"names in BOTH the pinned set and the allowlist (the partition requires disjointness):\n" ++
+        m!"{String.join (both.toList.map fun n => s!"  {Name.toString n}\n")}"
+    if !notTheorems.isEmpty then
+      msg := msg ++ m!"allowlist entries that are not public theorems (stale name, or a law cannot be allowlisted out of the gate):\n" ++
+        m!"{String.join (notTheorems.toList.map fun n => s!"  {Name.toString n}\n")}"
+    if !exclusionOverlap.isEmpty then
+      msg := msg ++ m!"names in both the exclusion list and the allowlist (an exclusion is a measured footprint; an allowlist entry is not a law):\n" ++
+        m!"{String.join (exclusionOverlap.toList.map fun n => s!"  {Name.toString n}\n")}"
+    throwError msg
+  logInfo m!"basen axiom gate: {pub.size} public theorems partitioned, {BaseNAxioms.gatedNames.length} pinned and {BaseNAxioms.generatedAuxAllowlist.size} allowlisted"
