@@ -28,16 +28,24 @@ pinned by a `#guard_msgs` below or recorded in `generatedAuxAllowlist` with a re
 (The audit that prompted this found 91 of 404, i.e. 22.5% — the gap was real and took
 two sessions to close.)
 
-**The counts, stated correctly, because an earlier version of this paragraph
-over-counted by conflating two namespaces.** The file carries **440 pins**: **437**
-are `BaseN.*` laws and **3** are `Codec.*` (`roundtrip`, `bidir`, `decode_spec`) —
-the *dependency's* laws, pinned for discipline and outside this repo's own universe.
-`publicTheorems` walks only `BaseN`, so the gate's own universe is
-**483 = 437 + 46 allowlisted**. The 437 pinned footprints are 375
-`[propext, Quot.sound]`, 48 `[propext]`-only, 15 axiom-free, and the 3 `Codec.*` pins
-add 2 more `[propext, Quot.sound]` and 1 `[Quot.sound]`-only (`Codec.Bytes.ext`).
-`Classical.choice` appears nowhere. The "universe, as measured" table further down
-states 483/437/46 and is asserted by a `run_cmd`, so it cannot drift again.
+**The counts, stated correctly, and now *asserted*.** An earlier version of this
+paragraph over-counted by conflating two namespaces; a later one said
+`440 / 437 / 483` and had rotted a full regeneration behind, because the header
+`run_cmd` asserted the *table* further down and never read this paragraph. Both are
+fixed: the figures here are now computed by `headerNumbers` from `gatedNames` and
+`generatedAuxAllowlist`, so this paragraph cannot be stale while the build is green.
+
+The file carries **443 pins**: **440** are `BaseN.*` laws and **3** are `Codec.*`
+(`roundtrip`, `bidir`, `decode_spec`) — the *dependency's* laws, pinned for discipline
+and outside this repo's own universe. `publicTheorems` walks only `BaseN`, so the
+gate's own universe is **486 = 440 + 46 allowlisted**. The 440 `BaseN` pinned
+footprints are 377 `[propext, Quot.sound]`, 48 `[propext]`-only and 15 axiom-free
+(377 + 48 + 15 = 440), and all 3 `Codec.*` pins are `[propext, Quot.sound]`.
+`Classical.choice` appears nowhere. (An earlier revision of these last two sentences
+said `375 / 48 / 15` for the `BaseN` side but then had the `Codec` pins contribute
+"2 `[propext, Quot.sound]` and 1 `[Quot.sound]`", which no longer reconciles with the
+`#print axioms` blocks below — all three are `[propext, Quot.sound]`. Re-derived by
+parsing every `#guard_msgs` footprint block.)
 
 The 22 theorems added by §4 are the base32 §3.5 family: the 2/3/4-byte pad-bit
 lemmas, their block-level rejections, and the three whole-input rejections plus
@@ -1035,6 +1043,12 @@ which is exactly the failure mode this block exists to make impossible. -/
 /-- info: 'BaseN.Base16.hexElem_encode_ne_none' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.hexElem_encode_ne_none
+/-- info: 'BaseN.Base16.decodes_6F' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.decodes_6F
+/-- info: 'BaseN.Base16.encodeHex_6F' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.encodeHex_6F
 /-- info: 'BaseN.Base16.decodeFull_canonical' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.decodeFull_canonical
@@ -1639,17 +1653,44 @@ the `BaseN` namespace:
 
 | side | count |
 | --- | --- |
-| public theorems in the `BaseN` namespace | **484** |
-| pinned by a `#guard_msgs` above (`gatedNames`) | **438** |
+| public theorems in the `BaseN` namespace | **486** |
+| pinned by a `#guard_msgs` above (`gatedNames`) | **440** |
 | allowlisted (`generatedAuxAllowlist`) | **46** |
 | un-gated and unlisted | **0** |
 
-484 = 438 + 46, with no third route. Of the 46 allowlisted, **37** are the ones the
+486 = 440 + 46, with no third route. Of the 46 allowlisted, **37** are the ones the
 suffix classifier drops (`*.inj` ×9, `*.injEq` ×9, `*.sizeOf_spec` ×11, `*.eq_def`
 ×8) and **9** are the hand-reviewed ones that the classifier does *not* match
 (`brecOn.eq` ×2, `*.go` ×6, `Run.step`) — the `*.go` helpers are the trap, since
 `.go` is not in the suffix list, so they land on the kept side and only `partition`
 catches them.
+
+### Definitions, as measured (`codec-audit-round-four` §6.3)
+
+The theorem partition above is `thmInfo`-only, so a public **`def`** used to be
+invisible to every check: not gated, not allowlisted — *outside the partition*. That
+is how this package carried eight dead public `Run` values (`bitRun`, `quartetRun`,
+…, `b64TailRun`) and seven dead `decode*` wrappers with the gate green. `publicDefs`
++ `mentionedByGated` + `definitionSurfaceAllowlist` now partition them, mirroring
+`codec`'s check, with the namespace predicate widened only as far as `BaseN` —
+`Codec.*` names are the dependency's and stay outside this gate.
+
+| side | count |
+| --- | --- |
+| public `def`s in the `BaseN` namespace (after dropping compiler machinery) | **137** |
+| named by a gated theorem's type — *mentioned* | **122** |
+| `definitionSurfaceAllowlist` | **15** |
+| silent | **0** |
+
+137 = 122 + 15. The middle row is a **mention proxy**: it says no public definition
+is covered by *silence*, not that it has a characterised law, and it can be satisfied
+vacuously. The 15 allowlisted are 10 `Iso`-law-as-field values (the `*BlockIso` /
+`*TailIso` whose `law` is a structure field proved at the definition site, which the
+proxy cannot see), 2 helpers whose law is stated in an unfolded form (`bitsOf`,
+`quartetsOf`), and the 3 `Run` part-functions (`Run.decode`/`encode`/`rel`). Reasons
+are in place at each entry. **Nothing ever goes on the allowlist while dead** — the
+eight `*Run` values and the seven `decode*` wrappers were **deleted**, not
+allowlisted.
 
 The 3 `Codec.*` pins (roundtrip/bidir/decode_spec) are the dependency's laws and lie
 *outside* this namespace — pinned for discipline, not partitioned, which is why
@@ -1713,6 +1754,109 @@ def partitionInto (env : Environment) : Array Name × Array Name := Id.run do
 /-- The kept side of the classifier: the universe minus the names `isGeneratedAux`
 drops — the set the pinned names mirror. -/
 def gatedTheorems (env : Environment) : Array Name := partitionInto env |>.1
+
+/-! ## The third check: public `def`s, not only public theorems
+
+**Ported from `codec`'s `Axioms.lean` (`codec-audit-round-four` §6.3).** The theorem
+partition above is `thmInfo`-only, so a public `def` that no theorem names is not
+"un-gated" — it is *outside the partition*, and the gate cannot report it. That is how
+`codec` shipped six combinators with zero laws while its gate was green, and `basen`
+had the same hole: `bitRun`, `quartetRun`, `octRun`, `digRun`, `b32Run`, `b64Run`,
+`b32TailRun`, `b64TailRun` were public `Run` values that nothing consumed, and the
+check that should have named them did not exist here.
+
+This is a **mention proxy**, and its property is the narrow one it can have: *no
+public definition is covered by silence*. It says nothing about law strength, it can
+be satisfied vacuously, and it is **not** a soundness claim — the same discipline as
+the theorem partition's `thmInfo` proxy.
+
+**The namespace predicate is `BaseN` only.** `Codec.*` names are the dependency's and
+stay outside this gate entirely — `basen` neither pins nor claims them. -/
+
+/-- Default classifier for `def` names that are **not** authorial surface: the
+companions Lean emits for every inductive and structure. Same status as
+`isGeneratedAux` — a heuristic, audited by the check below, never an authority. -/
+def isDerivedDefName (n : Name) : Bool := Id.run do
+  let last := n.components.getLast!.toString
+  return last == "casesOn" || last == "recOn" || last == "rec" || last == "elim" ||
+    last == "noConfusion" || last == "noConfusionType" || last == "ctorIdx" ||
+    last == "ctorElim" || last == "ctorElimType" || last == "below" ||
+    last == "brecOn" || last == "brecOn.go" || last == "mk" || last == "prod" ||
+    last == "sizeOf" || last == "sizeOf_spec"
+
+/-- Every public `def` in the `BaseN` namespace, **after** dropping compiler
+machinery and non-public names. This is the universe `definitionSurfaceAllowlist`
+and "mentioned by a gated theorem" must partition. -/
+def publicDefs (env : Environment) : Array Name := Id.run do
+  let mut ds : Array Name := #[]
+  for (name, ci) in env.constants.toList do
+    if (`BaseN).isPrefixOf name then
+      match ci with
+      | .defnInfo _ =>
+        if ci.isUnsafe || isPrivateName name || name.isInternalDetail ||
+            isDerivedDefName name then
+          pure ()
+        else
+          ds := ds.push name
+      | _ => pure ()
+  return ds.qsort (fun a b => Name.toString a < Name.toString b)
+
+/-- The names mentioned by at least one gated theorem's **type**. The other half of
+the definition-coverage partition; the mention proxy's whole measurement. -/
+def mentionedByGated (env : Environment) : Std.HashSet Name := Id.run do
+  let mut s : Std.HashSet Name := {}
+  for t in gatedTheorems env do
+    match env.find? t with
+    | some (.thmInfo ti) =>
+      for c in ti.type.getUsedConstants do
+        s := s.insert c
+    | _ => pure ()
+  return s
+
+/-- Public `def`s with **no** law naming them, listed by name with the reason the
+absence is deliberate.
+
+Each entry is one of four shapes, and the reason is in place at the entry:
+
+* an `Iso`-law-as-field value (`b64BlockIso`, `b32TailIso`, …): correctness is the
+  `law` **structure field**, proved at the definition site (`law := by …`), so the
+  kernel checks it at construction and no separate theorem names it — the mention
+  proxy cannot see a field proof;
+* a `Type`-level alias or a helper whose law is stated in an *unfolded* form, so the
+  theorem never names this constant (`bitsOf`, `quartetsOf`);
+* an internal part-function of the `Run` structure (`Run.decode`/`encode`/`rel`),
+  whose content is the repetition primitive it proxies;
+* **lawless-and-dead** — which gets **deleted**, not allowlisted. This list must never
+  become the place dead API is parked; that is the failure mode the check exists to
+  prevent.
+
+Keep the reason next to the entry: a bare name here would be the dumping ground this
+list exists to avoid. -/
+def definitionSurfaceAllowlist : Array Name := #[
+  -- **`Iso`-law-as-field**: the `law` structure field is proved at the definition
+  -- site, so the kernel checks it at construction and no theorem names it.
+  `BaseN.Base2.bitBlockIso,
+  `BaseN.Base4.quartetBlockIso,
+  `BaseN.Base8.octBlockIso,
+  `BaseN.Base10.digBlockIso,
+  `BaseN.Base16.hexBlockIso,
+  `BaseN.Base16.hexBlockIsoF,
+  `BaseN.Base32.b32BlockIso,
+  `BaseN.Base32.b32TailIso,
+  `BaseN.Base64.b64BlockIso,
+  `BaseN.Base64.b64TailIso,
+  -- **Helper whose law is stated in an unfolded form.** `bitsVal_bitsOf` /
+  -- `quartetsVal_quartetsOf` spell out `bitAt`/`quartetAt` in their statements rather
+  -- than applying `bitsOf`/`quartetsOf`, so the mention proxy cannot see the name.
+  `BaseN.Base2.bitsOf,
+  `BaseN.Base4.quartetsOf,
+  -- **Internal part-functions of `structure Run`.** `Run.decode`/`encode`/`rel` are
+  -- the three interpretations the structure bundles; their content is
+  -- `decodeRepeat`/`encodeRepeat`/`relRepeat`, whose laws are gated.
+  `BaseN.Common.Run.decode,
+  `BaseN.Common.Run.encode,
+  `BaseN.Common.Run.rel,
+]
 
 /-- Declarations knowingly excluded from the `[propext, Quot.sound]`-only discipline,
 by name. Each must also appear in an "Explicit exclusion" note with its measured
@@ -1867,6 +2011,8 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base16.Rel_hexElem_canonical,
   `BaseN.Base16.Rel_hexElem_len,
   `BaseN.Base16.decodeFull_B16_char,
+  `BaseN.Base16.decodes_6F,
+  `BaseN.Base16.encodeHex_6F,
   `BaseN.Base16.decodeFull_canonical,
   `BaseN.Base16.decodeHexBlockFold_both_cases,
   `BaseN.Base16.decodeHexBlockFold_case_insensitive,
@@ -2307,7 +2453,14 @@ run_cmd do
       msg := msg ++ m!"pinned names with no matching theorem:\n" ++
         m!"{String.join (stale.toList.map fun n => s!"  {Name.toString n}\n")}"
     throwError msg
-  logInfo m!"basen axiom gate: {covered.size} pinned + {BaseNAxioms.generatedAuxAllowlist.size} allowlisted = {actual.size} of {BaseNAxioms.publicTheorems env |>.size} public theorems ({excluded.size} explicit exclusion(s))"
+  -- **Two sets, two equations — never conflated.** `covered.size + allow.size` sums
+  -- to the *kept* side of `partitionInto` (`pub.size - dropped.size`), NOT to
+  -- `actual.size` (the kept side after explicit exclusions), and it is not
+  -- `pinned + allowlisted` against the public total either. An earlier revision
+  -- printed "438 pinned + 46 allowlisted = 447 of 484", whose `447` was the kept side
+  -- (484 − 37 suffix-dropped) and whose left side sums to 484 — the checks were right
+  -- and the message combined two different sets into one line.
+  logInfo m!"basen axiom gate: {BaseNAxioms.gatedNames.length} pinned + {BaseNAxioms.generatedAuxAllowlist.size} allowlisted = {BaseNAxioms.gatedNames.length + BaseNAxioms.generatedAuxAllowlist.size} of {BaseNAxioms.publicTheorems env |>.size} public theorems ({excluded.size} explicit exclusion(s))"
 
 /-! **Partition check**, run on every `lake build`. The coverage check above only
 compares `gatedNames` against the *kept* side of the classifier, so a theorem the
@@ -2366,8 +2519,8 @@ run_cmd do
   let gated := BaseNAxioms.gatedNames.length
   let allow := BaseNAxioms.generatedAuxAllowlist.size
   -- Keep these in lockstep with the "universe, as measured" table above.
-  let expectedPub := 484
-  let expectedGated := 438
+  let expectedPub := 486
+  let expectedGated := 440
   let expectedAllow := 46
   let mut bad : Array String := #[]
   if pub.size != expectedPub then
@@ -2380,4 +2533,70 @@ run_cmd do
     bad := bad.push s!"table does not add up: {gated} + {allow} != {pub.size}"
   if !bad.isEmpty then
     throwError m!"the \"universe, as measured\" table is stale (update it and expected* in the header check):\n{String.join (bad.toList.map fun s => s!"  {s}\n")}"
-  logInfo m!"basen axiom gate: header numbers verified ({expectedPub} = {expectedGated} + {expectedAllow})"
+  -- **The prose paragraph above is *computed*, not remembered.** `codec` had a
+  -- header table that was asserted while the paragraph beside it was transcribed, and
+  -- the paragraph rotted a full regeneration behind (`440 / 437 / 483` vs the truth)
+  -- with every check green. `gatedNames` mixes `BaseN` and `Codec` pins, so the two
+  -- namespace counts are computed here rather than restated.
+  -- `gatedNames` is `BaseN`-only by construction (`publicTheorems` walks `BaseN`),
+  -- so it *is* the `BaseN` pin count; the `Codec.*` pins are three `#print axioms`
+  -- blocks outside it. Both are computed here so the prose cannot drift from either.
+  let baseNPins := BaseNAxioms.gatedNames.length
+  -- The `Codec.*` pins are the three `#print axioms` blocks outside `gatedNames`
+  -- (the dependency's laws, pinned for discipline only). Named explicitly so a
+  -- dropped or added one is a build failure rather than a silent drift.
+  let codecPinNames : List Name := [`Codec.roundtrip, `Codec.bidir, `Codec.decode_spec]
+  let codecPins := codecPinNames.length
+  for n in codecPinNames do
+    match env.find? n with
+    | some _ => pure ()
+    | none => bad := bad.push s!"prose names the Codec.* pin {n}, which is not in the environment"
+  if baseNPins != gated then
+    bad := bad.push s!"gatedNames has {baseNPins} entries but the gate counts {gated} pinned"
+  -- The prose states the total as `baseNPins + codecPins`; assert it against the
+  -- number of `#print axioms` blocks the file actually carries.
+  if baseNPins + codecPins != 443 then
+    bad := bad.push s!"prose says 443 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
+  if gated + allow != pub.size then
+    bad := bad.push s!"prose says the universe is {gated} + {allow}, environment has {pub.size} public"
+  if !bad.isEmpty then
+    throwError m!"the prose paragraph is stale (update it and this check):\n{String.join (bad.toList.map fun s => s!"  {s}\n")}"
+  logInfo m!"basen axiom gate: header numbers verified ({expectedPub} = {expectedGated} + {expectedAllow}); prose paragraph says {baseNPins + codecPins} pins = {baseNPins} BaseN + {codecPins} Codec"
+
+/-! **Definition coverage — the third check.** Ported from `codec`'s `Axioms.lean`
+(`codec-audit-round-four` §6.3). Every public `BaseN` `def` must be named by some
+gated theorem's type, or appear in `definitionSurfaceAllowlist` with its reason in
+place. Its property is the narrow one it can have: *no public definition is covered
+by silence.* It can be satisfied vacuously, and it is **not** a soundness claim. -/
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let defs := BaseNAxioms.publicDefs env
+  let allow := Std.HashSet.ofList BaseNAxioms.definitionSurfaceAllowlist.toList
+  let mentioned := BaseNAxioms.mentionedByGated env
+  let silent := defs.filter fun n => !mentioned.contains n && !allow.contains n
+  -- A stale allowlist entry (a name with no matching `def`) is a failure too: a
+  -- rename or deletion must not leave a reason pointing at nothing.
+  let stale := BaseNAxioms.definitionSurfaceAllowlist.filter fun n =>
+    !defs.contains n
+  if !stale.isEmpty then
+    throwError m!"definitionSurfaceAllowlist names definitions that do not exist (rename or deletion?):\n{String.join (stale.toList.map fun n => s!"  {n}\n")}"
+  if !silent.isEmpty then
+    throwError m!"{silent.size} public definition(s) are named by no gated theorem's type and are absent from definitionSurfaceAllowlist. Either prove a law mentioning them, delete them if they are dead, or add them to the allowlist with a reason:\n{String.join (silent.toList.map fun n => s!"  {n}\n")}"
+  let mentionedCount := defs.size - BaseNAxioms.definitionSurfaceAllowlist.size
+  logInfo m!"basen axiom gate: {defs.size} public definitions covered, {mentionedCount} mentioned and {BaseNAxioms.definitionSurfaceAllowlist.size} allowlisted (mention proxy)"
+  -- Asserted, like the theorem table: a stale def count is a build failure.
+  let expectedDefs := 137
+  let expectedMentioned := 122
+  let expectedDefAllow := 15
+  let mut bad : Array String := #[]
+  if defs.size != expectedDefs then
+    bad := bad.push s!"public defs: table says {expectedDefs}, environment has {defs.size}"
+  if mentionedCount != expectedMentioned then
+    bad := bad.push s!"definitions mentioned: table says {expectedMentioned}, environment implies {mentionedCount}"
+  if BaseNAxioms.definitionSurfaceAllowlist.size != expectedDefAllow then
+    bad := bad.push s!"definitions allowlisted: table says {expectedDefAllow}, list has {BaseNAxioms.definitionSurfaceAllowlist.size}"
+  if defs.size - BaseNAxioms.definitionSurfaceAllowlist.size + BaseNAxioms.definitionSurfaceAllowlist.size != defs.size then
+    bad := bad.push s!"definition table does not add up"
+  if !bad.isEmpty then
+    throwError m!"the definition-coverage table is stale (update it and the expected* constants here):\n{String.join (bad.toList.map fun s => s!"  {s}\n")}"
