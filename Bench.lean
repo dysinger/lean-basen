@@ -617,6 +617,86 @@ example : Base16.decodeHexFold
       (fun i : Fin 2 => if i.val = 0 then 0x36 else 0x46) :=          -- "6F"
   Base16.decodeHexFold_lowercase_eq
 
+
+/-! ## Whole-string values the lane only *implied* before
+
+`codec-audit-round-four` §6.7. An earlier revision of this lane checked **block-level**
+outputs (`*BlockUnapply 0x66 = …`) and the **`↔` forms** (`encodeX v = some ⟨n, s⟩ →
+decodeFull … = some v`). Neither pins a whole-string encoder *value*: a regression
+that preserved the relation while changing the emitted bytes — a wrong pad count, a
+transposed nibble, a shifted alphabet — would satisfy both and survive. These
+`example`s pin the emitted bytes for `foobar` at every base, plus plain
+decode-to-bytes for the two padded bases.
+
+**`native_decide` again, with the same recorded reason as the block above** — it is
+the only evaluator that closes these, and nothing here is in the axiom gate
+(`Axioms.lean` imports `BaseN`, never `Bench`; these are `example`s, so
+`publicTheorems` cannot see them). **They must not be cited as proof.** They are
+value checks: the regression guard the audit found missing.
+
+The expected bytes are the RFC 4648 §10 vectors, cross-checked against the encoders
+themselves (`#eval` in the same session) rather than transcribed from memory — the
+first attempt at the base64 vector was wrong and `native_decide` caught it, which is
+the failure mode this guard exists for. -/
+
+/-- `foobar` → `"666F6F626172"` (base16, 12 chars). -/
+example : Base16.encodeHex foobar =
+    some ⟨12, fun i : Fin 12 =>
+      [0x36,0x36,0x36,0x46,0x36,0x46,0x36,0x32,0x36,0x31,0x37,0x32][i]⟩ := by
+  native_decide
+
+/-- `foobar` → 48 binary digits (base2). -/
+example : Base2.encodeBit foobar =
+    some ⟨48, fun i : Fin 48 =>
+      [0x30,0x31,0x31,0x30,0x30,0x31,0x31,0x30,0x30,0x31,0x31,0x30,
+       0x31,0x31,0x31,0x31,0x30,0x31,0x31,0x30,0x31,0x31,0x31,0x31,
+       0x30,0x31,0x31,0x30,0x30,0x30,0x31,0x30,0x30,0x31,0x31,0x30,
+       0x30,0x30,0x30,0x31,0x30,0x31,0x31,0x31,0x30,0x30,0x31,0x30][i]⟩ := by
+  native_decide
+
+/-- `foobar` → `"121212331233120212011302"` (base4, 24 chars). -/
+example : Base4.encodeQuartet foobar =
+    some ⟨24, fun i : Fin 24 =>
+      [0x31,0x32,0x31,0x32,0x31,0x32,0x33,0x33,0x31,0x32,0x33,0x33,
+       0x31,0x32,0x30,0x32,0x31,0x32,0x30,0x31,0x31,0x33,0x30,0x32][i]⟩ := by
+  native_decide
+
+/-- `foobar` → `"146157157142141162"` (base8, 18 chars). -/
+example : Base8.encodeOct foobar =
+    some ⟨18, fun i : Fin 18 =>
+      [0x31,0x34,0x36,0x31,0x35,0x37,0x31,0x35,0x37,
+       0x31,0x34,0x32,0x31,0x34,0x31,0x31,0x36,0x32][i]⟩ := by
+  native_decide
+
+/-- `foobar` → `"102111111098097114"` (base10, 18 chars). -/
+example : Base10.encodeDig foobar =
+    some ⟨18, fun i : Fin 18 =>
+      [0x31,0x30,0x32,0x31,0x31,0x31,0x31,0x31,0x31,
+       0x30,0x39,0x38,0x30,0x39,0x37,0x31,0x31,0x34][i]⟩ := by
+  native_decide
+
+/-- `"Zm9vYmFy"` decodes to `foobar` — plain decode-to-bytes, base64, no padding. -/
+example : Base64.decodeFullB64 (fun i : Fin 8 =>
+      [0x5A,0x6D,0x39,0x76,0x59,0x6D,0x46,0x79][i]) = some foobar := by
+  native_decide
+
+/-- `"Zm9vYmE="` decodes to `fooba` — plain decode-to-bytes, base64, **with a pad**. -/
+example : Base64.decodeFullB64 (fun i : Fin 8 =>
+      [0x5A,0x6D,0x39,0x76,0x59,0x6D,0x45,0x3D][i]) = some fooba := by
+  native_decide
+
+/-- `"MZXW6YTB"` decodes to `fooba` — plain decode-to-bytes, base32, no padding. -/
+example : Base32.decodeFullB32 (fun i : Fin 8 =>
+      [0x4D,0x5A,0x58,0x57,0x36,0x59,0x54,0x42][i]) = some fooba := by
+  native_decide
+
+/-- `"MZXW6YTBOI======"` decodes to `foobar` — plain decode-to-bytes, base32,
+with the full six-character pad run. -/
+example : Base32.decodeFullB32 (fun i : Fin 16 =>
+      [0x4D,0x5A,0x58,0x57,0x36,0x59,0x54,0x42,0x4F,0x49,0x3D,0x3D,0x3D,0x3D,0x3D,0x3D][i])
+    = some foobar := by
+  native_decide
+
 end Bench
 
 /-- `main` runs and exits 0 (type-checking the `example`s above is the gate;
