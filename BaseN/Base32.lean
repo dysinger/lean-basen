@@ -1250,16 +1250,6 @@ theorem b32TailDecodeFull_unambiguous {x y : List (List UInt8)} {n : Nat} (s : B
     exact prepend_prefix_eq (Suffix.empty n) s₀x s₀y hpre
   exact relB32Tail_unambiguous s₀x hrx (by rw [hs₀]; exact hry)
 
-/-! ## The `Run` for base32 (full-block repetition) -/
-
-/-- The base32 full-block run: value `List (List UInt8)`, one 5-byte block per step. -/
-def b32Run : Run (List UInt8) :=
-  { elem := b32BlockElem, step := b32BlockConsumesByte }
-
-/-- The terminal-tail run's element is `b32TailElem` (bounded, one padded block). -/
-def b32TailRun : Run (List UInt8) :=
-  { elem := b32TailElem, step := b32TailConsumesByte }
-
 /-! ## The uniform whole-input decoder/encoder
 
 The whole base32 decoder is the *backtracking composition* of the full-block

@@ -840,14 +840,6 @@ the repetition step (`Run.elem`), and the terminal tail is a separate bounded
 `Codec`.  The whole-input decoder/encoder are `Codec.decodeFull`/`decodeRepeat`/
 `encodeRepeat` over these elements (never a bespoke `parseB64`). -/
 
-/-- The base64 full-block run: value `List (List UInt8)`, one 3-byte block per step. -/
-def b64Run : Run (List UInt8) :=
-  { elem := b64BlockElem, step := b64BlockConsumesByte }
-
-/-- The terminal-tail run's element is `b64TailElem` (bounded, one padded block). -/
-def b64TailRun : Run (List UInt8) :=
-  { elem := b64TailElem, step := b64TailConsumesByte }
-
 /-! ## The uniform whole-input decoder/encoder
 
 The whole base64 decoder is the *backtracking composition* of the full-block

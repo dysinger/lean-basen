@@ -297,13 +297,6 @@ theorem quartetConsumesByte : ConsumesByte quartetElem := by
   rw [show 4 = 3 + 1 by rfl]
   exact Productive_count_satisfy_succ quartetDigit 3
 
-/-- The base4 run value: the element + productivity witness. -/
-def quartetRun : Run UInt8 := { elem := quartetElem, step := quartetConsumesByte }
-
-/-- The base4 decoder. -/
-def decodeQuartet {n : Nat} (s : Bytes n) : List (List UInt8 × Suffix n) :=
-  decodeRepeat quartetElem quartetConsumesByte n s
-
 /-- The base4 encoder. -/
 def encodeQuartet (bs : List UInt8) : Option (Sigma fun n => Bytes n) :=
   encodeRepeat quartetElem bs

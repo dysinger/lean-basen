@@ -277,13 +277,6 @@ theorem octConsumesByte : ConsumesByte octElem := by
   rw [show 3 = 2 + 1 by rfl]
   exact Productive_count_satisfy_succ octDigit 2
 
-/-- The base8 run value: the element + productivity witness. -/
-def octRun : Run UInt8 := { elem := octElem, step := octConsumesByte }
-
-/-- The base8 decoder: productive repetition over `octElem`. -/
-def decodeOct {n : Nat} (s : Bytes n) : List (List UInt8 × Suffix n) :=
-  decodeRepeat octElem octConsumesByte n s
-
 /-- The base8 encoder: repeat `octElem` over the byte list. -/
 def encodeOct (bs : List UInt8) : Option (Sigma fun n => Bytes n) :=
   encodeRepeat octElem bs

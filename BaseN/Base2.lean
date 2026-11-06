@@ -412,14 +412,6 @@ theorem bitConsumesByte : ConsumesByte bitElem := by
   rw [show 8 = 7 + 1 by rfl]
   exact Productive_count_satisfy_succ bitDigit 7
 
-/-- The base2 run value: the element + productivity witness, with the three
-interpretations inherited from `Run` (`decodeRepeat`/`encodeRepeat`/`relRepeat`). -/
-def bitRun : Run UInt8 := { elem := bitElem, step := bitConsumesByte }
-
-/-- The base2 decoder: productive repetition over `bitElem`. -/
-def decodeBit {n : Nat} (s : Bytes n) : List (List UInt8 × Suffix n) :=
-  decodeRepeat bitElem bitConsumesByte n s
-
 /-- The base2 encoder: repeat `bitElem` over the byte list. -/
 def encodeBit (bs : List UInt8) : Option (Sigma fun n => Bytes n) :=
   encodeRepeat bitElem bs

@@ -251,13 +251,6 @@ theorem digConsumesByte : ConsumesByte digElem := by
   rw [show 3 = 2 + 1 by rfl]
   exact Productive_count_satisfy_succ digDigit 2
 
-/-- The base10 run value: the element + productivity witness. -/
-def digRun : Run UInt8 := { elem := digElem, step := digConsumesByte }
-
-/-- The base10 decoder. -/
-def decodeDig {n : Nat} (s : Bytes n) : List (List UInt8 × Suffix n) :=
-  decodeRepeat digElem digConsumesByte n s
-
 /-- The base10 encoder. -/
 def encodeDig (bs : List UInt8) : Option (Sigma fun n => Bytes n) :=
   encodeRepeat digElem bs
