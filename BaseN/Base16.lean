@@ -262,10 +262,6 @@ theorem hexConsumesByte : ConsumesByte hexElem := by
 /-- The base16 run value: the element + productivity witness. -/
 def hexRun : Run UInt8 := { elem := hexElem, step := hexConsumesByte }
 
-/-- The base16 decoder. -/
-def decodeHex {n : Nat} (s : Bytes n) : List (List UInt8 × Suffix n) :=
-  decodeRepeat hexElem hexConsumesByte n s
-
 /-- The base16 encoder. -/
 def encodeHex (bs : List UInt8) : Option (Sigma fun n => Bytes n) :=
   encodeRepeat hexElem bs
@@ -558,7 +554,12 @@ the same digit in lowercase, so the *only* difference from a well-formed `"6F"` 
 case. That makes this the witness `rejects_lowercase` cannot be.
 
 `codec-audit-round-three` §2.3.4: the `n = 1` version above is true but
-non-discriminating, since odd arity alone rejects every byte there. -/
+non-discriminating, since odd arity alone rejects every byte there.
+
+**The positive counterpart is `decodes_6F`, immediately below**, so the contrast is
+explicit rather than an unstated premise: `"6F"` — the same two positions, differing
+**only in the case of the second digit** — decodes to `some [0x6F]`. That is what
+makes this theorem a statement about *case* (`codec-audit-round-four` §6.6). -/
 theorem rejects_lowercase_even_arity :
     decodeFull hexElem hexConsumesByte 2 (s := fun i : Fin 2 => [0x36, 0x66][i]) = none := by
   cases h : decodeFull hexElem hexConsumesByte 2
@@ -569,6 +570,39 @@ theorem rejects_lowercase_even_arity :
         decodeFull_canonical (v := v) h
       have h1 : hexDigit (0x66 : UInt8) = true := by simpa using (hall ⟨1, by decide⟩)
       exact absurd h1 (by decide)
+
+/-- **The encoder emits `"6F"` for `0x6F`** — the value `decodes_6F` needs. Unfolded
+to the emitted bytes, index by index (`Bytes` equality needs `funext`, so this is not
+`decide`). `[propext, Quot.sound]`-only. -/
+theorem encodeHex_6F :
+    encodeHex [0x6F] = some ⟨2, (fun i : Fin 2 => [0x36, 0x46][i])⟩ := by
+  rw [encodeHex, encodeRepeat]
+  simp only [hexElem, Codec.encodeRepeat, Codec.count, Codec.encode, Iso.cons, Iso.nil,
+    hexBlockIso, hexBlockUnapply, nibbleToHex, toByte, hexDigit, hexNibbleValid,
+    hexToNibble, UInt8.toNat, UInt8.ofNat, reduceIte, Option.bind]
+  refine congrArg some ?_
+  apply Sigma.ext
+  · rfl
+  · apply heq_of_eq
+    apply Bytes.ext
+    intro i
+    match i with
+    | ⟨0, _⟩ => rfl
+    | ⟨1, _⟩ => rfl
+
+/-- **`"6F"` decodes to `some [0x6F]`** — the positive counterpart of
+`rejects_lowercase_even_arity`.
+
+The two theorems name the *same two byte positions* (`0x36, 0x46` here versus
+`0x36, 0x66` there), and the only difference between the inputs is the case of the
+second digit. So `rejects_lowercase_even_arity` is genuinely a statement about case,
+not about arity, and a reader no longer has to take that on trust. This is the
+"explicit 'only difference is case' contrast" `codec-audit-round-four` §6.6 asks for.
+`[propext, Quot.sound]`-only. -/
+theorem decodes_6F :
+    decodeFull hexElem hexConsumesByte 2
+      (s := fun i : Fin 2 => [0x36, 0x46][i]) = some [0x6F] :=
+  roundtrip [0x6F] encodeHex_6F
 
 /-- Rejection: **a single hex digit** is rejected, because two are required per byte.
 
