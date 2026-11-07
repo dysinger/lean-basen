@@ -604,7 +604,9 @@ theorem decodes_6F :
       (s := fun i : Fin 2 => [0x36, 0x46][i]) = some [0x6F] :=
   roundtrip [0x6F] encodeHex_6F
 
-/-- Rejection: **a single hex digit** is rejected, because two are required per byte.
+/-- Rejection witness: **the single byte `0x36`** is rejected at length 1, because two
+hex digits are required per byte. The theorem proves rejection for **that one byte**,
+not for every single hex digit — the name reads general and the statement is not.
 
 A single-point witness of odd-arity rejection, not the general law
 (`n % 2 ≠ 0 → none`); see `rejects_single_char`'s note in `Base2` for why the
@@ -1131,5 +1133,59 @@ theorem decodeHexFold_lowercase_eq :
     rw [foldByte_folded 0x66 (by decide) (by decide),
         foldByte_fixed 0x46 (by decide)]
     decide
+
+/-- A byte the strict decoder accepts as a hex digit is a **fixed point** of the
+case fold: `hexDigit` and `hexFixed` cover the same two ranges (`48–57`, `65–70`),
+so `foldByte` is the identity on it. This is the bridge that lets the encoder's
+canonicality law discharge `decodeHexFold_of_fixed`'s hypothesis. -/
+theorem hexToNibble_range (N : Nat) (h : hexToNibble N ≤ 15) :
+    (48 ≤ N ∧ N ≤ 57) ∨ (65 ≤ N ∧ N ≤ 70) := by
+  unfold hexToNibble at h
+  by_cases h1 : N ≤ 57
+  · rw [ite_eq_left h1] at h
+    by_cases h2 : 48 ≤ N
+    · rw [ite_eq_left h2] at h; exact Or.inl ⟨h2, h1⟩
+    · rw [ite_eq_right h2] at h; omega
+  · rw [ite_eq_right h1] at h
+    by_cases h3 : N ≤ 70
+    · rw [ite_eq_left h3] at h
+      by_cases h4 : 65 ≤ N
+      · rw [ite_eq_left h4] at h; exact Or.inr ⟨h4, h3⟩
+      · rw [ite_eq_right h4] at h; omega
+    · rw [ite_eq_right h3] at h; omega
+
+theorem foldByte_of_hexDigit (b : UInt8) (h : hexDigit b = true) : foldByte b = b := by
+  apply foldByte_fixed
+  have hv : hexToNibble b.toNat ≤ 15 := hexNibbleValid_of_decide b.toNat (by
+    simpa [hexDigit] using h)
+  unfold hexFixed
+  exact decide_eq_true (hexToNibble_range b.toNat hv)
+
+/-- **The encoder's output is a fixed point of the case fold, at `Bytes` level.**
+`encodeHex` emits uppercase only (`encodeHex_canonical`), and uppercase hex bytes are
+`foldByte` fixed points, so `foldByteBytes` is the identity on any string the encoder
+produced. -/
+theorem foldByteBytes_of_encodeHex (bs : List UInt8) {n : Nat} {s : Bytes n}
+    (he : encodeHex bs = some ⟨n, s⟩) : foldByteBytes s = s := by
+  have hcan := encodeHex_canonical bs he
+  funext i
+  exact foldByte_of_hexDigit (s i) (hcan i)
+
+/-- **The RFC 4648 §8 conforming decoder inverts the encoder — the roundtrip that
+makes `decodeHexFold` a decoder of this package's format.**
+
+This is the law the spec delta requires: a decoder that accepts both cases must also
+be proved to invert `encodeHex`, or the "conforming reading" is a case-folding
+function no theorem ties to the encoder. Every base16 law in this file is stated over
+the strict `hexElem`; this is the one that connects `decodeHexFold` to `encodeHex`.
+
+Proof: the fold is the identity on the encoder's output (`foldByteBytes_of_encodeHex`),
+so `decodeHexFold_of_fixed` reduces `decodeHexFold` to the strict decoder at `s`, and
+`roundtrip` closes it. `[propext, Quot.sound]`-only. -/
+theorem decodeHexFold_roundtrip (bs : List UInt8) {n : Nat} {s : Bytes n} :
+    encodeHex bs = some ⟨n, s⟩ → decodeHexFold s = some bs := by
+  intro he
+  rw [decodeHexFold_of_fixed s (foldByteBytes_of_encodeHex bs he)]
+  exact roundtrip bs he
 
 end BaseN.Base16
