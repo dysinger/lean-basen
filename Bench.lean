@@ -399,8 +399,13 @@ example : Base32.decodeFullB32 Base32.MZTGMZR = none :=
    becomes a one-liner once the library supplies the positive counterpart to the
    existing `b32TailApply_b32MZTR_chars` family (a `b32TailApply_b32MZTA_chars`
    proving the canonical re-encode at the concrete vector, mirroring the four
-   rejection lemmas it sits beside). Until that lemma exists, these three stay as the
-   only `native_decide` in the ecosystem.
+   rejection lemmas it sits beside). Until that lemma exists, these three stay as
+   three of the **twelve** `native_decide` uses in `Bench.lean` — an earlier revision
+   said "the only `native_decide` in the ecosystem" and that was false in two ways
+   (`codec-audit-round-five` R6-10): there are twelve, not three, and the second
+   block below says "`native_decide` **again**" in its own header. The count is
+   **asserted by a build-time check** (`Axioms.lean`'s `nativeDecideCount`), so it
+   cannot drift as the block grows — see the `basen` spec delta.
 
    **They must not be cited as proof.** They are value checks: evidence that the
    rejections beside them are of the spelling rather than the payload, which is the

@@ -2600,3 +2600,42 @@ run_cmd do
     bad := bad.push s!"definition table does not add up"
   if !bad.isEmpty then
     throwError m!"the definition-coverage table is stale (update it and the expected* constants here):\n{String.join (bad.toList.map fun s => s!"  {s}\n")}"
+
+/-! **A sanctioned construct's stated count is asserted — the fifth check.**
+`codec-audit-round-five` §4.3 / R6-10, on the `basen` spec delta's rule that a
+documented count of a construct the package *sanctions but does not gate* must be
+computed, not remembered.
+
+`Bench.lean` uses `native_decide`, which `AGENTS.md` and this file's header both
+forbid inside the gate. Nothing here is in the gate — `Axioms.lean` imports `BaseN`,
+never `Bench`, and the uses are `example`s rather than `theorem`s, so `publicTheorems`
+cannot see them — and that is precisely why the count drifted (3 → **12**) with no
+build failing. `Bench.lean` states the number, so the number is asserted here against
+the source.
+
+A failure names both figures: the prose and the source. Update *both* when the block
+grows; do not delete the check to make a new example pass. -/
+open Lean Elab Command in
+run_cmd do
+  -- The count `Bench.lean`'s prose states.
+  let stated := 12
+  -- The tactic occurrences in the source, read as text (there is no environment
+  -- handle: the module is deliberately not imported).
+  let path : System.FilePath := "Bench.lean"
+  let text ← IO.FS.readFile path
+  let uses := (String.splitOn text "native_decide").length - 1
+  -- Prose mentions of the identifier are not uses: count only lines that are the
+  -- tactic and nothing else once surrounding whitespace is gone. `String.trim` does
+  -- not exist in this toolchain, so the leading whitespace is removed explicitly.
+  let isSpace (c : Char) : Bool := c == ' ' || c == '\t' || c == '\r'
+  let rec dropLead (cs : List Char) : List Char :=
+    match cs with
+    | c :: rest => if isSpace c then dropLead rest else cs
+    | [] => []
+  let mut tacticLines : Nat := 0
+  for line in String.splitOn text "\n" do
+    if String.ofList (dropLead line.toList) == "native_decide" then
+      tacticLines := tacticLines + 1
+  if tacticLines != stated then
+    throwError m!"nativeDecideCount: `Bench.lean`'s prose states {stated} `native_decide` uses but the source has {tacticLines} ({uses} occurrences of the identifier, including comments). Update the prose AND this constant, or delete the sentence (the spec allows either, not a silent drift)."
+  logInfo m!"basen axiom gate: native_decide stated count verified ({stated} uses in Bench.lean, all bench-lane, none in the gate)"
