@@ -2973,7 +2973,8 @@ theorem decodeFullB64_spine {n : Nat} {s : Bytes n} {v : List UInt8}
 A one-byte `B64` value flattens to exactly one byte; nothing can follow it.
 This is the discriminating fact: the shape `b0` followed by three more bytes has
 no `B64` inhabitant, which is why no such input survives `decodeFullB64`.
-`[propext, Quot.sound]`-only. -/
+**Axiom-free** (measured: `#print axioms` reports no axioms — the
+proof is `rfl`). -/
 theorem b64BytesOf_tail1_eq (b0 : UInt8) : b64BytesOf (B64.tail1 b0) = [b0] := rfl
 
 /-! ## General rejection laws (task 6.4)
