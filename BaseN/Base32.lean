@@ -1182,6 +1182,14 @@ The block layer rejects it structurally: `b32BlockDecodeLenient` happily reads
 `MZ` as the byte `0x66` (`'f'`), but `b32BlockApply`'s re-encode guard then
 notices that `0x66` canonically encodes as `MY======`, not `MZ======`.
 
+**Read every `MZ======` below as "the non-canonical twin of `MY======`".** `MY` is
+the canonical 1-byte tail for `0x66` (`'f'`); `MZ` names the same byte with the two
+pad bits set to `01` instead of `00`. An earlier revision used `MZ======` throughout
+without ever pairing it with the canonical spelling, so a reader meeting the vector
+first had nothing to compare it against — the rejection reads as arbitrary
+(`codec-audit-round-six` R7-33). `MY======` is named here, at the head of the
+section, and in `CHANGELOG.md`'s entry.
+
 Proof shape mirrors `Base64.b64BlockApply_b64Zh_chars` (see ledger §6.2):
 `unfold` the guard, pin the lenient decode and the re-encode by `decide`, and
 the two disagree.  Per the ledger's §6.3b note this is a `decide`, not an
@@ -3636,7 +3644,8 @@ theorem decodeFullB32_spine {n : Nat} {s : Bytes n} {v : List UInt8}
   exact ⟨b32OfBytes v', by rw [hv, b32BytesOf_ofBytes]⟩
 
 /-- **A `B32` tail is terminal — the type forbids trailing data.**
-`[propext, Quot.sound]`-only. -/
+**Axiom-free** (measured: `#print axioms` reports no axioms — the
+proof is `rfl`). -/
 theorem b32BytesOf_tail1_eq (b0 : UInt8) : b32BytesOf (B32.tail1 b0) = [b0] := rfl
 
 /-! ## General rejection laws (task 6.4, base32 mirror)
