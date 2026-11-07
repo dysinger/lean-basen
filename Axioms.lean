@@ -35,12 +35,12 @@ paragraph over-counted by conflating two namespaces; a later one said
 fixed: the figures here are now computed by `headerNumbers` from `gatedNames` and
 `generatedAuxAllowlist`, so this paragraph cannot be stale while the build is green.
 
-The file carries **443 pins**: **440** are `BaseN.*` laws and **3** are `Codec.*`
+The file carries **447 pins**: **444** are `BaseN.*` laws and **3** are `Codec.*`
 (`roundtrip`, `bidir`, `decode_spec`) — the *dependency's* laws, pinned for discipline
 and outside this repo's own universe. `publicTheorems` walks only `BaseN`, so the
-gate's own universe is **486 = 440 + 46 allowlisted**. The 440 `BaseN` pinned
-footprints are 377 `[propext, Quot.sound]`, 48 `[propext]`-only and 15 axiom-free
-(377 + 48 + 15 = 440), and all 3 `Codec.*` pins are `[propext, Quot.sound]`.
+gate's own universe is **490 = 444 + 46 allowlisted**. The 444 `BaseN` pinned
+footprints are 381 `[propext, Quot.sound]`, 48 `[propext]`-only and 15 axiom-free
+(381 + 48 + 15 = 444), and all 3 `Codec.*` pins are `[propext, Quot.sound]`.
 `Classical.choice` appears nowhere. (An earlier revision of these last two sentences
 said `375 / 48 / 15` for the `BaseN` side but then had the `Codec` pins contribute
 "2 `[propext, Quot.sound]` and 1 `[Quot.sound]`", which no longer reconciles with the
@@ -473,6 +473,9 @@ decode law. -/
 /-- info: 'BaseN.Base16.decodeHexFold_of_fixed' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.decodeHexFold_of_fixed
+/-- info: 'BaseN.Base16.decodeHexFold_roundtrip' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.decodeHexFold_roundtrip
 
 /-! ## Split-reassembly laws (pre-archive audit §6.6)
 
@@ -1064,9 +1067,15 @@ which is exactly the failure mode this block exists to make impossible. -/
 /-- info: 'BaseN.Base16.rejects_single_char' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.rejects_single_char
+/-- info: 'BaseN.Base16.foldByteBytes_of_encodeHex' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.foldByteBytes_of_encodeHex
 /-- info: 'BaseN.Base16.foldByte_fixed' depends on axioms: [propext] -/
 #guard_msgs in
 #print axioms BaseN.Base16.foldByte_fixed
+/-- info: 'BaseN.Base16.foldByte_of_hexDigit' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.foldByte_of_hexDigit
 /-- info: 'BaseN.Base16.foldByte_folded' depends on axioms: [propext] -/
 #guard_msgs in
 #print axioms BaseN.Base16.foldByte_folded
@@ -1109,6 +1118,9 @@ which is exactly the failure mode this block exists to make impossible. -/
 /-- info: 'BaseN.Base16.fill_foldList' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.fill_foldList
+/-- info: 'BaseN.Base16.hexToNibble_range' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.hexToNibble_range
 /-- info: 'BaseN.Base16.decodeHexBlockFold_both_cases' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.decodeHexBlockFold_both_cases
@@ -1653,12 +1665,12 @@ the `BaseN` namespace:
 
 | side | count |
 | --- | --- |
-| public theorems in the `BaseN` namespace | **486** |
-| pinned by a `#guard_msgs` above (`gatedNames`) | **440** |
+| public theorems in the `BaseN` namespace | **490** |
+| pinned by a `#guard_msgs` above (`gatedNames`) | **444** |
 | allowlisted (`generatedAuxAllowlist`) | **46** |
 | un-gated and unlisted | **0** |
 
-486 = 440 + 46, with no third route. Of the 46 allowlisted, **37** are the ones the
+490 = 444 + 46, with no third route. Of the 46 allowlisted, **37** are the ones the
 suffix classifier drops (`*.inj` ×9, `*.injEq` ×9, `*.sizeOf_spec` ×11, `*.eq_def`
 ×8) and **9** are the hand-reviewed ones that the classifier does *not* match
 (`brecOn.eq` ×2, `*.go` ×6, `Run.step`) — the `*.go` helpers are the trap, since
@@ -1694,7 +1706,12 @@ allowlisted.
 
 The 3 `Codec.*` pins (roundtrip/bidir/decode_spec) are the dependency's laws and lie
 *outside* this namespace — pinned for discipline, not partitioned, which is why
-`grep -c '^#print axioms'` reports 440 against `gatedNames`' 437.
+`grep -c '^#print axioms'` reports **447** against `gatedNames`' **444**.
+
+**Both figures in that sentence are asserted** (R7-06, `codec-audit-round-six` §2.2).
+It previously said "440 against 437", and asserting only one of the pair had left
+the other free to drift with it — the sentence is two claims, so `headerNumbers`
+below compares both with the environment.
 
 **Two counts this section got wrong in its first version, both now corrected in
 place.** The header said "all **440** public theorems" (conflating the 3 `Codec.*`
@@ -2019,14 +2036,18 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base16.decodeHexFold_both_cases,
   `BaseN.Base16.decodeHexFold_lowercase_eq,
   `BaseN.Base16.decodeHexFold_of_fixed,
+  `BaseN.Base16.decodeHexFold_roundtrip,
   `BaseN.Base16.decode_encode_inverse,
   `BaseN.Base16.encodeHex_canonical,
   `BaseN.Base16.encodeHex_injective_eq,
   `BaseN.Base16.encodeHex_ne_none,
   `BaseN.Base16.encode_injective,
   `BaseN.Base16.fill_foldList,
+  `BaseN.Base16.hexToNibble_range,
   `BaseN.Base16.foldByteBytes_idem,
+  `BaseN.Base16.foldByteBytes_of_encodeHex,
   `BaseN.Base16.foldByte_fixed,
+  `BaseN.Base16.foldByte_of_hexDigit,
   `BaseN.Base16.foldByte_folded,
   `BaseN.Base16.foldByte_idem,
   `BaseN.Base16.foldList_cons,
@@ -2420,6 +2441,51 @@ def gatedNames : List Lean.Name := [
 ]
 -- END PINNED gatedNames
 
+/-- True when `seg` backticks a declaration that exists and is not `selfName`.
+
+**The attribution rule, refined.** A claim attaches to the declaration whose docstring
+it is whenever the segment (or the paragraph holding it) names that declaration —
+even if it also names its parts, which is the normal case here: `BaseN.Base8.roundtrip`'s
+docstring says ``gated by the `octDecodeFull_unambiguous` uniqueness fact. `[propext,
+Quot.sound]`-only.``, naming a *different* declaration right beside the claim.
+
+A segment is attributed **away** only when it names some other declaration and does
+**not** name `selfName`. That keeps the survey case excluded (`LengthDet`'s four-way
+table, whose paragraph names no single theorem) while keeping a law's own claim that
+cites its ingredients. The first version of this rule dropped either way, and on
+`basen` it silently discarded **47 of 52** claims — the arm was green and nearly
+vacuous, which is exactly the failure `codec-audit-round-six` §1 records for the arm's
+first implementation.
+
+A docstring names declarations **short**, without their namespace, so the lookup tries
+the bare name, then the enclosing namespaces. -/
+def namesAnotherDecl (env : Environment) (selfName : String) (ns : Name)
+    (seg : String) : Bool :=
+  -- **A backticked footprint is not a declaration name.** `` `[propext,
+  -- Quot.sound]`-only `` puts the footprint in backticks, so a naive backtick scan
+  -- reads it as a name and the claim gets attributed away from its own declaration —
+  -- which makes the whole check vacuously green. Strip the two footprint spellings
+  -- first. This is the reason the arm is non-vacuity-tested by inserting a false
+  -- claim, not merely run on a clean tree.
+  let seg := seg.replace "`[propext, Quot.sound]`" "FP_BOTH"
+                 |>.replace "`[propext]`" "FP_PROPEXT"
+  let resolves (s : String) : Bool :=
+    let n := s.toName
+    (env.find? n).isSome || (env.find? (ns ++ n)).isSome ||
+      (env.find? (`BaseN ++ n)).isSome
+  ((String.splitOn seg "`").zipIdx.filterMap fun (p, i) =>
+    if i % 2 == 1 then some p else none).any fun s =>
+      s != selfName && resolves s
+
+/-- True when `seg` backticks `selfName`. The complement of `namesAnotherDecl` that
+makes the attribution rule asymmetric: naming self wins. -/
+def namesSelf (selfName : String) (seg : String) : Bool :=
+  let seg := seg.replace "`[propext, Quot.sound]`" "FP_BOTH"
+                 |>.replace "`[propext]`" "FP_PROPEXT"
+  ((String.splitOn seg "`").zipIdx.filterMap fun (p, i) =>
+    if i % 2 == 1 then some p else none).any fun s =>
+      (s.splitOn ".").getLast! == selfName
+
 end BaseNAxioms
 
 /-! **Coverage check**, run on every `lake build`. Fails when the set of public
@@ -2444,7 +2510,31 @@ run_cmd do
     if !covered.contains n && !excluded.contains n && !allow.contains n then
       unGated := unGated.push n
   let stale : Array Name := covered.toArray.filter fun n => !coveredSet.contains n
-  if !unGated.isEmpty || !stale.isEmpty then
+  -- **A staleness arm for `exclusions` too** (R7-17, `codec-audit-round-six` §2.4).
+  -- The coverage check above *honours* `exclusions` — a listed name is skipped — so
+  -- a listed name that no longer exists, or one that was measured clean, was
+  -- invisible. Both are failures: an exclusion is a *measured footprint plus a
+  -- reason*, so one that names nothing is an unfalsifiable claim and one on a clean
+  -- law is un-gating by silence. The allowlist already had this arm; this list did
+  -- not.
+  let mut exclProblems : Array String := #[]
+  let pubThms := BaseNAxioms.publicTheorems env
+  for n in BaseNAxioms.exclusions do
+    match env.find? n with
+    | none =>
+      exclProblems := exclProblems.push
+        s!"exclusion names a declaration that does not exist (rename or deletion?): {n}"
+    | some _ =>
+      if !pubThms.contains n then
+        exclProblems := exclProblems.push
+          s!"exclusion names something that is not a public theorem: {n}"
+      else
+        let axs ← liftCoreM <| Lean.collectAxioms n
+        let clean := axs.all fun a => a == ``propext || a == ``Quot.sound
+        if clean then
+          exclProblems := exclProblems.push
+            s!"exclusion lists {n}, whose measured footprint [{axs.toList.map toString}] is already inside the discipline — remove the exclusion"
+  if !unGated.isEmpty || !stale.isEmpty || !exclProblems.isEmpty then
     let mut msg : MessageData := ""
     if !unGated.isEmpty then
       msg := msg ++ m!"theorems not pinned by this gate (add a `#guard_msgs` block):\n" ++
@@ -2452,6 +2542,9 @@ run_cmd do
     if !stale.isEmpty then
       msg := msg ++ m!"pinned names with no matching theorem:\n" ++
         m!"{String.join (stale.toList.map fun n => s!"  {Name.toString n}\n")}"
+    if !exclProblems.isEmpty then
+      msg := msg ++ m!"exclusion-list defects:\n" ++
+        m!"{String.join (exclProblems.toList.map fun s => s!"  {s}\n")}"
     throwError msg
   -- **Two sets, two equations — never conflated.** `covered.size + allow.size` sums
   -- to the *kept* side of `partitionInto` (`pub.size - dropped.size`), NOT to
@@ -2519,8 +2612,8 @@ run_cmd do
   let gated := BaseNAxioms.gatedNames.length
   let allow := BaseNAxioms.generatedAuxAllowlist.size
   -- Keep these in lockstep with the "universe, as measured" table above.
-  let expectedPub := 486
-  let expectedGated := 440
+  let expectedPub := 490
+  let expectedGated := 444
   let expectedAllow := 46
   let mut bad : Array String := #[]
   if pub.size != expectedPub then
@@ -2555,8 +2648,58 @@ run_cmd do
     bad := bad.push s!"gatedNames has {baseNPins} entries but the gate counts {gated} pinned"
   -- The prose states the total as `baseNPins + codecPins`; assert it against the
   -- number of `#print axioms` blocks the file actually carries.
-  if baseNPins + codecPins != 443 then
-    bad := bad.push s!"prose says 443 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
+  if baseNPins + codecPins != 447 then
+    bad := bad.push s!"prose says 447 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
+  -- **Both figures in the `443 against 440` sentence are asserted** (R7-06, §2.2).
+  -- The sentence names two counts and states a relation; asserting only the sum
+  -- leaves both free to drift together while the prose goes stale, which is exactly
+  -- what happened (`440 against 437` vs a truth of `443 / 440`).
+  let statedPrintBlockCount := 447
+  let statedGatedNamesCount := 444
+  let gateSrc ← IO.FS.readFile "Axioms.lean"
+  -- The prose's "443 `#print axioms` blocks" means the *code* blocks: the ones
+  -- starting at column 0. A plain substring count also picks up every mention of
+  -- the phrase inside these very comments (measured: 454 vs 443), so the count is
+  -- over column-0 lines, matching `grep -c '^#print axioms'`.
+  let mut actualPrintBlocks : Nat := 0
+  for l in String.splitOn gateSrc "\n" do
+    if l.startsWith "#print axioms" then actualPrintBlocks := actualPrintBlocks + 1
+  if actualPrintBlocks != statedPrintBlockCount then
+    bad := bad.push s!"prose says {statedPrintBlockCount} `#print axioms` blocks, source has {actualPrintBlocks}"
+  if baseNPins != statedGatedNamesCount then
+    bad := bad.push s!"prose says `gatedNames` holds {statedGatedNamesCount}, it holds {baseNPins}"
+  -- **The footprint distribution sentence is asserted too** (§2 of round-six, same
+  -- principle as the counts above: prose that states a three-way split of a total is
+  -- three claims plus a sum). Each figure is recomputed from `collectAxioms` over the
+  -- gated set; the `Codec.*` pins are counted with it and their 3 are subtracted, so
+  -- one environment is the source for all four numbers.
+  let mut distPS : Nat := 0
+  let mut distP : Nat := 0
+  let mut distZ : Nat := 0
+  let mut distOther : Nat := 0
+  for n in BaseNAxioms.gatedNames do
+    let axs ← liftCoreM <| Lean.collectAxioms n
+    let l := axs.toList.map toString
+    if l.isEmpty then distZ := distZ + 1
+    else if l == ["propext", "Quot.sound"] then distPS := distPS + 1
+    else if l == ["propext"] then distP := distP + 1
+    else distOther := distOther + 1
+  -- The `Codec.*` pins are inside `distPS` because `collectAxioms` is what counts
+  -- them; `gatedNames` does not contain them, so no subtraction is needed — this is
+  -- measured, not assumed: a mismatch below prints all four.
+  let statedDistPS := 381
+  let statedDistP := 48
+  let statedDistZ := 15
+  if distPS != statedDistPS then
+    bad := bad.push s!"distribution says {statedDistPS} [propext, Quot.sound], measured {distPS}"
+  if distP != statedDistP then
+    bad := bad.push s!"distribution says {statedDistP} [propext], measured {distP}"
+  if distZ != statedDistZ then
+    bad := bad.push s!"distribution says {statedDistZ} axiom-free, measured {distZ}"
+  if distOther != 0 then
+    bad := bad.push s!"distribution says nothing else, measured {distOther} other footprint(s)"
+  if distPS + distP + distZ != baseNPins then
+    bad := bad.push s!"distribution {distPS} + {distP} + {distZ} != {baseNPins} gated"
   if gated + allow != pub.size then
     bad := bad.push s!"prose says the universe is {gated} + {allow}, environment has {pub.size} public"
   if !bad.isEmpty then
@@ -2596,8 +2739,15 @@ run_cmd do
     bad := bad.push s!"definitions mentioned: table says {expectedMentioned}, environment implies {mentionedCount}"
   if BaseNAxioms.definitionSurfaceAllowlist.size != expectedDefAllow then
     bad := bad.push s!"definitions allowlisted: table says {expectedDefAllow}, list has {BaseNAxioms.definitionSurfaceAllowlist.size}"
-  if defs.size - BaseNAxioms.definitionSurfaceAllowlist.size + BaseNAxioms.definitionSurfaceAllowlist.size != defs.size then
-    bad := bad.push s!"definition table does not add up"
+  -- `mentionedCount` is computed above as `defs.size - allow.size`, which is only
+  -- the *mentioned* count if the allowlist really is a subset of the definitions and
+  -- the two sets partition them. Asserting that sum is the check the comment always
+  -- claimed. An earlier revision wrote `defs.size - allow + allow != defs.size`,
+  -- which is `a - b + b ≠ a` — false for every pair of `Nat`s, so it was dead code
+  -- that read exactly like the live theorem-side sum check beside it (R7-05,
+  -- `codec-audit-round-six` §2.1).
+  if mentionedCount + BaseNAxioms.definitionSurfaceAllowlist.size != defs.size then
+    bad := bad.push s!"definition table does not add up: {mentionedCount} + {BaseNAxioms.definitionSurfaceAllowlist.size} != {defs.size}"
   if !bad.isEmpty then
     throwError m!"the definition-coverage table is stale (update it and the expected* constants here):\n{String.join (bad.toList.map fun s => s!"  {s}\n")}"
 
@@ -2624,18 +2774,154 @@ run_cmd do
   let path : System.FilePath := "Bench.lean"
   let text ← IO.FS.readFile path
   let uses := (String.splitOn text "native_decide").length - 1
-  -- Prose mentions of the identifier are not uses: count only lines that are the
-  -- tactic and nothing else once surrounding whitespace is gone. `String.trim` does
-  -- not exist in this toolchain, so the leading whitespace is removed explicitly.
-  let isSpace (c : Char) : Bool := c == ' ' || c == '\t' || c == '\r'
-  let rec dropLead (cs : List Char) : List Char :=
-    match cs with
-    | c :: rest => if isSpace c then dropLead rest else cs
-    | [] => []
-  let mut tacticLines : Nat := 0
-  for line in String.splitOn text "\n" do
-    if String.ofList (dropLead line.toList) == "native_decide" then
-      tacticLines := tacticLines + 1
+  -- **The count must survive the legal spellings of the tactic** (R7-07, design
+  -- §D5). Five formatting changes each evaded the original whole-line comparison,
+  -- all reproduced before this fix:
+  --   * a trailing `--` comment on the tactic line moved the count `12 → 11`;
+  --   * an inline `:= by native_decide` was invisible;
+  --   * two occurrences on one line counted as one;
+  --   * a CRLF line ending was not stripped, so the line never matched;
+  --   * and a `/- … -/` **block** comment containing the identifier — `Bench.lean`
+  --     has one, describing the ban — inflated a naive raw count to 18.
+  -- So the source is reduced to *code* first (both comment forms stripped, nesting
+  -- tracked), then the identifier is counted by substring occurrence rather than by
+  -- whole-line equality. The stripper is unit-checked against the six spellings above
+  -- before it was installed; a counter that silently miscounts is the defect, so it
+  -- is not trusted on a green run alone.
+  let stripComments (src : String) : String := Id.run do
+    let mut out : Array Char := #[]
+    let mut depth : Nat := 0
+    let mut inLine := false
+    let mut prevDash := false
+    let mut prevSlash := false
+    for c in src.toList do
+      if inLine then
+        if c == '\n' then
+          inLine := false
+          out := out.push '\n'
+        prevDash := false; prevSlash := false
+      else if depth > 0 then
+        if prevDash && c == '/' then
+          depth := depth - 1
+          prevDash := false; prevSlash := false
+        else
+          prevDash := (c == '-'); prevSlash := (c == '/')
+      else if prevDash && c == '-' then
+        inLine := true
+        out := out.push ' '
+        prevDash := false; prevSlash := false
+      else if prevSlash && c == '-' then
+        depth := depth + 1
+        out := out.push ' '
+        prevDash := false; prevSlash := false
+      else
+        out := out.push c
+        prevDash := (c == '-')
+        prevSlash := (c == '/')
+    return String.ofList out.toList
+  let code := stripComments text
+  -- Trailing whitespace (including a stray CR) is irrelevant to a substring count,
+  -- so no trim is needed; the count is over the whole comment-free text.
+  let tacticLines := (String.splitOn code "native_decide").length - 1
   if tacticLines != stated then
     throwError m!"nativeDecideCount: `Bench.lean`'s prose states {stated} `native_decide` uses but the source has {tacticLines} ({uses} occurrences of the identifier, including comments). Update the prose AND this constant, or delete the sentence (the spec allows either, not a silent drift)."
+  -- The other direction: a line parser that mis-joins lines could inflate the code
+  -- count. Code occurrences cannot exceed raw occurrences, so this catches a parser
+  -- that reads a comment as code.
+  if tacticLines > uses then
+    throwError m!"nativeDecideCount: counted {tacticLines} code occurrences but the raw text has only {uses} — the line parser is reading comments as code."
   logInfo m!"basen axiom gate: native_decide stated count verified ({stated} uses in Bench.lean, all bench-lane, none in the gate)"
+
+
+/-! **The stated-footprint check** — `codec-audit-round-six` §6.6, porting
+`codec`'s R7-01/R7-02 arm.
+
+The five checks above assert set **counts** and pin **membership**. None of them reads
+a docstring, so a docstring stating an axiom footprint the environment contradicts was
+unaudited here — and `basen` has such docstrings on nearly every law. This check closes
+that class.
+
+**The rule the class teaches, and the reason it is not a syntactic test:** write a
+footprint from `#print axioms`, never from inspection. No property of a statement
+predicts its footprint — `codec` measured 25 axiom-free theorems that read `Bytes`
+directly — because the footprint depends on which tactics the proof used.
+
+**Attribution.** A claim attaches to the declaration whose docstring it is, *unless
+the same segment, or the paragraph containing it, names a different declaration* —
+a survey that tabulates several footprints is not claiming its own. Segments split on
+newlines and sentence boundaries. A hedged lower bound ("`[propext]` or no axioms") is
+satisfied by any footprint inside the hedge. A segment stating no declaration resolved
+as a name is **silence**, not a claim, which is the safe direction. -/
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let mut bad : Array String := #[]
+  let mut claims : Nat := 0
+  for (nm, ci) in env.constants.toList do
+    if (`BaseN).isPrefixOf nm && !ci.isUnsafe && !ci.isPartial then
+      match ci with
+      | .thmInfo _ | .defnInfo _ =>
+        let some doc ← Lean.findDocString? env nm | pure ()
+        let selfName := nm.components.getLast!.toString
+        let ns := nm.getPrefix
+        let footprint ← liftCoreM <| Lean.collectAxioms nm
+        let fp := footprint.toList.map toString
+        let isFree := fp.isEmpty
+        let isPropextOnly := fp == ["propext"]
+        let isBothOnly := fp == ["propext", "Quot.sound"]
+        let lines := String.splitOn doc "\n"
+        let segs := lines.flatMap (String.splitOn · ". ")
+        let paras := String.splitOn doc "\n\n"
+        for seg in segs do
+          let para := (paras.filter fun q => q.contains seg.trimAscii.toString).head?
+          let low := seg.toLower
+          let claim : Option String :=
+            if low.contains "axiom-free" || low.contains "no axioms at all" then
+              some "axiom-free"
+            else if seg.contains "`[propext, Quot.sound]`-only" then
+              some "[propext, Quot.sound]-only"
+            else if seg.contains "`[propext]`-only" then some "[propext]-only"
+            else if low.contains "`[propext]` or no axioms" then some "[propext]-or-cleaner"
+            else none
+          let some claim := claim | continue
+          -- **Attribution, in the two shapes the corpus has.**
+          -- (a) The claim sits in a segment that names *no* declaration (a bare
+          --     "`[propext, Quot.sound]`-only" closing line): it belongs to self.
+          -- (b) The claim's paragraph names another declaration: this is the survey
+          --     shape (`LengthDet`'s four-way table) and the claim is *not* self's,
+          --     **unless** the paragraph/segment also names self — which is the
+          --     normal case, a law citing its own ingredients.
+          let namesOwn :=
+            BaseNAxioms.namesSelf selfName seg ||
+            para.any fun q => BaseNAxioms.namesSelf selfName q
+          let namesOther :=
+            BaseNAxioms.namesAnotherDecl env selfName ns seg ||
+            para.any fun q => BaseNAxioms.namesAnotherDecl env selfName ns q
+          -- **Shape (a): a segment that is only the claim.** `` `[propext, Quot.sound]`-only ``
+          -- alone on its sentence carries no declaration name, so there is nothing to
+          -- attribute away and it is unambiguously this declaration's closing claim.
+          -- This is the shape almost every law in this package uses.
+          let bareSegment :=
+            seg.replace "`[propext, Quot.sound]`-only" ""
+              |>.replace "`[propext]`-only" ""
+              |>.replace "axiom-free" "" |>.replace "Axiom-free" ""
+              |>.replace "no axioms at all" "" |>.replace "No axioms at all" ""
+              |>.trimAscii.toString
+          let bareSegment := bareSegment.replace "." "" |>.replace "," "" |>.trimAscii.toString
+          let isBare := bareSegment.isEmpty
+          if !isBare && namesOther && !namesOwn then continue
+          claims := claims + 1
+          let measured := if isFree then "axiom-free"
+            else "[" ++ String.intercalate ", " fp ++ "]"
+          let ok := match claim with
+            | "axiom-free" => isFree
+            | "[propext, Quot.sound]-only" => isBothOnly
+            | "[propext]-only" => isPropextOnly
+            | "[propext]-or-cleaner" => isFree || isPropextOnly
+            | _ => true
+          unless ok do
+            bad := bad.push s!"  {nm}: says {claim}, measured {measured}\n"
+      | _ => pure ()
+  unless bad.isEmpty do
+    throwError m!"stated footprints disagree with the environment ({bad.size} claim site(s) of {claims}). Write the footprint from `#print axioms`, never from inspection:\n{String.join bad.toList}"
+  logInfo m!"basen axiom gate: stated footprints verified against the environment ({claims} claim site(s))"
