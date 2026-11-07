@@ -70,13 +70,21 @@ omega)` on a **disjunction** goal drags in classical logic (omega case-splits);
 
 - `lakefile.lean` / `flake.nix` / `default.nix` / `treefmt.nix` — build shape
   from the template (renamed to `basen`), with `native`/`check`/`bench` Nix
-  targets. `nix build .#bench` builds **and runs** the vector lane (its
-  `installPhase` executes the executable), so a wrong vector fails the build
-  rather than merely producing a binary. `bench` is a **package, not a
-  `checks` entry**, on purpose: known vectors are evidence, not a proof, so they
-  must not be able to fail the proof gate. For a fast loop, prefer the dev-shell
-  form — `lake build bench && ./.lake/build/bin/bench` — which does not go
-  through Nix at all.
+  targets. **The vector lane's checks fire at BUILD time, not run time**: every
+  check in `Bench.lean` is an `example` closed by `rfl` or `by native_decide`, and
+  Lake elaborates both while compiling the module. `Bench.lean`'s `main` is
+  `pure ()` — there is no runtime lane — so `nix build .#bench` proves that the lane
+  **builds in the sandbox** (dependency injection resolves, every vector is checked
+  by elaboration, the executable links), and its `installPhase` runs the binary only
+  as a smoke test that it starts and exits 0. An earlier version of this bullet said
+  the lane had to be _run_ for its checks to happen and that "a build that is not run
+  has verified nothing"; both were false of the code (`codec-audit-round-six` R7-16,
+  design §D4) and misled three documents. `bench` is a **package, not a `checks`
+  entry**, on purpose: known vectors are evidence, not a proof, so they must not be
+  able to fail the proof gate. For a fast loop use the dev-shell form —
+  `lake build bench` — which does not go through Nix at all. Running the binary adds
+  nothing to the verification — `main` is `pure ()`, so the binary's only observable
+  behaviour is exiting 0.
 - `openspec/` lives in the **`lean-codec`** repo (`openspec/changes/lean-basen/`),
   not here — the planning ledger is cross-referenced from the codec repo.
 

@@ -14,14 +14,19 @@
 # purpose: it is the RFC 4648 §10 / hand-vector value check, not a proof, so it
 # must not be able to fail the gate and must not be required by it.
 #
-# `bench` is an `lean_exe` whose value checks are mostly `example … := rfl` — but
-# **not all**: `Bench.lean` also has 12 `example … := by native_decide` blocks,
-# sanctioned and recorded there (bench-only, outside the axiom gate; `Axioms.lean`
-# asserts the count). So it has to be *built* (Lake elaborates the module, which
-# runs the `rfl` checks and compiles the `native_decide` ones) and then *run* for
-# the remaining checks to happen — see `bench`'s `installPhase` below.  Marking it
-# a package without running it would build the executable and verify nothing.
-# (An earlier revision called them all `rfl`; that undersold what `R6-33` measures.)
+# `bench` is an `lean_exe` whose value checks are **all compile-time**: `example … :=
+# rfl` and `example … := by native_decide` both fire while Lake elaborates the module.
+# There are 12 of the latter, sanctioned and recorded in `Bench.lean` (bench-only,
+# outside the axiom gate; `Axioms.lean` asserts the count). `Bench.lean`'s `main` is
+# `pure ()` — the lane has no runtime work — so **building it is what runs the checks**.
+#
+# So what `nix build .#bench` proves is that the lane **builds in the sandbox**: the
+# dependency injection resolves, the module elaborates, every vector is checked at
+# compile time, and the executable links. It does *not* prove anything about runtime
+# output, because there is none. Three documents used to say the lane must be *run*
+# for its checks to happen; that was false of this code (`codec-audit-round-six`
+# R7-16, design §D4) and is corrected here. `installPhase` still executes the binary
+# only as a smoke check that it starts and exits 0.
 #
 # The `codec` dependency is injected as a flake input by the consumer, and via
 # `require codec from git` for the no-flakes dev loop (see `lakefile.lean`).
@@ -136,9 +141,9 @@ in
       runHook preInstall
       mkdir -p "$out/bin"
       cp .lake/build/bin/bench "$out/bin/bench"
-      # Build it *and* run it: the lane's value checks are `example … := rfl`,
-      # which Lake only elaborates while compiling the executable.  A build that
-      # is not run has verified nothing, so `nix build .#bench` must execute it.
+      # The checks all fired at *build* time (Lake elaborates every `example`), so
+      # this execution is a smoke test that the binary starts and exits 0 — not the
+      # thing that verifies the vectors.  See the header comment.
       "./.lake/build/bin/bench"
       runHook postInstall
     '';
