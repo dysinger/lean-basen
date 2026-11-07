@@ -27,6 +27,25 @@ and adding Base2/4/10.
 | Base32 | 4648 §6 | `A-Z2-7`, `=` padding              | ✅ proven |
 | Base64 | 4648 §4 | `A-Za-z0-9+/`, `=` padding         | ✅ proven |
 
+**Which decoder owns which law — base16 is the one row where it differs.** For six
+of the seven bases there is exactly one decoder, so "proven" is unambiguous. Base16
+has two: the strict `decodeFull hexElem hexConsumesByte` and the RFC 4648 §8
+case-insensitive `decodeHexFold` (the strict decode composed with the case fold,
+`foldList`, applied **outside** the `Iso`). The ownership is:
+
+- **the strict decoder owns** `roundtrip`, `decodeFull_canonical`,
+  `decodeFull_B16_char`, `decode_encode_inverse` and `encode_injective` — every one of
+  them is stated over `hexElem`, which rejects lowercase;
+- **`decodeHexFold` owns** the two-case laws (`decodeHexBlockFold_case_insensitive`,
+  `decodeHexFold_lowercase_eq`, `decodeHexFold_both_cases`) **and**
+  `decodeHexFold_roundtrip`, which is the one that ties the case-insensitive reading
+  back to `encodeHex` — so §8 is met by a decoder that is a decoder of this package's
+  format, not merely a case-folding function.
+
+The row's "case-insensitive decode" claim is therefore about `decodeHexFold` only,
+and the roundtrip/canonicality/converse/injectivity columns about `hexElem` only. A
+reader comparing the RFC against the table now knows which theorem backs each cell.
+
 The `BaseN` module **re-exports the seven per-base modules and nothing else**.
 There is deliberately **no** `Base` inductive and **no** `BaseN.roundtrip`
 dispatcher: each base is its own value, and a dispatcher over a radix enum would
@@ -108,8 +127,15 @@ Beyond roundtrip, each base proves the properties that make the encoding a
 - `decodeFull*_char` — a string decodes **iff** it is the canonical encoding of
   some byte list, which is what rejects non-zero pad bits
   (§3.5: `"Zh=="` and `"Zm9="` are not canonical and decode to `none`);
-- per-base `rejects_overflow` where an overflow is reachable (base8 `"400"`,
-  base10 `"256"`; base2/4 top out at exactly 255, so no such input exists).
+- per-base `rejects_overflow` **only where an overflow is reachable, which is base8
+  and base10 alone** — `Base8.rejects_overflow` (`"400"` → `none`) and
+  `Base10.rejects_overflow` (`"256"` → `none`). The other five bases have **no such
+  theorem and no such input**: base2 (8 digits) and base4 (4 digits) top out at
+  exactly 255, and base16 (2 digits), base32 (2 chars → 1 byte's worth after the
+  block bijection) and base64 (2 chars) each map a _full_ block onto exactly one
+  byte, so every well-formed full block is ≤ 255 by construction. The earlier
+  revision named base2/base4 only, which read as though base16/32/64 were unchecked
+  rather than unreachable (`codec-audit-round-six` R7-29).
 
 The digit math is done in `Nat` (`UInt8.toNat`) with a thin `UInt8` surface; the
 alphabet characters are ASCII and the **union across the seven bases is 43-122**

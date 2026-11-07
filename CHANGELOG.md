@@ -134,6 +134,13 @@ elaborated without the `have`s that make it true.
 
 ## 2026-11-05 — `MZ======` is rejected, for real this time
 
+`MZ======` is the **non-canonical** 1-byte base32 tail whose canonical twin is
+`MY======` (`0x66`, `'f'`); `MZ` names the same byte with its two pad bits set to
+`01` instead of `00`. Naming the canonical spelling matters, because a rejection is
+otherwise unreadable: an earlier revision used `MZ======` throughout without ever
+pairing it with `MY======`, so a reader met an arbitrary-looking failure
+(`codec-audit-round-six` R7-33).
+
 Commit `3dfc249` said in its message that `MZ======` "is not an encoding of
 anything". No theorem, definition or vector named `MZ` existed in the file —
 `grep -rn 'MZ' BaseN/Base32.lean` returned zero hits. This release adds the
