@@ -545,7 +545,9 @@ theorem rejects_invalid_byte (bad : UInt8) (hbad : octDigit bad = false) :
       rw [hbad] at h0
       simp at h0
 
-/-- Rejection: **a 1-digit input** is rejected, because 3 octal digits are required per byte.
+/-- Rejection witness: **the single byte `0x30`** is rejected at length 1, because 3
+octal digits are required per byte. The theorem proves rejection for **that one byte**,
+not for every 1-digit input — the name reads general and the statement is not.
 
 This is a single-point witness, not the general law. Named `rejects_bad_arity`
 until `codec-audit-round-three` §2.3.3, which was misleading: the statement is
