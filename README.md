@@ -27,6 +27,29 @@ and adding Base2/4/10.
 | Base32 | 4648 §6 | `A-Z2-7`, `=` padding              | ✅ proven |
 | Base64 | 4648 §4 | `A-Za-z0-9+/`, `=` padding         | ✅ proven |
 
+**Scope: these are digit encodings, not numeric ones — and that is why there is no
+leading-zero question here.** Every base in this package is a `Codec (List UInt8)`:
+bytes ↔ the fixed-width digit blocks that spell them (`0x05` is always `"005"` in
+base10, three digits). There is **no `Nat`/`Int`-valued codec anywhere in this tree**,
+so the failure `../fstar-codec` records as `[D12]` — a numeral reader that accepts
+`"01"` while its encoder emits `"1"`, making `Iso.law` _false_ rather than merely
+unproved — **cannot arise here**. Length, not digit spelling, is what distinguishes
+inputs: `[0x05]` and `[0x00, 0x05]` are two different byte lists and encode to two
+different digit strings.
+
+That is a boundary worth stating rather than leaving implicit, because the moment an
+integer leaf is added it becomes the binding constraint. **A numeral is not an `Iso`
+until its spelling is canonical.** Leading zeros (and, for LEB128, overlong forms such
+as `[0x80; 0x00]` vs `[0x00]`) are _padding_, not digits: they carry no numeric
+information, so a decoder that accepts them and an encoder that emits one spelling are
+a contradictory pair. The two sound answers, both already used here, are:
+
+- **strict** — reject the non-canonical spelling in the decoder, so `dec` accepts
+  exactly `enc`'s image and the law is true (this is `[D12]`/`[D13]`'s choice);
+- **lenient** — keep the tolerance in a separately proved layer composed **outside**
+  the `Iso`, which is exactly what base16's `decodeHexFold` does with the case fold
+  below. Lax input is absorbed by the `Normal` layer, never by weakening `Iso.law`.
+
 **Which decoder owns which law — base16 is the one row where it differs.** For six
 of the seven bases there is exactly one decoder, so "proven" is unambiguous. Base16
 has two: the strict `decodeFull hexElem hexConsumesByte` and the RFC 4648 §8
