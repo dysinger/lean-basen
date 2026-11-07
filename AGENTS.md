@@ -92,6 +92,25 @@ omega)` on a **disjunction** goal drags in classical logic (omega case-splits);
   that is the revision to quote, compare, or bump, and the one to check when a
   sandboxed build reports a `bad import` for an import that plainly exists here.
 
+### The validated `codec` revision — read `flake.lock`, never a number here
+
+The revision this package's gate was last known green against is
+`flake.lock` → `nodes.codec.locked.rev`. **Do not trust a SHA written in prose,
+including this line** — that is exactly the class of defect
+`codec-audit-round-five` R6-09/R6-34 found: three prose sites quoted the pin from
+memory and all three were stale while the lock had moved. To read it:
+
+```bash
+python3 -c "import json;print(json.load(open('flake.lock'))['nodes']['codec']['locked']['rev'])"
+```
+
+The `basen` spec delta also requires that this revision be either the sibling
+tree's current default-branch commit or a recorded lag with its reason. Bumping is
+targeted — `nix flake update codec` then `lake update codec`, never all inputs —
+and must be followed by `lake build`, `lake build bench` and `nix build '.#bench'`
+before the new revision is called validated. `CHANGELOG.md` names the rev that a _historical_ entry landed with; those entries
+are history, not the current pin.
+
 ## Active work: none in this repo — the ledger is in `lean-codec`
 
 The `Codec`-value rewrite (`basen-uniform-leaf-api`) and the RFC-conformance work

@@ -14,10 +14,14 @@
 # purpose: it is the RFC 4648 §10 / hand-vector value check, not a proof, so it
 # must not be able to fail the gate and must not be required by it.
 #
-# `bench` is an `lean_exe` whose value checks are `example … := rfl`, so it has
-# to be *built* (Lake elaborates the module) and then *run* for the check to
-# happen — see `bench`'s `installPhase` below.  Marking it a package without
-# running it would build the executable and verify nothing.
+# `bench` is an `lean_exe` whose value checks are mostly `example … := rfl` — but
+# **not all**: `Bench.lean` also has 12 `example … := by native_decide` blocks,
+# sanctioned and recorded there (bench-only, outside the axiom gate; `Axioms.lean`
+# asserts the count). So it has to be *built* (Lake elaborates the module, which
+# runs the `rfl` checks and compiles the `native_decide` ones) and then *run* for
+# the remaining checks to happen — see `bench`'s `installPhase` below.  Marking it
+# a package without running it would build the executable and verify nothing.
+# (An earlier revision called them all `rfl`; that undersold what `R6-33` measures.)
 #
 # The `codec` dependency is injected as a flake input by the consumer, and via
 # `require codec from git` for the no-flakes dev loop (see `lakefile.lean`).
