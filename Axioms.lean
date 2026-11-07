@@ -1793,30 +1793,100 @@ stay outside this gate entirely — `basen` neither pins nor claims them. -/
 /-- Default classifier for `def` names that are **not** authorial surface: the
 companions Lean emits for every inductive and structure. Same status as
 `isGeneratedAux` — a heuristic, audited by the check below, never an authority. -/
+def derivedDefPatterns : Array String := #[
+  -- **Six dead entries deleted** (`codec-audit-round-seven` GC-03): `rec`,
+  -- `brecOn.go`, `mk`, `prod`, `sizeOf`, `sizeOf_spec` matched no public `BaseN` `def`
+  -- (measured). `prod` is the entry `codec` removed because it silently dropped
+  -- `Iso.prod`; it was harmless here only because `BaseN` has no `prod`-suffixed `def`
+  -- — the day one lands it would leave the universe with no record.
+  "casesOn", "recOn", "elim", "noConfusion", "noConfusionType", "ctorIdx",
+  "ctorElim", "ctorElimType", "below", "brecOn"
+]
+
+/-- Default classifier: the last-name components Lean emits for every inductive.
+**One list, read by both the classifier and `derivedPatternAudit`** — a separate
+hardcoded copy in the audit would be the same name-list defect the audit exists to
+catch (an arm that does not read its subject). -/
 def isDerivedDefName (n : Name) : Bool := Id.run do
   let last := n.components.getLast!.toString
-  return last == "casesOn" || last == "recOn" || last == "rec" || last == "elim" ||
-    last == "noConfusion" || last == "noConfusionType" || last == "ctorIdx" ||
-    last == "ctorElim" || last == "ctorElimType" || last == "below" ||
-    last == "brecOn" || last == "brecOn.go" || last == "mk" || last == "prod" ||
-    last == "sizeOf" || last == "sizeOf_spec"
+  return derivedDefPatterns.contains last
 
-/-- Every public `def` in the `BaseN` namespace, **after** dropping compiler
-machinery and non-public names. This is the universe `definitionSurfaceAllowlist`
-and "mentioned by a gated theorem" must partition. -/
-def publicDefs (env : Environment) : Array Name := Id.run do
+def derivedDefAllowlist : Array Name := #[
+  -- Every public `BaseN` `def` the name classifier drops, listed **by name with its
+  -- reason**. All 42 are the companions Lean emits for the inductive types this
+  -- package declares (`B32`, `B64`, `Run`): recursors, `noConfusion`/`noConfusionType`,
+  -- `elim`, `ctorIdx`, `ctorElim`, `below`, `brecOn`, and the per-constructor
+  -- `elim`/`noConfusion` they spawn. None is authorial surface.
+  `BaseN.Base32.B32.below,
+  `BaseN.Base32.B32.brecOn,
+  `BaseN.Base32.B32.casesOn,
+  `BaseN.Base32.B32.ctorElim,
+  `BaseN.Base32.B32.ctorElimType,
+  `BaseN.Base32.B32.ctorIdx,
+  `BaseN.Base32.B32.full.elim,
+  `BaseN.Base32.B32.full.noConfusion,
+  `BaseN.Base32.B32.nil.elim,
+  `BaseN.Base32.B32.noConfusion,
+  `BaseN.Base32.B32.noConfusionType,
+  `BaseN.Base32.B32.recOn,
+  `BaseN.Base32.B32.tail1.elim,
+  `BaseN.Base32.B32.tail1.noConfusion,
+  `BaseN.Base32.B32.tail2.elim,
+  `BaseN.Base32.B32.tail2.noConfusion,
+  `BaseN.Base32.B32.tail3.elim,
+  `BaseN.Base32.B32.tail3.noConfusion,
+  `BaseN.Base32.B32.tail4.elim,
+  `BaseN.Base32.B32.tail4.noConfusion,
+  `BaseN.Base64.B64.below,
+  `BaseN.Base64.B64.brecOn,
+  `BaseN.Base64.B64.casesOn,
+  `BaseN.Base64.B64.ctorElim,
+  `BaseN.Base64.B64.ctorElimType,
+  `BaseN.Base64.B64.ctorIdx,
+  `BaseN.Base64.B64.full.elim,
+  `BaseN.Base64.B64.full.noConfusion,
+  `BaseN.Base64.B64.nil.elim,
+  `BaseN.Base64.B64.noConfusion,
+  `BaseN.Base64.B64.noConfusionType,
+  `BaseN.Base64.B64.recOn,
+  `BaseN.Base64.B64.tail1.elim,
+  `BaseN.Base64.B64.tail1.noConfusion,
+  `BaseN.Base64.B64.tail2.elim,
+  `BaseN.Base64.B64.tail2.noConfusion,
+  `BaseN.Common.Run.casesOn,
+  `BaseN.Common.Run.ctorIdx,
+  `BaseN.Common.Run.mk.noConfusion,
+  `BaseN.Common.Run.noConfusion,
+  `BaseN.Common.Run.noConfusionType,
+  `BaseN.Common.Run.recOn
+]
+
+/-- Every public `BaseN` `def` **before** any name-based declination — the universe
+`publicDefs` and `derivedDefAllowlist` must partition.
+
+Ported from `codec` (`codec-audit-round-seven` GC-03). `basen` used to apply
+`isDerivedDefName` *inside* `publicDefs`, which is exactly the `Iso.prod` bug
+`codec-audit-round-five` §1 exists to close: a dropped `def` and a `def` that was
+never written were indistinguishable to every arm, because the removal happened before
+any check could see it. Splitting the universe makes the removal *recordable*. -/
+def candidateDefs (env : Environment) : Array Name := Id.run do
   let mut ds : Array Name := #[]
   for (name, ci) in env.constants.toList do
     if (`BaseN).isPrefixOf name then
       match ci with
       | .defnInfo _ =>
-        if ci.isUnsafe || isPrivateName name || name.isInternalDetail ||
-            isDerivedDefName name then
+        if ci.isUnsafe || isPrivateName name || name.isInternalDetail then
           pure ()
         else
           ds := ds.push name
       | _ => pure ()
   return ds.qsort (fun a b => Name.toString a < Name.toString b)
+
+/-- Every public `def` in the `BaseN` namespace, **after** dropping compiler
+machinery and non-public names. This is the universe `definitionSurfaceAllowlist`
+and "mentioned by a gated theorem" must partition. -/
+def publicDefs (env : Environment) : Array Name :=
+  (candidateDefs env).filter fun n => !isDerivedDefName n
 
 /-- The names mentioned by at least one gated theorem's **type**. The other half of
 the definition-coverage partition; the mention proxy's whole measurement. -/
@@ -2486,6 +2556,63 @@ def namesSelf (selfName : String) (seg : String) : Bool :=
     if i % 2 == 1 then some p else none).any fun s =>
       (s.splitOn ".").getLast! == selfName
 
+/-! **Def-side declination audit** — `codec-audit-round-seven` GC-03, ported from
+`codec`'s `codec-audit-round-five` §1.
+
+`isDerivedDefName` removes a name from the universe **before** any other check can see
+it, so without this arm a dropped `def` and a `def` that was never written are
+indistinguishable — the defect that let `Iso.prod` sit outside a green `codec` gate.
+Two failures, each naming what is wrong:
+
+* a candidate `def` in **neither** `publicDefs` nor `derivedDefAllowlist` — a silent drop;
+* an allowlist entry the classifier does **not** drop, or that is not a real `def` —
+  a stale reason. -/
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let cand := BaseNAxioms.candidateDefs env
+  let pub := Std.HashSet.ofList (BaseNAxioms.publicDefs env).toList
+  let allow := Std.HashSet.ofList BaseNAxioms.derivedDefAllowlist.toList
+  let candSet := Std.HashSet.ofList cand.toList
+  let silent := cand.filter fun n => !pub.contains n && !allow.contains n
+  let stale := BaseNAxioms.derivedDefAllowlist.filter fun n =>
+    !candSet.contains n || pub.contains n
+  if !silent.isEmpty || !stale.isEmpty then
+    let mut msg : MessageData := ""
+    if !silent.isEmpty then
+      msg := msg ++ m!"definitions dropped by the name classifier with no recorded reason:\n" ++
+        m!"{String.join (silent.toList.map fun n => s!"  {Name.toString n}\n")}"
+    if !stale.isEmpty then
+      msg := msg ++ m!"derivedDefAllowlist entries the classifier does not drop (stale, or not a def):\n" ++
+        m!"{String.join (stale.toList.map fun n => s!"  {Name.toString n}\n")}"
+    throwError msg
+  logInfo m!"basen axiom gate: {silent.size} definitions dropped by the name classifier, all reason-recorded ({BaseNAxioms.derivedDefAllowlist.size} listed)"
+
+/-! **Def-name pattern audit** — the arm that would have caught the dead `"prod"`.
+
+`isDerivedDefName` matches a list of last-name patterns. A pattern that matches no
+declaration is dead: it enforces nothing while reading exactly like the live ones
+beside it. `codec` found `"brecOn.go"` this way (a name's last component is `go`, never
+`brecOn.go`) and deleted it; `basen` carried six dead patterns until `round-seven`
+GC-03. Each surviving pattern must match at least one public `BaseN` declaration. -/
+open Lean Elab Command in
+run_cmd do
+  let env ← getEnv
+  let patterns := BaseNAxioms.derivedDefPatterns
+  let mut dead : Array String := #[]
+  for pat in patterns do
+    let mut hits : Nat := 0
+    for (nm, ci) in env.constants.toList do
+      if (`BaseN).isPrefixOf nm && !ci.isUnsafe && !isPrivateName nm && !nm.isInternalDetail then
+        match ci with
+        | .defnInfo _ =>
+          if nm.components.getLast!.toString == pat then hits := hits + 1
+        | _ => pure ()
+    if hits == 0 then dead := dead.push pat
+  unless dead.isEmpty do
+    throwError m!"derivedDefPatterns contains patterns matching no public `BaseN` def (dead: they enforce nothing): {dead.toList}"
+  logInfo m!"basen axiom gate: {patterns.size} def-name patterns, each matching a recorded declaration"
+
 end BaseNAxioms
 
 /-! **Coverage check**, run on every `lake build`. Fails when the set of public
@@ -2726,6 +2853,13 @@ run_cmd do
     throwError m!"definitionSurfaceAllowlist names definitions that do not exist (rename or deletion?):\n{String.join (stale.toList.map fun n => s!"  {n}\n")}"
   if !silent.isEmpty then
     throwError m!"{silent.size} public definition(s) are named by no gated theorem's type and are absent from definitionSurfaceAllowlist. Either prove a law mentioning them, delete them if they are dead, or add them to the allowlist with a reason:\n{String.join (silent.toList.map fun n => s!"  {n}\n")}"
+  -- **The `both` arm** (`codec-audit-round-seven` GC-07, ported from `codec`). A `def`
+  -- that has gained a gated law must leave the allowlist, or the reason beside it
+  -- silently becomes false. Without this branch `definitionSurfaceAllowlist` could only
+  -- ever grow — it and the theorem allowlist were already one-directional.
+  let both := defs.filter fun n => mentioned.contains n && allow.contains n
+  if !both.isEmpty then
+    throwError m!"definitions that HAVE a gated law but are also allowlisted (drop the entry, or delete the law):\n{String.join (both.toList.map fun n => s!"  {n}\n")}"
   let mentionedCount := defs.size - BaseNAxioms.definitionSurfaceAllowlist.size
   logInfo m!"basen axiom gate: {defs.size} public definitions covered, {mentionedCount} mentioned and {BaseNAxioms.definitionSurfaceAllowlist.size} allowlisted (mention proxy)"
   -- Asserted, like the theorem table: a stale def count is a build failure.
