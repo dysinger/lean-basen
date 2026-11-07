@@ -87,9 +87,24 @@ Beyond roundtrip, each base proves the properties that make the encoding a
 **bijection with a canonical form**, not merely an invertible function:
 
 - `encode_injective` (and `encodeB{32,64}_injective`) — encode is injective;
-- the converse / canonicality law, `decode c = some b → encode b = c`
-  (`decodeFullB{32,64}_conv`, `decode_encode_inverse`) — roundtrip alone does
-  **not** imply this;
+- the converse / canonicality law — roundtrip alone does **not** imply it — stated
+  at the library's real types (`decodeFull : … → Bytes n → Option (List UInt8)`,
+  `encode… : List UInt8 → Option (Σ n, Bytes n)`), e.g.
+
+  ```
+  decodeFullB32 s = some v  →  encodeB32 v = some ⟨n, s⟩     (decodeFullB32_conv)
+  decodeFull digElem digConsumesByte n s = some v → encodeDig v = some ⟨n, s⟩
+                                                             (decode_encode_inverse)
+  ```
+
+  **An earlier revision rendered this as `decode c = some b → encode b = c`**, and
+  that matches **no declaration** in the package (`BaseN.Base16.decode` does not
+  exist; `` `decode `` is `Codec.decode` in the dependency, a _list_-returning
+  decoder, not this partial one). It also used the shorthand this very README
+  forbids further down (`codec-audit-round-five` R6-20/R6-32). The `Σ n, Bytes n`
+  in the encoder's result is the length index: the two sides are different types, so
+  an equation between `c` and `b` cannot be stated without it;
+
 - `decodeFull*_char` — a string decodes **iff** it is the canonical encoding of
   some byte list, which is what rejects non-zero pad bits
   (§3.5: `"Zh=="` and `"Zm9="` are not canonical and decode to `none`);
@@ -97,8 +112,13 @@ Beyond roundtrip, each base proves the properties that make the encoding a
   base10 `"256"`; base2/4 top out at exactly 255, so no such input exists).
 
 The digit math is done in `Nat` (`UInt8.toNat`) with a thin `UInt8` surface; the
-alphabet is ASCII (48-122, all `< 256`), so `UInt8.ofNat`/`.toNat` are
-transparent. See `AGENTS.md`/`PAPER.md` in the sibling `lean-codec` for the
+alphabet characters are ASCII and the **union across the seven bases is 43-122**
+(`+`=43 and `/`=47 for base64, `0`-`9`=48-57, `A`-`Z`=65-90, `a`-`z`=97-122), all
+`< 256`, so `UInt8.ofNat`/`.toNat` are transparent. (An earlier revision said
+"48-122"; that is the union **excluding** base64's two symbols, so it was wrong for
+the base where the range matters most — `codec-audit-round-five` R6-21. The `< 256`
+conclusion is true either way, which is why nothing in the proofs moves.) See
+`AGENTS.md`/`PAPER.md` in the sibling `lean-codec` for the
 two-layer trust-seam posture this package inherits (pure-Lean spec, no Layer-2 C
 here).
 

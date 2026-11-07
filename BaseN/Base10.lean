@@ -10,8 +10,18 @@ Decimal encoding, **byte-oriented** and **sign-free**: each byte encodes as
 decoding rejects a triple with value `> 255`.
 
 Not an RFC encoding; semantics are defined by this package's spec.  The
-three-digit fixed width is what makes `decode (encode bs) = some bs` hold
-unconditionally.  Alphabet is ASCII `0-9` (48-57), all `< 256`.
+three-digit fixed width is what makes the roundtrip hold **unconditionally** — stated
+at the package's real types, because the shorthand `decode (encode bs) = some bs`
+**matches no declaration** here (`codec-audit-round-five` R6-32; `decode` is the
+dependency's list-returning decoder, and the encoder's result carries its length as a
+`Σ n, Bytes n`, so an equation of that shape cannot even be typed):
+
+```
+encodeDig v = some ⟨n, s⟩ → decodeFull digElem digConsumesByte n s = some v   (roundtrip)
+decodeFull digElem digConsumesByte n s = some v → encodeDig v = some ⟨n, s⟩   (decode_encode_inverse)
+```
+
+Alphabet is ASCII `0-9` (48-57), all `< 256`.
 
 This module expresses the base as a `codec` `Codec (List UInt8)` value
 (`digElem`), composed from `satisfy` (one guarded decimal digit), `count 3`
