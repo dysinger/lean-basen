@@ -886,6 +886,7 @@ theorem ofNat_isBlank_false {b n : Nat} (hr : IsRadix b) :
     rw [decide_eq_false_iff_not]
     exact byteOfDigit_ne_32 hr (natDigits_lt hr n d hdmem)
 
+
 /-! ## `ofNat`'s output is a canonical spelling -/
 
 /-- `ofNat b 0` is the single zero-digit byte. -/
@@ -1172,5 +1173,40 @@ theorem natVal_inj_head {b : Nat} (hr : IsRadix b) :
         have : natDigits b (natVal b (v :: w :: ws).dropLast) = (v :: w :: ws).dropLast := hS.symm
         rw [this]
         exact hinit'
+
+/-! ## `normF` — the total endofunction `Codec.Normal` needs
+
+`trimFor` is `Option`-valued, and `Codec.Normal`'s `norm` is total. `normF b ds` is
+`trimFor b ds`'s answer with the input as the fallback — the identity on a spelling
+that names no number, which keeps a rejected spelling outside the image of `apply`
+(that goes through `ofNat`) while giving `Codec.Normal` a total endofunction with the
+same fixed points as `trimFor`'s accepting set.
+
+`normF_idem` is then `Codec.Normalizer`'s law, and it comes straight from
+`trimFor_idem`: the accepting case is `trimFor`'s own idempotence, the rejecting case
+is the identity.
+-/
+
+def normF (b : Nat) (ds : List UInt8) : List UInt8 := (trimFor b ds).getD ds
+theorem normF_of_trim {b : Nat} {ds t : List UInt8} (h : trimFor b ds = some t) : normF b ds = t := by
+  unfold normF; rw [h]; rfl
+theorem normF_idem (b : Nat) (hr : IsRadix b) (ds : List UInt8) : normF b (normF b ds) = normF b ds := by
+  cases h : trimFor b ds with
+  | none =>
+      have h1 : normF b ds = ds := by unfold normF; rw [h]; rfl
+      rw [h1]; unfold normF; rw [h]; rfl
+  | some t =>
+      rw [normF_of_trim h, normF_of_trim (trimFor_idem hr h)]
+
+theorem map_val_eq_ofNat {b n : Nat} (hr : IsRadix b) {vs : List Nat}
+    (hvs : ∀ v ∈ vs, v < b) (hne : vs ≠ []) (hhd : vs.head? ≠ some 0)
+    (hval : natVal b vs = n) : vs.map (byteOfDigit b) = ofNat b n := by
+  have hinj : vs = natDigits b n := natVal_inj_head hr _ _ rfl hvs hhd n hval
+  have hn : n ≠ 0 := by
+    intro h0
+    rw [h0] at hinj
+    rw [(natDigits_eq_nil hr 0).2 rfl] at hinj
+    exact hne hinj
+  rw [hinj, ofNat, ite_eq_right hn]
 
 end BaseN.RadixCodec
