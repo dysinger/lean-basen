@@ -1174,29 +1174,168 @@ theorem natVal_inj_head {b : Nat} (hr : IsRadix b) :
         rw [this]
         exact hinit'
 
-/-! ## `normF` — the total endofunction `Codec.Normal` needs
 
-`trimFor` is `Option`-valued, and `Codec.Normal`'s `norm` is total. `normF b ds` is
-`trimFor b ds`'s answer with the input as the fallback — the identity on a spelling
-that names no number, which keeps a rejected spelling outside the image of `apply`
-(that goes through `ofNat`) while giving `Codec.Normal` a total endofunction with the
-same fixed points as `trimFor`'s accepting set.
+/-! ## `normF`, the numeral quotient, and `numeralIso`
 
-`normF_idem` is then `Codec.Normalizer`'s law, and it comes straight from
-`trimFor_idem`: the accepting case is `trimFor`'s own idempotence, the rejecting case
-is the identity.
+This is the object the `basen` spec names: **a bijection between `Nat` and the radix's
+numerals modulo information-free variation**.
+
+## Why the codomain is a quotient, and why `normF`'s fallback is not the input
+
+`Codec.Iso.law` is `apply a = some b ↔ unapply b = some a`. Stated over raw
+`List UInt8`, `"007"` and `"7"` are two distinct left-hand values that must both map
+to `7`, so `unapply 7` cannot be `some` of both and the `→` direction is **false** —
+not unproved. So the equivalence lives in the codomain: the fixed points of a
+normaliser, which is `Codec.Normal`.
+
+`trimFor` is `Option`-valued, so `normF` supplies the total endofunction
+`Codec.Normal` needs — and the fallback is **`ofNat b 0`, not the input**. The
+input-as-fallback version looks natural and is wrong: `[]` is a fixed point of
+`ds |>.getD ds`, while `trimFor b [] = none` (the empty input names no number),
+and `toNat b [] = some 0` is a by-product of the fold's base case. So the `←`
+direction would demand `[] = ofNat b 0 = "0"` — false. Mapping every rejected
+spelling to the zero numeral instead means **every fixed point of `normF` is a
+numeral** (`fixed_is_numeral`), which is exactly what the law needs.
+
+## The two directions
+
+- `→`: `apply` maps `n` to the class of `ofNat b n`; `trimFor_ofNat` says `trimFor`
+  accepts it, so `normF` is the identity there, and `toNat_ofNat` reads it back.
+- `←`: `toNat b f.raw = some n` on a fixed point. `fixed_is_numeral` gives that
+  `trimFor` accepts `f.raw`; `fixed_eq_ofNat` then says a spelling the fold reads at
+  `n` and the normaliser fixes **is** `ofNat b n`. That lemma is where
+  `digitVal_some_byteOfDigit` (the value↔byte bridge), `natVal_inj_head` (numeral
+  uniqueness) and `map_val_eq_ofNat` meet.
+
+Zero is the radix's single zero digit throughout (D4): `toNat b [] = some 0` is a
+fold by-product and no theorem here calls `[]` a numeral — `trimFor` rejects it and
+`normF` maps it to `ofNat b 0`.
+
+Every law here is `[propext, Quot.sound]`-only.
 -/
 
-def normF (b : Nat) (ds : List UInt8) : List UInt8 := (trimFor b ds).getD ds
-theorem normF_of_trim {b : Nat} {ds t : List UInt8} (h : trimFor b ds = some t) : normF b ds = t := by
-  unfold normF; rw [h]; rfl
-theorem normF_idem (b : Nat) (hr : IsRadix b) (ds : List UInt8) : normF b (normF b ds) = normF b ds := by
-  cases h : trimFor b ds with
-  | none =>
-      have h1 : normF b ds = ds := by unfold normF; rw [h]; rfl
-      rw [h1]; unfold normF; rw [h]; rfl
-  | some t =>
-      rw [normF_of_trim h, normF_of_trim (trimFor_idem hr h)]
+theorem isDigits_of_toNat {b : Nat} : ∀ {ds : List UInt8}, (toNat b ds).isSome = true → isDigits b ds = true
+  | [], _ => rfl
+  | d :: ds, h => by
+      rcases hd : digitVal b d with _ | v
+      · rw [toNat_cons_none b d ds hd] at h; exact absurd h (by simp)
+      · rw [toNat_cons_some b d ds v hd] at h
+        rw [isDigits_cons]
+        refine ⟨by rw [hd]; rfl, isDigits_of_toNat ?_⟩
+        cases ht : toNat b ds with
+        | none => rw [ht] at h; simp at h
+        | some a => rfl
+
+theorem toNat_map_val {b : Nat} (hr : IsRadix b) :
+    ∀ (ds : List UInt8), isDigits b ds = true →
+      toNat b ds = some (natVal b (ds.map fun c => (digitVal b c).getD 0))
+  | [], _ => rfl
+  | d :: ds, h => by
+      rw [isDigits_cons] at h
+      obtain ⟨h1, h2⟩ := h
+      obtain ⟨v, hv⟩ := Option.isSome_iff_exists.1 h1
+      rw [toNat_cons_some b d ds v hv, toNat_map_val hr ds h2]
+      simp [List.map_cons, hv, natVal]
+
+theorem toNat_none_of_not_digits {b : Nat} :
+    ∀ {ds : List UInt8}, isDigits b ds = false → toNat b ds = none
+  | [], h => by
+      have h1 : isDigits b ([] : List UInt8) = true := rfl
+      rw [h1] at h; exact absurd h (by simp)
+  | d :: ds, h => by
+      have hbody : isDigits b (d :: ds) = ((digitVal b d).isSome && isDigits b ds) := rfl
+      rw [hbody] at h
+      by_cases h1 : (digitVal b d).isSome = true
+      · rw [h1] at h
+        simp only [Bool.true_and] at h
+        obtain ⟨v, hv' ⟩ := Option.isSome_iff_exists.1 h1
+        rw [toNat_cons_some b d ds v hv', toNat_none_of_not_digits (b := b) h]
+        rfl
+      · have hv : digitVal b d = none := by
+          cases hh : digitVal b d with
+          | none => rfl
+          | some v => rw [hh] at h1; simp at h1
+        rw [toNat_cons_none b d ds hv]
+
+theorem digitVal_getD_lt {b : Nat} (hr : IsRadix b) {c : UInt8}
+    (h : (digitVal b c).isSome = true) : (digitVal b c).getD 0 < b := by
+  obtain ⟨v, hv⟩ := Option.isSome_iff_exists.1 h
+  rw [hv]
+  simpa using digitVal_lt_of_some hr hv
+
+theorem strip_length_le (b : Nat) : ∀ (l : List UInt8), (strip b l).length ≤ l.length
+  | [] => Nat.le_refl _
+  | c :: cs => by
+      by_cases hb : isBlank c = true ∨ isZeroDigit b c = true
+      · rw [strip_skip hb]
+        have := strip_length_le b cs
+        simp only [List.length_cons]
+        omega
+      · rw [strip_cons hb]; exact Nat.le_refl _
+
+theorem strip_head {b : Nat} {x : UInt8} {xs : List UInt8}
+    (h : strip b (x :: xs) = x :: xs) : isZeroDigit b x = false := by
+  by_cases hb : isBlank x = true ∨ isZeroDigit b x = true
+  · rw [strip_skip hb] at h
+    have hl := strip_length_le b xs
+    rw [h] at hl
+    simp only [List.length_cons] at hl
+    omega
+  · cases hz : isZeroDigit b x
+    · rfl
+    · exact absurd (Or.inr hz) hb
+
+theorem natVal_eq_zero {b : Nat} (hb : 2 ≤ b) :
+    ∀ {vs : List Nat}, (∀ v ∈ vs, v < b) → natVal b vs = 0 → ∀ v ∈ vs, v = 0
+  | [], _, _, v, hv => by simp at hv
+  | x :: xs, hlt, h, v, hv => by
+      simp only [natVal] at h
+      have hx : x < b := hlt x (List.mem_cons_self ..)
+      have hpos : 0 < b ^ xs.length := Nat.pow_pos (by omega)
+      have hx0 : x = 0 := by
+        rcases Nat.eq_zero_or_pos x with rfl | hp
+        · rfl
+        · exfalso
+          have : 0 < x * b ^ xs.length := Nat.mul_pos hp hpos
+          omega
+      rw [List.mem_cons] at hv
+      rcases hv with rfl | hv
+      · exact hx0
+      · exact natVal_eq_zero hb (fun w hw => hlt w (List.mem_cons_of_mem _ hw)) (by omega) v hv
+
+theorem eq_map_byteOfDigit {b : Nat} (hr : IsRadix b) {ds : List UInt8}
+    (h : isDigits b ds = true) : ds = (ds.map fun c => (digitVal b c).getD 0).map (byteOfDigit b) := by
+  induction ds with
+  | nil => rfl
+  | cons d ds ih =>
+      rw [isDigits_cons] at h
+      obtain ⟨h1, h2⟩ := h
+      obtain ⟨v, hv⟩ := Option.isSome_iff_exists.1 h1
+      have hdd : d = byteOfDigit b v := digitVal_some_byteOfDigit hr hv
+      have hval : (digitVal b (byteOfDigit b v)).getD 0 = v := by
+        rw [digitVal_byteOfDigit hr v (digitVal_lt_of_some hr hv)]
+        rfl
+      have hih := ih h2
+      rw [List.map_cons, List.map_cons, hdd, hval]
+      exact congrArg (List.cons (byteOfDigit b v)) hih
+
+theorem head_val_ne_zero {b : Nat} (hr : IsRadix b) {x : UInt8} {xs : List UInt8}
+    (hdig : isDigits b (x :: xs) = true) (hsx : strip b (x :: xs) = x :: xs) :
+    ((x :: xs).map fun c => (digitVal b c).getD 0).head? ≠ some 0 := by
+  have hz : isZeroDigit b x = false := strip_head hsx
+  obtain ⟨v, hv⟩ := Option.isSome_iff_exists.1
+    ((isDigits_iff _).1 hdig x (List.mem_cons_self ..))
+  intro hh
+  have hv0 : v = 0 := by
+    have h1 : (digitVal b x).getD 0 = 0 := by
+      have h := congrArg (fun o => o.getD 0) hh
+      simpa using h
+    rw [hv] at h1
+    simpa using h1
+  have hxz : isZeroDigit b x = true := by
+    rw [isZeroDigit_eq_true_iff, ← hv0, digitVal_some_byteOfDigit hr hv]
+  rw [hz] at hxz
+  exact absurd hxz (by simp)
 
 theorem map_val_eq_ofNat {b n : Nat} (hr : IsRadix b) {vs : List Nat}
     (hvs : ∀ v ∈ vs, v < b) (hne : vs ≠ []) (hhd : vs.head? ≠ some 0)
@@ -1208,5 +1347,218 @@ theorem map_val_eq_ofNat {b n : Nat} (hr : IsRadix b) {vs : List Nat}
     rw [(natDigits_eq_nil hr 0).2 rfl] at hinj
     exact hne hinj
   rw [hinj, ofNat, ite_eq_right hn]
+
+/-- A `strip`-stable digit list never names zero. -/
+theorem strip_digits_value_ne_zero {b : Nat} (hr : IsRadix b) {ds : List UInt8}
+    (hs : strip b ds ≠ []) (hdd : isDigits b (strip b ds) = true)
+    (hfix : trimFor b ds = some ds) (h : toNat b ds = some 0) : False := by
+  unfold trimFor at hfix
+  rw [ite_eq_right hs, ite_eq_left hdd] at hfix
+  have hsd : ds = strip b ds := (Option.some.inj hfix).symm
+  have hdig : isDigits b ds = true := by rw [hsd]; exact hdd
+  have hval : natVal b (ds.map fun c => (digitVal b c).getD 0) = 0 := by
+    have h2 := toNat_map_val hr ds hdig
+    rw [h] at h2
+    exact (Option.some.inj h2).symm
+  have hlt : ∀ v ∈ ds.map (fun c => (digitVal b c).getD 0), v < b := by
+    intro v hv
+    obtain ⟨c, hc, rfl⟩ := List.mem_map.1 hv
+    exact digitVal_getD_lt hr ((isDigits_iff ds).1 hdig c hc)
+  have hallzero := natVal_eq_zero (isRadix_ge2 hr) hlt hval
+  rcases ds with _ | ⟨x, xs⟩
+  · exact hs (by rw [← hsd])
+  · have hsx : strip b (x :: xs) = x :: xs := hsd.symm
+    have hz : isZeroDigit b x = false := strip_head hsx
+    have hmem : (digitVal b x).getD 0 ∈ (x :: xs).map (fun c => (digitVal b c).getD 0) :=
+      List.mem_map_of_mem (List.mem_cons_self ..)
+    have hv0 : (digitVal b x).getD 0 = 0 := hallzero _ hmem
+    obtain ⟨v, hv⟩ := Option.isSome_iff_exists.1
+      ((isDigits_iff (x :: xs)).1 hdig x (List.mem_cons_self ..))
+    have hv0 : (digitVal b x).getD 0 = 0 := hallzero _ hmem
+    have hv0' : v = 0 := by
+      rw [hv] at hv0
+      simpa using hv0
+    have hxz : isZeroDigit b x = true := by
+      rw [isZeroDigit_eq_true_iff, ← hv0', digitVal_some_byteOfDigit hr hv]
+    rw [hz] at hxz
+    exact absurd hxz (by simp)
+
+/-- **A fixed point that converts is exactly `ofNat` of its value.** -/
+theorem fixed_eq_ofNat {b : Nat} (hr : IsRadix b) {ds : List UInt8} {n : Nat}
+    (hfix : trimFor b ds = some ds) (h : toNat b ds = some n) : ds = ofNat b n := by
+  unfold trimFor at hfix
+  by_cases hs : strip b ds = []
+  · rw [ite_eq_left hs] at hfix
+    by_cases hnil : ds = []
+    · rw [ite_eq_left hnil] at hfix; exact absurd hfix (by simp)
+    · rw [ite_eq_right hnil] at hfix
+      by_cases hdd : isDigits b ds = true
+      · rw [ite_eq_left hdd] at hfix
+        have hz : ds = ofNat b 0 := (Option.some.inj hfix).symm
+        rw [hz] at h
+        rw [toNat_ofNat hr 0] at h
+        rw [hz, ← Option.some.inj h]
+      · rw [ite_eq_right hdd] at hfix; exact absurd hfix (by simp)
+  · rw [ite_eq_right hs] at hfix
+    by_cases hdd : isDigits b (strip b ds) = true
+    · rw [ite_eq_left hdd] at hfix
+      have hsd : ds = strip b ds := (Option.some.inj hfix).symm
+      have hdig : isDigits b ds = true := by rw [hsd]; exact hdd
+      have hfx : trimFor b ds = some ds := by
+        unfold trimFor
+        rw [ite_eq_right hs, ite_eq_left hdd]
+        exact hfix
+      have hn0 : n ≠ 0 := by
+        intro hn'
+        rw [hn'] at h
+        exact strip_digits_value_ne_zero hr hs hdd hfx h
+      have hval : natVal b (ds.map fun c => (digitVal b c).getD 0) = n := by
+        have h2 := toNat_map_val hr ds hdig
+        rw [h] at h2
+        exact (Option.some.inj h2).symm
+      have hlt : ∀ v ∈ ds.map (fun c => (digitVal b c).getD 0), v < b := by
+        intro v hv
+        obtain ⟨c, hc, rfl⟩ := List.mem_map.1 hv
+        exact digitVal_getD_lt hr ((isDigits_iff ds).1 hdig c hc)
+      have hne : ds ≠ [] := by rw [hsd]; exact hs
+      have hhd : (ds.map fun c => (digitVal b c).getD 0).head? ≠ some 0 := by
+        rcases hh : ds with _ | ⟨x, xs⟩
+        · exact absurd hh hne
+        · subst hh
+          have hsx : strip b (x :: xs) = x :: xs := hsd.symm
+          exact head_val_ne_zero hr hdig hsx
+      have hinj := natVal_inj_head hr _ _ rfl hlt hhd n hval
+      have hne' : (ds.map fun c => (digitVal b c).getD 0) ≠ [] := by
+        intro h0
+        rw [List.map_eq_nil_iff] at h0
+        exact hne h0
+      rw [eq_map_byteOfDigit hr hdig]
+      exact map_val_eq_ofNat hr hlt hne' hhd hval
+    · rw [ite_eq_right hdd] at hfix; exact absurd hfix (by simp)
+
+
+/-- `strip` can only drop blanks and zero digits, so a non-digit survivor is a non-digit
+of the original list. -/
+theorem strip_subset (b : Nat) : ∀ (ds : List UInt8), ∀ c ∈ strip b ds, c ∈ ds
+  | [], c, hc => by simp [strip] at hc
+  | d :: ds, c, hc => by
+      by_cases hb : isBlank d = true ∨ isZeroDigit b d = true
+      · rw [strip_skip hb] at hc
+        exact List.mem_cons_of_mem _ (strip_subset b ds c hc)
+      · rw [strip_cons hb] at hc
+        rcases List.mem_cons.1 hc with rfl | hc
+        · exact List.mem_cons_self ..
+        · exact List.mem_cons_of_mem _ hc
+
+/-- `strip` only drops bytes, so a non-digit survivor is a non-digit of the original. -/
+theorem isDigits_strip_false {b : Nat} {ds : List UInt8}
+    (hf : isDigits b (strip b ds) = false) : isDigits b ds = false := by
+  cases hh : isDigits b ds with
+  | false => rfl
+  | true =>
+      rw [isDigits_iff] at hh
+      have hst : isDigits b (strip b ds) = true :=
+        (isDigits_iff _).2 fun c hc => hh c (strip_subset b ds c hc)
+      rw [hst] at hf
+      exact absurd hf (by simp)
+
+/-- `trimFor` rejecting a non-empty-all-blank input means the fold rejects it too.
+
+The empty input is excluded on purpose: `trimFor b [] = none` (it names no number) while
+`toNat b [] = some 0` (a by-product of the fold's base case). That asymmetry is D4's point,
+and it is why the statement carries `ds ≠ []`. -/
+theorem trimFor_none_toNat_none {b : Nat} {ds : List UInt8} (hnel : ds ≠ [])
+    (h : trimFor b ds = none) : toNat b ds = none := by
+  unfold trimFor at h
+  by_cases hs : strip b ds = []
+  · rw [ite_eq_left hs] at h
+    by_cases hnil : ds = []
+    · exact absurd hnil hnel
+    · rw [ite_eq_right hnil] at h
+      by_cases hd : isDigits b ds = true
+      · rw [ite_eq_left hd] at h; exact absurd h (by simp)
+      · have hf : isDigits b ds = false := by
+          cases hh : isDigits b ds <;> simp_all
+        exact toNat_none_of_not_digits hf
+  · rw [ite_eq_right hs] at h
+    by_cases hd : isDigits b (strip b ds) = true
+    · rw [ite_eq_left hd] at h; exact absurd h (by simp)
+    · have hf : isDigits b (strip b ds) = false := by
+        cases hh : isDigits b (strip b ds) <;> simp_all
+      -- `strip` only removes blanks and zero digits, both of which are handled; a
+      -- non-digit surviving `strip` is a non-digit of `ds`, so the fold rejects `ds` too
+      exact toNat_none_of_not_digits (isDigits_strip_false hf)
+
+
+
+
+/-- `normF b ds` — `trimFor`'s answer, or the radix's zero numeral when the input names
+nothing.
+
+The fallback is **not** the input: `[]` is a fixed point of `ds |>.getD ds`, and then
+`toNat b [] = some 0` makes `[]` a left value the fold reads while `ofNat b 0 = "0"`,
+so the `Iso` law's `←` would demand `[] = "0"`. Mapping every rejected spelling to the
+zero numeral instead keeps every fixed point a **numeral**, which is what makes
+`fixed_eq_ofNat` total. -/
+def normF (b : Nat) (ds : List UInt8) : List UInt8 := (trimFor b ds).getD (ofNat b 0)
+
+@[simp] theorem normF_def (b : Nat) (ds : List UInt8) :
+    normF b ds = (trimFor b ds).getD (ofNat b 0) := rfl
+
+theorem normF_of_trim {b : Nat} {ds t : List UInt8} (h : trimFor b ds = some t) : normF b ds = t := by
+  rw [normF_def, h]; rfl
+
+theorem normF_idem (b : Nat) (hr : IsRadix b) (ds : List UInt8) :
+    normF b (normF b ds) = normF b ds := by
+  cases h : trimFor b ds with
+  | none =>
+      have h1 : normF b ds = ofNat b 0 := by rw [normF_def, h]; rfl
+      rw [h1, normF_of_trim (trimFor_ofNat hr)]
+  | some t => rw [normF_of_trim h, normF_of_trim (trimFor_idem hr h)]
+
+/-- Every fixed point of `normF` is a numeral `trimFor` accepts. -/
+theorem fixed_is_numeral {b : Nat} (hr : IsRadix b) {ds : List UInt8}
+    (hfix : normF b ds = ds) : trimFor b ds = some ds := by
+  cases h : trimFor b ds with
+  | none =>
+      rw [normF_def, h] at hfix
+      simp only [Option.getD] at hfix
+      rw [← hfix] at h
+      rw [trimFor_ofNat hr] at h
+      exact absurd h (by simp)
+  | some t =>
+      rw [normF_def, h] at hfix
+      simp only [Option.getD_some] at hfix
+      rw [← hfix]
+
+
+/-- `numeralIso b`: `Nat` ≃ the quotient of numerals, which `normF`'s fixed points are. -/
+def numeralIso (b : Nat) (hr : IsRadix b) : Iso Nat (Normal (List UInt8) (normF b)) where
+  apply n := some ⟨normF b (ofNat b n), normF_idem b hr (ofNat b n)⟩
+  unapply f := toNat b f.raw
+  law := by
+    intro n f
+    constructor
+    · intro h
+      have hf : normF b (ofNat b n) = f.raw := by
+        have h1 : (⟨normF b (ofNat b n), normF_idem b hr (ofNat b n)⟩ : Normal (List UInt8) (normF b)) = f :=
+          Option.some.inj h
+        exact congrArg Normal.raw h1
+      have hn : normF b (ofNat b n) = ofNat b n := normF_of_trim (trimFor_ofNat hr)
+      show toNat b f.raw = some n
+      rw [← hf, hn]
+      exact toNat_ofNat hr n
+    · intro h
+      show some ⟨normF b (ofNat b n), normF_idem b hr (ofNat b n)⟩ = some f
+      have hraw : toNat b f.raw = some n := h
+      have hfix : trimFor b f.raw = some f.raw := fixed_is_numeral hr f.fixed
+      have hof : f.raw = ofNat b n := fixed_eq_ofNat hr hfix hraw
+      have hn : normF b (ofNat b n) = ofNat b n := normF_of_trim (trimFor_ofNat hr)
+      have hval : f.raw = normF b (ofNat b n) := by rw [hof, hn]
+      have : f = ⟨normF b (ofNat b n), normF_idem b hr (ofNat b n)⟩ := by
+        apply Normal.ext
+        exact hval
+      rw [this]
+
 
 end BaseN.RadixCodec
