@@ -14,3 +14,6 @@ lake-manifest.json
 # Nix build output symlinks (`nix build`/`nix run` default to `result`/`result-*`).
 result
 result-*
+
+# Scratch probe files (never part of the library or the gate).
+scratch/
