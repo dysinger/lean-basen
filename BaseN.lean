@@ -43,3 +43,5 @@ import BaseN.Base10
 import BaseN.Base16
 import BaseN.Base32
 import BaseN.Base64
+import BaseN.Radix
+import BaseN.RadixAlphabets

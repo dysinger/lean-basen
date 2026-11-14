@@ -35,12 +35,12 @@ paragraph over-counted by conflating two namespaces; a later one said
 fixed: the figures here are now computed by `headerNumbers` from `gatedNames` and
 `generatedAuxAllowlist`, so this paragraph cannot be stale while the build is green.
 
-The file carries **447 pins**: **444** are `BaseN.*` laws and **3** are `Codec.*`
+The file carries **487 pins**: **484** are `BaseN.*` laws and **3** are `Codec.*`
 (`roundtrip`, `bidir`, `decode_spec`) — the *dependency's* laws, pinned for discipline
 and outside this repo's own universe. `publicTheorems` walks only `BaseN`, so the
-gate's own universe is **490 = 444 + 46 allowlisted**. The 444 `BaseN` pinned
-footprints are 381 `[propext, Quot.sound]`, 48 `[propext]`-only and 15 axiom-free
-(381 + 48 + 15 = 444), and all 3 `Codec.*` pins are `[propext, Quot.sound]`.
+gate's own universe is **533 = 484 + 49 allowlisted**. The 484 `BaseN` pinned
+footprints are 412 `[propext, Quot.sound]`, 50 `[propext]`-only and 22 axiom-free
+(412 + 50 + 22 = 484), and all 3 `Codec.*` pins are `[propext, Quot.sound]`.
 `Classical.choice` appears nowhere. (An earlier revision of these last two sentences
 said `375 / 48 / 15` for the `BaseN` side but then had the `Codec` pins contribute
 "2 `[propext, Quot.sound]` and 1 `[Quot.sound]`", which no longer reconciles with the
@@ -1706,7 +1706,7 @@ allowlisted.
 
 The 3 `Codec.*` pins (roundtrip/bidir/decode_spec) are the dependency's laws and lie
 *outside* this namespace — pinned for discipline, not partitioned, which is why
-`grep -c '^#print axioms'` reports **447** against `gatedNames`' **444**.
+`grep -c '^#print axioms'` reports **487** against `gatedNames`' **484**.
 
 **Both figures in that sentence are asserted** (R7-06, `codec-audit-round-six` §2.2).
 It previously said "440 against 437", and asserting only one of the pair had left
@@ -1817,6 +1817,11 @@ def derivedDefAllowlist : Array Name := #[
   -- package declares (`B32`, `B64`, `Run`): recursors, `noConfusion`/`noConfusionType`,
   -- `elim`, `ctorIdx`, `ctorElim`, `below`, `brecOn`, and the per-constructor
   -- `elim`/`noConfusion` they spawn. None is authorial surface.
+  -- `basen-radix` adds one more inductive: `IsRadix`, a seven-constructor index
+  -- naming the radices the numeral layer serves. Its eliminators are Lean's, not
+  -- authorial surface, so they are listed here for the same reason as the rest.
+  `BaseN.Radix.IsRadix.casesOn,
+  `BaseN.Radix.IsRadix.recOn,
   `BaseN.Base32.B32.below,
   `BaseN.Base32.B32.brecOn,
   `BaseN.Base32.B32.casesOn,
@@ -2055,8 +2060,184 @@ def generatedAuxAllowlist : Array Name := #[
   `BaseN.Base64.b64BytesOf.eq_def,
   `BaseN.Base64.b64OfBytes.eq_def,
   `BaseN.Base64.b64Split.eq_def,
-  `BaseN.Base64.b64Split_ofBytes.eq_def
+  `BaseN.Base64.b64Split_ofBytes.eq_def,
+
+-- **`*.eq_def` for the three `Nat`-level helpers** (`basen-radix`) — the
+-- compiled-body equations of `natDigits`, `natVal` and `toNat`. Same reason as the
+-- eight above: they unfold a definition the source already states.
+  `BaseN.Radix.natDigits.eq_def,
+  `BaseN.Radix.natVal.eq_def,
+  `BaseN.Radix.toNat.eq_def
 ]
+
+
+/-! ## `BaseN.Radix` — the radix-generic numeral layer
+
+`digitVal` / `toNat` / `ofNat` and the quotient machinery (`basen-radix`). Every law
+is `[propext, Quot.sound]`-only (three report no axioms at all), and `Classical.choice`
+appears in **none** — the `omega`-on-a-conjunction leak shape was hit and fixed during
+authoring, so these pins also guard against its reintroduction.
+-/
+
+/-- info: 'BaseN.Radix.byteOfDigitNat_eq' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.Radix.byteOfDigitNat_eq
+
+/-- info: 'BaseN.Radix.byteOfDigitNat_lt' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.byteOfDigitNat_lt
+
+/-- info: 'BaseN.Radix.byteOfDigit_inj' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.byteOfDigit_inj
+
+/-- info: 'BaseN.Radix.byteOfDigit_toNat' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Radix.byteOfDigit_toNat
+
+/-- info: 'BaseN.Radix.byteOfDigit_toNat_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.byteOfDigit_toNat_eq
+
+/-- info: 'BaseN.Radix.digitVal_byteOfDigit' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.digitVal_byteOfDigit
+
+/-- info: 'BaseN.Radix.digitVal_byteOfDigit_10' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.digitVal_byteOfDigit_10
+
+/-- info: 'BaseN.Radix.digitVal_byteOfDigit_16' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.digitVal_byteOfDigit_16
+
+/-- info: 'BaseN.Radix.digitVal_byteOfDigit_2' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.digitVal_byteOfDigit_2
+
+/-- info: 'BaseN.Radix.digitVal_byteOfDigit_32' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.digitVal_byteOfDigit_32
+
+/-- info: 'BaseN.Radix.digitVal_byteOfDigit_4' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.digitVal_byteOfDigit_4
+
+/-- info: 'BaseN.Radix.digitVal_byteOfDigit_64' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.digitVal_byteOfDigit_64
+
+/-- info: 'BaseN.Radix.digitVal_byteOfDigit_8' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.digitVal_byteOfDigit_8
+
+/-- info: 'BaseN.Radix.digitVal_eq' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.Radix.digitVal_eq
+
+/-- info: 'BaseN.Radix.inWin_eq_false' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.Radix.inWin_eq_false
+
+/-- info: 'BaseN.Radix.inWin_eq_true' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.Radix.inWin_eq_true
+
+/-- info: 'BaseN.Radix.inWin_iff' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.Radix.inWin_iff
+
+/-- info: 'BaseN.Radix.isRadix_ge2' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.isRadix_ge2
+
+/-- info: 'BaseN.Radix.isRadix_le64' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.isRadix_le64
+
+/-- info: 'BaseN.Radix.natDigits_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.natDigits_eq
+
+/-- info: 'BaseN.Radix.natDigits_eq_nil' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.natDigits_eq_nil
+
+/-- info: 'BaseN.Radix.natDigits_head_ne_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.natDigits_head_ne_zero
+
+/-- info: 'BaseN.Radix.natDigits_lt' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.natDigits_lt
+
+/-- info: 'BaseN.Radix.natDigits_mul' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.natDigits_mul
+
+/-- info: 'BaseN.Radix.natDigits_ne_nil' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.natDigits_ne_nil
+
+/-- info: 'BaseN.Radix.natVal_append' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.Radix.natVal_append
+
+/-- info: 'BaseN.Radix.natVal_natDigits' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.natVal_natDigits
+
+/-- info: 'BaseN.Radix.ofNat_head_ne_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.ofNat_head_ne_zero
+
+/-- info: 'BaseN.Radix.toNat_cons_none' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.Radix.toNat_cons_none
+
+/-- info: 'BaseN.Radix.toNat_cons_some' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.Radix.toNat_cons_some
+
+/-- info: 'BaseN.Radix.toNat_map_byteOfDigit' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.toNat_map_byteOfDigit
+
+/-- info: 'BaseN.Radix.toNat_ofNat' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Radix.toNat_ofNat
+
+/-- info: 'BaseN.RadixAlphabets.b64_class' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixAlphabets.b64_class
+
+/-- info: 'BaseN.RadixAlphabets.digitVal_eight' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixAlphabets.digitVal_eight
+
+/-- info: 'BaseN.RadixAlphabets.digitVal_four' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixAlphabets.digitVal_four
+
+/-- info: 'BaseN.RadixAlphabets.digitVal_sixteen' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixAlphabets.digitVal_sixteen
+
+/-- info: 'BaseN.RadixAlphabets.digitVal_sixtyfour' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixAlphabets.digitVal_sixtyfour
+
+/-- info: 'BaseN.RadixAlphabets.digitVal_ten' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixAlphabets.digitVal_ten
+
+/-- info: 'BaseN.RadixAlphabets.digitVal_thirtytwo' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixAlphabets.digitVal_thirtytwo
+
+/-- info: 'BaseN.RadixAlphabets.digitVal_two' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixAlphabets.digitVal_two
 
 -- BEGIN PINNED gatedNames
 /-- The `BaseN.*` names this file pins a `#guard_msgs` block for. Kept in lockstep
@@ -2507,7 +2688,47 @@ def gatedNames : List Lean.Name := [
   `BaseN.Common.nat_lt_four,
   `BaseN.Common.relRepeat_block_len,
   `BaseN.Common.relRepeat_forall,
-  `BaseN.Common.relRepeat_functional
+  `BaseN.Common.relRepeat_functional,
+  `BaseN.Radix.byteOfDigitNat_eq,
+  `BaseN.Radix.byteOfDigitNat_lt,
+  `BaseN.Radix.byteOfDigit_inj,
+  `BaseN.Radix.byteOfDigit_toNat,
+  `BaseN.Radix.byteOfDigit_toNat_eq,
+  `BaseN.Radix.digitVal_byteOfDigit,
+  `BaseN.Radix.digitVal_byteOfDigit_10,
+  `BaseN.Radix.digitVal_byteOfDigit_16,
+  `BaseN.Radix.digitVal_byteOfDigit_2,
+  `BaseN.Radix.digitVal_byteOfDigit_32,
+  `BaseN.Radix.digitVal_byteOfDigit_4,
+  `BaseN.Radix.digitVal_byteOfDigit_64,
+  `BaseN.Radix.digitVal_byteOfDigit_8,
+  `BaseN.Radix.digitVal_eq,
+  `BaseN.Radix.inWin_eq_false,
+  `BaseN.Radix.inWin_eq_true,
+  `BaseN.Radix.inWin_iff,
+  `BaseN.Radix.isRadix_ge2,
+  `BaseN.Radix.isRadix_le64,
+  `BaseN.Radix.natDigits_eq,
+  `BaseN.Radix.natDigits_eq_nil,
+  `BaseN.Radix.natDigits_head_ne_zero,
+  `BaseN.Radix.natDigits_lt,
+  `BaseN.Radix.natDigits_mul,
+  `BaseN.Radix.natDigits_ne_nil,
+  `BaseN.Radix.natVal_append,
+  `BaseN.Radix.natVal_natDigits,
+  `BaseN.Radix.ofNat_head_ne_zero,
+  `BaseN.Radix.toNat_cons_none,
+  `BaseN.Radix.toNat_cons_some,
+  `BaseN.Radix.toNat_map_byteOfDigit,
+  `BaseN.Radix.toNat_ofNat,
+  `BaseN.RadixAlphabets.b64_class,
+  `BaseN.RadixAlphabets.digitVal_eight,
+  `BaseN.RadixAlphabets.digitVal_four,
+  `BaseN.RadixAlphabets.digitVal_sixteen,
+  `BaseN.RadixAlphabets.digitVal_sixtyfour,
+  `BaseN.RadixAlphabets.digitVal_ten,
+  `BaseN.RadixAlphabets.digitVal_thirtytwo,
+  `BaseN.RadixAlphabets.digitVal_two,
 ]
 -- END PINNED gatedNames
 
@@ -2739,9 +2960,9 @@ run_cmd do
   let gated := BaseNAxioms.gatedNames.length
   let allow := BaseNAxioms.generatedAuxAllowlist.size
   -- Keep these in lockstep with the "universe, as measured" table above.
-  let expectedPub := 490
-  let expectedGated := 444
-  let expectedAllow := 46
+  let expectedPub := 533
+  let expectedGated := 484
+  let expectedAllow := 49
   let mut bad : Array String := #[]
   if pub.size != expectedPub then
     bad := bad.push s!"public theorems: table says {expectedPub}, environment has {pub.size}"
@@ -2775,14 +2996,14 @@ run_cmd do
     bad := bad.push s!"gatedNames has {baseNPins} entries but the gate counts {gated} pinned"
   -- The prose states the total as `baseNPins + codecPins`; assert it against the
   -- number of `#print axioms` blocks the file actually carries.
-  if baseNPins + codecPins != 447 then
-    bad := bad.push s!"prose says 447 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
+  if baseNPins + codecPins != 487 then
+    bad := bad.push s!"prose says 487 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
   -- **Both figures in the `443 against 440` sentence are asserted** (R7-06, §2.2).
   -- The sentence names two counts and states a relation; asserting only the sum
   -- leaves both free to drift together while the prose goes stale, which is exactly
   -- what happened (`440 against 437` vs a truth of `443 / 440`).
-  let statedPrintBlockCount := 447
-  let statedGatedNamesCount := 444
+  let statedPrintBlockCount := 487
+  let statedGatedNamesCount := 484
   let gateSrc ← IO.FS.readFile "Axioms.lean"
   -- The prose's "443 `#print axioms` blocks" means the *code* blocks: the ones
   -- starting at column 0. A plain substring count also picks up every mention of
@@ -2814,9 +3035,9 @@ run_cmd do
   -- The `Codec.*` pins are inside `distPS` because `collectAxioms` is what counts
   -- them; `gatedNames` does not contain them, so no subtraction is needed — this is
   -- measured, not assumed: a mismatch below prints all four.
-  let statedDistPS := 381
-  let statedDistP := 48
-  let statedDistZ := 15
+  let statedDistPS := 412
+  let statedDistP := 50
+  let statedDistZ := 22
   if distPS != statedDistPS then
     bad := bad.push s!"distribution says {statedDistPS} [propext, Quot.sound], measured {distPS}"
   if distP != statedDistP then
@@ -2863,8 +3084,8 @@ run_cmd do
   let mentionedCount := defs.size - BaseNAxioms.definitionSurfaceAllowlist.size
   logInfo m!"basen axiom gate: {defs.size} public definitions covered, {mentionedCount} mentioned and {BaseNAxioms.definitionSurfaceAllowlist.size} allowlisted (mention proxy)"
   -- Asserted, like the theorem table: a stale def count is a build failure.
-  let expectedDefs := 137
-  let expectedMentioned := 122
+  let expectedDefs := 145
+  let expectedMentioned := 130
   let expectedDefAllow := 15
   let mut bad : Array String := #[]
   if defs.size != expectedDefs then
