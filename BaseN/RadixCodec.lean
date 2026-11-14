@@ -157,24 +157,53 @@ theorem toNat_isSome_of_isDigits {b : Nat} :
 
 /-! ## `trimFor` — the normaliser -/
 
+/-- `strip b ds` — `ds` with its leading blanks and leading zero digits removed, in any
+interleaving.
+
+One pre-pass rather than two guards is what makes `trimFor` idempotent
+**structurally**: `strip`'s output either is empty or begins with a byte that is
+neither a blank nor a zero digit, so applying it again cannot change anything. -/
+def strip (b : Nat) : List UInt8 → List UInt8
+  | [] => []
+  | c :: cs => if isBlank c = true ∨ isZeroDigit b c = true then strip b cs else c :: cs
+
+theorem strip_cons {b : Nat} {c : UInt8} {cs : List UInt8}
+    (h : ¬ (isBlank c = true ∨ isZeroDigit b c = true)) : strip b (c :: cs) = c :: cs := by
+  show (if isBlank c = true ∨ isZeroDigit b c = true then strip b cs else c :: cs) = c :: cs
+  rw [ite_eq_right h]
+
+theorem strip_skip {b : Nat} {c : UInt8} {cs : List UInt8}
+    (h : isBlank c = true ∨ isZeroDigit b c = true) : strip b (c :: cs) = strip b cs := by
+  show (if isBlank c = true ∨ isZeroDigit b c = true then strip b cs else c :: cs) = strip b cs
+  rw [ite_eq_left h]
+
+/-- **`strip` is idempotent** — the structural fact the whole normaliser rests on. -/
+theorem strip_idem (b : Nat) (l : List UInt8) : strip b (strip b l) = strip b l := by
+  induction l with
+  | nil => rfl
+  | cons c cs ih =>
+      by_cases h : isBlank c = true ∨ isZeroDigit b c = true
+      · rw [strip_skip h]; exact ih
+      · rw [strip_cons h]
+        exact strip_cons (fun hh => h hh)
+
 /-- `trimFor b ds` — the canonical numeral for the lax spelling `ds`, or `none` if `ds`
 names no number.
 
-`some` on: leading blanks, an optional run of leading zero digits, then a non-empty
-run of digits, and nothing else. `none` on everything else — a trailing blank, an
-out-of-alphabet byte, trailing data after a numeral, the empty input, and an input of
-blanks only.
+`some` on: leading blanks and leading zero digits (in any interleaving), then a
+non-empty run of digits, and nothing else. `none` on everything else — a trailing
+blank, an out-of-alphabet byte, trailing data after a numeral, the empty input, and an
+input of blanks only.
 
 The all-zero case is the delicate one: `"000"` and `"  0"` are spellings of zero and
 must reach `ofNat b 0`, while `""` and `"   "` are not spellings of anything. The test
-is `digitTail` being empty (so every remaining byte was a zero digit) **and** at least
-one byte surviving `dropWhile isBlank` (so a digit was actually written). -/
+is `strip` being empty (so every remaining byte was a blank or a zero digit) **and** at
+least one byte having survived (so a digit was actually written). -/
 def trimFor (b : Nat) (ds : List UInt8) : Option (List UInt8) :=
-  let rest := ds.dropWhile isBlank
-  let t := digitTail b rest
-  if t.isEmpty then
-    (if rest.isEmpty then none
-     else if isDigits b rest then some (ofNat b 0) else none)
+  let t := strip b ds
+  if t = [] then
+    (if ds = [] then none
+     else if isDigits b ds then some (ofNat b 0) else none)
   else if isDigits b t then some t else none
 
 /-- `isNumeral b ds` — `ds` is a spelling `trimFor` accepts. On this subtype `trimFor`
@@ -304,5 +333,266 @@ theorem ofNat_digitTail {b : Nat} (hr : IsRadix b) {n : Nat} (hn : n ≠ 0) :
     apply hxne
     have h1 : (byteOfDigit b x).toNat = (byteOfDigit b 0).toNat := isZeroDigit_eq_true_iff.1 hz
     exact byteOfDigit_inj hr hxr (by have := isRadix_ge2 hr; omega) (UInt8.toNat.inj h1)
+
+
+/-! ## `digitTail`'s cons equations and idempotence
+
+The cons equations are stated for `true`/`false` explicitly rather than through
+`digitTail`'s `match`, because the `match` does not reduce at a variable tail. -/
+
+theorem digitTail_cons_zero {b : Nat} {c : UInt8} {cs : List UInt8}
+    (h : isZeroDigit b c = true) : digitTail b (c :: cs) = digitTail b cs := by
+  show (if isZeroDigit b c then digitTail b cs else c :: cs) = digitTail b cs
+  rw [ite_eq_left h]
+
+theorem digitTail_cons_ne {b : Nat} {c : UInt8} {cs : List UInt8}
+    (h : isZeroDigit b c = false) : digitTail b (c :: cs) = c :: cs := by
+  show (if isZeroDigit b c then digitTail b cs else c :: cs) = c :: cs
+  rw [ite_eq_right]
+  intro hc
+  rw [h] at hc
+  exact Bool.noConfusion hc
+
+/-- **`digitTail` is idempotent** — dropping leading zeros twice drops them once. -/
+theorem digitTail_idem (b : Nat) (zs : List UInt8) :
+    digitTail b (digitTail b zs) = digitTail b zs := by
+  induction zs with
+  | nil => rfl
+  | cons c cs ih =>
+      by_cases hb : isZeroDigit b c = true
+      · rw [digitTail_cons_zero hb]
+        exact ih
+      · have hf : isZeroDigit b c = false := by
+          cases h : isZeroDigit b c
+          · rfl
+          · exact absurd h hb
+        rw [digitTail_cons_ne hf, digitTail_cons_ne hf]
+
+/-- The digit zero of every radix this layer serves is a digit of its alphabet. -/
+theorem digitVal_byteOfDigit_zero {b : Nat} (hr : IsRadix b) :
+    (digitVal b (byteOfDigit b 0)).isSome = true := by
+  unfold digitVal
+  rw [byteOfDigit_toNat]
+  unfold byteOfDigitNat
+  simp only []
+  cases hr with
+  | b2 => decide
+  | b4 => decide
+  | b8 => decide
+  | b10 => decide
+  | b16 => decide
+  | b32 => decide
+  | b64 => decide
+
+/-- **`dropWhile` is idempotent** — dropping leading blanks twice drops them once. Not
+in the stdlib under this name, so it is proved here rather than assumed. -/
+theorem dropWhile_idem (p : UInt8 → Bool) (l : List UInt8) :
+    (l.dropWhile p).dropWhile p = l.dropWhile p := by
+  induction l with
+  | nil => rfl
+  | cons x xs ih =>
+      rw [List.dropWhile_cons]
+      by_cases h : p x = true
+      · rw [ite_eq_left h, ih]
+      · rw [ite_eq_right h]
+        rw [List.dropWhile_cons, ite_eq_right h]
+
+/-- The head of a `digitTail` is never a zero digit: `digitTail` only stops at a
+non-zero byte or at the end. -/
+theorem digitTail_head_ne_zero {b : Nat} :
+    ∀ (l : List UInt8) {x : UInt8} {xs : List UInt8}, digitTail b l = x :: xs →
+      isZeroDigit b x = false := by
+  intro l
+  induction l with
+  | nil => intro x xs h; simp [digitTail] at h
+  | cons c cs ih =>
+      intro x xs h
+      by_cases hz : isZeroDigit b c = true
+      · rw [digitTail_cons_zero hz] at h
+        exact ih h
+      · have hf : isZeroDigit b c = false := by
+          cases hh : isZeroDigit b c
+          · rfl
+          · exact absurd hh hz
+        rw [digitTail_cons_ne hf] at h
+        have h1 : c = x := (List.cons.inj h).1
+        rw [← h1]
+        exact hf
+
+/-- The alphabet's zero byte is never a blank. -/
+theorem byteOfDigit_zero_ne_blank_nat (b : Nat) : (byteOfDigit b 0).toNat ≠ 32 := by
+  rw [byteOfDigit_toNat]
+  unfold byteOfDigitNat
+  by_cases h32 : b = 32
+  · subst h32; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 25)]; omega
+  · rw [ite_eq_right h32]
+    by_cases h64 : b = 64
+    · subst h64; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 25)]; omega
+    · rw [ite_eq_right h64]
+      by_cases h16 : b = 16
+      · subst h16; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 9)]; omega
+      · rw [ite_eq_right h16]; omega
+
+/-- A zero-digit byte is never a blank. -/
+theorem isZeroDigit_not_blank {b : Nat} {c : UInt8} (h : isZeroDigit b c = true) :
+    isBlank c = false := by
+  have hz : c.toNat = (byteOfDigit b 0).toNat := isZeroDigit_eq_true_iff.1 h
+  rw [isBlank, decide_eq_false_iff_not, hz]
+  exact byteOfDigit_zero_ne_blank_nat b
+
+/-- Every byte `ofNat` emits is not a blank. The load-bearing fact is that ASCII 32 is
+below every alphabet's window: no digit of any radix this layer serves is a space. -/
+theorem byteOfDigitNat_bounded (r d : Nat) (hr : 2 ≤ r) (hr64 : r ≤ 64) (hd : d < r) :
+    byteOfDigitNat r d < 256 := by
+  have hd256 : d < 256 := by omega
+  unfold byteOfDigitNat
+  split
+  · split <;> omega
+  · split
+    · rename_i hb
+      subst hb
+      split
+      · omega
+      · split
+        · omega
+        · split
+          · omega
+          · split
+            · omega
+            · omega
+    · split
+      · split <;> omega
+      · omega
+
+theorem byteOfDigit_toNat_val {b d : Nat} (hr : IsRadix b) (hd : d < b) :
+    (byteOfDigit b d).toNat = byteOfDigitNat b d := by
+  rw [byteOfDigit_toNat]
+  exact Nat.mod_eq_of_lt (byteOfDigitNat_bounded b d (isRadix_ge2 hr) (isRadix_le64 hr) hd)
+
+/-- Every byte `ofNat` emits is not a blank, because ASCII 32 is below every alphabet's
+window. -/
+theorem byteOfDigitNat_ne_32' {r d : Nat} (hr : 2 ≤ r) (hr64 : r ≤ 64) (hd : d < r) :
+    byteOfDigitNat r d ≠ 32 := by
+  unfold byteOfDigitNat
+  by_cases h32 : r = 32
+  · subst h32
+    by_cases h25 : d ≤ 25
+    · simp [h25]; omega
+    · simp [h25]; omega
+  · rw [ite_eq_right h32]
+    by_cases h64 : r = 64
+    · subst h64
+      rw [ite_eq_left rfl]
+      by_cases h1 : d ≤ 25
+      · rw [ite_eq_left h1]; omega
+      · rw [ite_eq_right h1]
+        by_cases h2 : d ≤ 51
+        · rw [ite_eq_left h2]; omega
+        · rw [ite_eq_right h2]
+          by_cases h3 : d ≤ 61
+          · rw [ite_eq_left h3]; omega
+          · rw [ite_eq_right h3]
+            by_cases h62 : d = 62
+            · rw [ite_eq_left h62]; omega
+            · rw [ite_eq_right h62]; omega
+    · rw [ite_eq_right h64]
+      by_cases h16 : r = 16
+      · subst h16
+        rw [ite_eq_left rfl]
+        by_cases h9 : d ≤ 9
+        · rw [ite_eq_left h9]; omega
+        · rw [ite_eq_right h9]; omega
+      · rw [ite_eq_right h16]; omega
+
+theorem byteOfDigit_ne_32 {b d : Nat} (hr : IsRadix b) (hd : d < b) :
+    (byteOfDigit b d).toNat ≠ 32 := by
+  rw [byteOfDigit_toNat_val hr hd]
+  exact byteOfDigitNat_ne_32' (isRadix_ge2 hr) (isRadix_le64 hr) hd
+
+/-- Every byte `ofNat` emits is not a blank. -/
+theorem ofNat_isBlank_false {b n : Nat} (hr : IsRadix b) :
+    ∀ c ∈ ofNat b n, isBlank c = false := by
+  intro c hc
+  unfold ofNat at hc
+  by_cases hn : n = 0
+  · rw [ite_eq_left hn] at hc
+    simp only [List.mem_singleton] at hc
+    subst hc
+    unfold isBlank
+    rw [decide_eq_false_iff_not]
+    rw [byteOfDigit_toNat_val hr (by have := isRadix_ge2 hr; omega)]
+    exact byteOfDigitNat_ne_32' (isRadix_ge2 hr) (isRadix_le64 hr)
+      (by have := isRadix_ge2 hr; omega)
+  · rw [ite_eq_right hn] at hc
+    obtain ⟨d, hdmem, rfl⟩ := List.mem_map.1 hc
+    unfold isBlank
+    rw [decide_eq_false_iff_not]
+    exact byteOfDigit_ne_32 hr (natDigits_lt hr n d hdmem)
+
+/-! ## `ofNat`'s output is a canonical spelling -/
+
+/-- `ofNat b 0` is the single zero-digit byte. -/
+theorem ofNat_zero_eq (b : Nat) : ofNat b 0 = [byteOfDigit b 0] := by
+  unfold ofNat
+  rw [ite_eq_left rfl]
+
+/-- The zero byte is not a blank. -/
+theorem byteOfDigit_zero_ne_blank (b : Nat) : isBlank (byteOfDigit b 0) = false := by
+  rw [isBlank, decide_eq_false_iff_not]
+  intro h
+  rw [byteOfDigit_toNat] at h
+  unfold byteOfDigitNat at h
+  by_cases h32 : b = 32
+  · subst h32; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 25)] at h; omega
+  · rw [ite_eq_right h32] at h
+    by_cases h64 : b = 64
+    · subst h64; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 25)] at h; omega
+    · rw [ite_eq_right h64] at h
+      by_cases h16 : b = 16
+      · subst h16; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 9)] at h; omega
+      · rw [ite_eq_right h16] at h; omega
+
+theorem ofNat_zero_dropWhile (b : Nat) : (ofNat b 0).dropWhile isBlank = ofNat b 0 := by
+  rw [ofNat_zero_eq, List.dropWhile_cons, ite_eq_right]
+  intro hb
+  rw [byteOfDigit_zero_ne_blank] at hb
+  exact absurd hb (by simp)
+
+theorem ofNat_zero_digitTail (b : Nat) : digitTail b (ofNat b 0) = [] := by
+  rw [ofNat_zero_eq]
+  show (if isZeroDigit b (byteOfDigit b 0) then digitTail b [] else [byteOfDigit b 0]) = []
+  have h : isZeroDigit b (byteOfDigit b 0) = true := by
+    have := isZeroDigit_ofNat_zero b
+    rw [ofNat_zero_eq] at this
+    simpa using this
+  rw [h]; rfl
+
+theorem ofNat_zero_ne_nil (b : Nat) : ofNat b 0 ≠ [] := by
+  rw [ofNat_zero_eq]; simp
+
+theorem ofNat_ne_nil {b n : Nat} (hr : IsRadix b) (hn : n ≠ 0) : ofNat b n ≠ [] := by
+  unfold ofNat
+  rw [ite_eq_right hn]
+  intro h
+  have hh := natDigits_ne_nil hr n hn
+  rw [List.map_eq_nil_iff] at h
+  exact hh h
+
+/-- Every byte `ofNat` emits is a digit of the radix's alphabet. -/
+theorem ofNat_isDigits {b n : Nat} (hr : IsRadix b) : isDigits b (ofNat b n) = true := by
+  rw [isDigits_iff]
+  intro c hc
+  unfold ofNat at hc
+  by_cases hn : n = 0
+  · rw [ite_eq_left hn] at hc
+    simp only [List.mem_singleton] at hc
+    subst hc
+    exact acceptsDigitZero_iff.2 (by
+      rw [digitVal_byteOfDigit hr 0 (by have := isRadix_ge2 hr; omega)]; rfl)
+  · rw [ite_eq_right hn] at hc
+    obtain ⟨d, hd, rfl⟩ := List.mem_map.1 hc
+    rw [digitVal_byteOfDigit hr d (natDigits_lt hr n d hd)]
+    rfl
+
 
 end BaseN.RadixCodec
