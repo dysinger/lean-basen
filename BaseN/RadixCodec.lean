@@ -155,6 +155,363 @@ theorem toNat_isSome_of_isDigits {b : Nat} :
       rw [toNat_cons_some b c cs v hv, ha]
       rfl
 
+/-! ## The value↔byte bridge
+
+`digitVal_byteOfDigit` (`BaseN.Radix`) says the **encoder's** byte is readable.
+The `Iso`'s backward direction needs the converse: a byte the **fold** can read is
+the encoder's byte for the value it reads. Together they say that `digitVal` and
+`byteOfDigit` are inverse on the alphabet, which is what lets a digit *list* be
+rewritten as `ds.map (byteOfDigit b)` and so let `natVal_inj_head` apply.
+
+`digitVal_lt_of_some` is the range fact — a read value is below the radix — and it
+is where the `isRadix` split earns its keep: each alphabet's windows are different,
+so the bound is discharged radix by radix.
+
+**Why this is a per-radix case split rather than one `simp`.** `digitVal`'s
+`if`-chain does not reduce at a variable radix (`split`/`simp` stall on the
+`radix = 2` test), and `UInt8.ofNat` appears throughout in `byteOfDigit`, so every
+window fact would need a `% 256`. The route that closes is: restate the arm's
+`if`-chain as one `hbody` equation, case each window with `ite_eq_left`/`ite_eq_right`,
+and finish with `UInt8.toNat.inj` plus `byteOfDigit_toNat_eq` (in-range, so no
+modulus). `(0x30 : UInt8).toNat = 48` is a `decide`, which is what
+`digitVal_blank` used, and it is not needed here.
+-/
+
+theorem digitVal_lt_of_some {b : Nat} (hr : IsRadix b) {c : UInt8} {v : Nat}
+    (h : digitVal b c = some v) : v < b := by
+  cases hr with
+  | b2 =>
+      unfold digitVal at h
+      simp only [ite_true] at h
+      by_cases hw : inWin 48 49 c.toNat = true
+      · rw [ite_eq_left hw] at h
+        have hv : v = c.toNat - 48 := (Option.some.inj h).symm
+        have := inWin_eq_true hw
+        omega
+      · rw [ite_eq_right hw] at h; exact absurd h (by simp)
+  | b4 =>
+      unfold digitVal at h
+      simp only [ite_true] at h
+      by_cases hw : inWin 48 51 c.toNat = true
+      · rw [ite_eq_left hw] at h
+        have hv : v = c.toNat - 48 := (Option.some.inj h).symm
+        have := inWin_eq_true hw
+        omega
+      · rw [ite_eq_right hw] at h; exact absurd h (by simp)
+  | b8 =>
+      unfold digitVal at h
+      simp only [ite_true] at h
+      by_cases hw : inWin 48 55 c.toNat = true
+      · rw [ite_eq_left hw] at h
+        have hv : v = c.toNat - 48 := (Option.some.inj h).symm
+        have := inWin_eq_true hw
+        omega
+      · rw [ite_eq_right hw] at h; exact absurd h (by simp)
+  | b10 =>
+      unfold digitVal at h
+      simp only [ite_true] at h
+      by_cases hw : inWin 48 57 c.toNat = true
+      · rw [ite_eq_left hw] at h
+        have hv : v = c.toNat - 48 := (Option.some.inj h).symm
+        have := inWin_eq_true hw
+        omega
+      · rw [ite_eq_right hw] at h; exact absurd h (by simp)
+  | b16 =>
+      have hbody : digitVal 16 c =
+          (if inWin 48 57 c.toNat then some (c.toNat - 48)
+           else if inWin 65 70 c.toNat then some (c.toNat - 55) else none) := by
+        unfold digitVal; simp
+      rw [hbody] at h
+      by_cases h1 : inWin 48 57 c.toNat = true
+      · rw [ite_eq_left h1] at h
+        have hv : v = c.toNat - 48 := (Option.some.inj h).symm
+        have := inWin_eq_true h1
+        omega
+      · rw [ite_eq_right h1] at h
+        by_cases h2 : inWin 65 70 c.toNat = true
+        · rw [ite_eq_left h2] at h
+          have hv : v = c.toNat - 55 := (Option.some.inj h).symm
+          have := inWin_eq_true h2
+          omega
+        · rw [ite_eq_right h2] at h; exact absurd h (by simp)
+  | b32 =>
+      have hbody : digitVal 32 c =
+          (if inWin 65 90 c.toNat then some (c.toNat - 65)
+           else if inWin 50 55 c.toNat then some (c.toNat - 50 + 26) else none) := by
+        unfold digitVal; simp
+      rw [hbody] at h
+      by_cases h1 : inWin 65 90 c.toNat = true
+      · rw [ite_eq_left h1] at h
+        have hv : v = c.toNat - 65 := (Option.some.inj h).symm
+        have := inWin_eq_true h1
+        omega
+      · rw [ite_eq_right h1] at h
+        by_cases h2 : inWin 50 55 c.toNat = true
+        · rw [ite_eq_left h2] at h
+          have hv : v = c.toNat - 50 + 26 := (Option.some.inj h).symm
+          have := inWin_eq_true h2
+          omega
+        · rw [ite_eq_right h2] at h; exact absurd h (by simp)
+  | b64 =>
+      have hbody : digitVal 64 c =
+          (if inWin 65 90 c.toNat then some (c.toNat - 65)
+           else if inWin 97 122 c.toNat then some (c.toNat - 97 + 26)
+           else if inWin 48 57 c.toNat then some (c.toNat - 48 + 52)
+           else if c.toNat = 43 then some 62
+           else if c.toNat = 47 then some 63 else none) := by
+        unfold digitVal; simp
+      rw [hbody] at h
+      by_cases h1 : inWin 65 90 c.toNat = true
+      · rw [ite_eq_left h1] at h
+        have hv : v = c.toNat - 65 := (Option.some.inj h).symm
+        have := inWin_eq_true h1
+        omega
+      · rw [ite_eq_right h1] at h
+        by_cases h2 : inWin 97 122 c.toNat = true
+        · rw [ite_eq_left h2] at h
+          have hv : v = c.toNat - 97 + 26 := (Option.some.inj h).symm
+          have := inWin_eq_true h2
+          omega
+        · rw [ite_eq_right h2] at h
+          by_cases h3 : inWin 48 57 c.toNat = true
+          · rw [ite_eq_left h3] at h
+            have hv : v = c.toNat - 48 + 52 := (Option.some.inj h).symm
+            have := inWin_eq_true h3
+            omega
+          · rw [ite_eq_right h3] at h
+            by_cases h4 : c.toNat = 43
+            · rw [ite_eq_left h4] at h
+              have hv : v = 62 := (Option.some.inj h).symm
+              omega
+            · rw [ite_eq_right h4] at h
+              by_cases h5 : c.toNat = 47
+              · rw [ite_eq_left h5] at h
+                have hv : v = 63 := (Option.some.inj h).symm
+                omega
+              · rw [ite_eq_right h5] at h; exact absurd h (by simp)
+
+
+
+theorem byteOfDigitNat_nonPow (r d : Nat) (h32 : r ≠ 32) (h64 : r ≠ 64) (h16 : r ≠ 16) :
+    byteOfDigitNat r d = 48 + d := by
+  rw [byteOfDigitNat_eq, ite_eq_right h32, ite_eq_right h64, ite_eq_right h16]
+
+theorem byteOfDigitNat_32 (d : Nat) :
+    byteOfDigitNat 32 d = (if d ≤ 25 then 65 + d else 50 + d - 26) := by
+  rw [byteOfDigitNat_eq]; simp
+
+theorem byteOfDigitNat_64 (d : Nat) :
+    byteOfDigitNat 64 d =
+      (if d ≤ 25 then 65 + d
+       else if d ≤ 51 then 97 + d - 26
+       else if d ≤ 61 then 48 + d - 52
+       else if d = 62 then 43 else 47) := by
+  rw [byteOfDigitNat_eq]; simp
+
+theorem byteOfDigitNat_16 (d : Nat) :
+    byteOfDigitNat 16 d = (if d ≤ 9 then 48 + d else 55 + d) := by
+  rw [byteOfDigitNat_eq]; simp
+
+/-- A `48 + d` window arm: `digitVal r c = some v` forces `c.toNat = 48 + v`. -/
+theorem bridge_48 (r lo hi : Nat) (c : UInt8) (v : Nat)
+    (hbody : digitVal r c = (if inWin lo hi c.toNat then some (c.toNat - lo) else none))
+    (h : digitVal r c = some v) (hlo : lo = 48) :
+    c.toNat = 48 + v := by
+  subst hlo
+  rw [hbody] at h
+  by_cases hw : inWin 48 hi c.toNat = true
+  · rw [ite_eq_left hw] at h
+    have hv : v = c.toNat - 48 := (Option.some.inj h).symm
+    subst hv
+    have := (inWin_eq_true hw).1
+    omega
+  · rw [ite_eq_right hw] at h
+    exact absurd h (by simp)
+
+theorem bridge_2 (c : UInt8) (v : Nat) (h : digitVal 2 c = some v) :
+    c.toNat = byteOfDigitNat 2 v := by
+  have := bridge_48 2 48 49 c v (by unfold digitVal; simp) h rfl
+  rw [this, byteOfDigitNat_nonPow 2 v (by decide) (by decide) (by decide)]
+
+theorem bridge_4 (c : UInt8) (v : Nat) (h : digitVal 4 c = some v) :
+    c.toNat = byteOfDigitNat 4 v := by
+  have := bridge_48 4 48 51 c v (by unfold digitVal; simp) h rfl
+  rw [this, byteOfDigitNat_nonPow 4 v (by decide) (by decide) (by decide)]
+
+theorem bridge_8 (c : UInt8) (v : Nat) (h : digitVal 8 c = some v) :
+    c.toNat = byteOfDigitNat 8 v := by
+  have := bridge_48 8 48 55 c v (by unfold digitVal; simp) h rfl
+  rw [this, byteOfDigitNat_nonPow 8 v (by decide) (by decide) (by decide)]
+
+theorem bridge_10 (c : UInt8) (v : Nat) (h : digitVal 10 c = some v) :
+    c.toNat = byteOfDigitNat 10 v := by
+  have := bridge_48 10 48 57 c v (by unfold digitVal; simp) h rfl
+  rw [this, byteOfDigitNat_nonPow 10 v (by decide) (by decide) (by decide)]
+
+/-- radix 16: two windows, `48 + d` then `55 + d`. -/
+theorem bridge_16 (c : UInt8) (v : Nat) (h : digitVal 16 c = some v) :
+    c.toNat = byteOfDigitNat 16 v := by
+  have hbody : digitVal 16 c =
+      (if inWin 48 57 c.toNat then some (c.toNat - 48)
+       else if inWin 65 70 c.toNat then some (c.toNat - 55) else none) := by
+    unfold digitVal; simp
+  rw [hbody] at h
+  by_cases h1 : inWin 48 57 c.toNat = true
+  · rw [ite_eq_left h1] at h
+    have hv : v = c.toNat - 48 := (Option.some.inj h).symm
+    subst hv
+    have hw := inWin_eq_true h1
+    rw [byteOfDigitNat_16]
+    by_cases hd : c.toNat - 48 ≤ 9
+    · rw [ite_eq_left hd]; omega
+    · rw [ite_eq_right hd]; omega
+  · rw [ite_eq_right h1] at h
+    by_cases h2 : inWin 65 70 c.toNat = true
+    · rw [ite_eq_left h2] at h
+      have hv : v = c.toNat - 55 := (Option.some.inj h).symm
+      subst hv
+      have hw := inWin_eq_true h2
+      rw [byteOfDigitNat_16]
+      by_cases hd : c.toNat - 55 ≤ 9
+      · rw [ite_eq_left hd]; omega
+      · rw [ite_eq_right hd]; omega
+    · rw [ite_eq_right h2] at h
+      exact absurd h (by simp)
+
+/-- radix 32: `A-Z` then `2-7`. -/
+theorem bridge_32 (c : UInt8) (v : Nat) (h : digitVal 32 c = some v) :
+    c.toNat = byteOfDigitNat 32 v := by
+  have hbody : digitVal 32 c =
+      (if inWin 65 90 c.toNat then some (c.toNat - 65)
+       else if inWin 50 55 c.toNat then some (c.toNat - 50 + 26) else none) := by
+    unfold digitVal; simp
+  rw [hbody] at h
+  by_cases h1 : inWin 65 90 c.toNat = true
+  · rw [ite_eq_left h1] at h
+    have hv : v = c.toNat - 65 := (Option.some.inj h).symm
+    subst hv
+    have hw := inWin_eq_true h1
+    rw [byteOfDigitNat_32]
+    by_cases hd : c.toNat - 65 ≤ 25
+    · rw [ite_eq_left hd]; omega
+    · rw [ite_eq_right hd]; omega
+  · rw [ite_eq_right h1] at h
+    by_cases h2 : inWin 50 55 c.toNat = true
+    · rw [ite_eq_left h2] at h
+      have hv : v = c.toNat - 50 + 26 := (Option.some.inj h).symm
+      subst hv
+      have hw := inWin_eq_true h2
+      rw [byteOfDigitNat_32]
+      by_cases hd : c.toNat - 50 + 26 ≤ 25
+      · rw [ite_eq_left hd]; omega
+      · rw [ite_eq_right hd]; omega
+    · rw [ite_eq_right h2] at h
+      exact absurd h (by simp)
+
+/-- radix 64: `A-Z`, `a-z`, `0-9`, `+`, `/`. -/
+theorem bridge_64 (c : UInt8) (v : Nat) (h : digitVal 64 c = some v) :
+    c.toNat = byteOfDigitNat 64 v := by
+  have hbody : digitVal 64 c =
+      (if inWin 65 90 c.toNat then some (c.toNat - 65)
+       else if inWin 97 122 c.toNat then some (c.toNat - 97 + 26)
+       else if inWin 48 57 c.toNat then some (c.toNat - 48 + 52)
+       else if c.toNat = 43 then some 62
+       else if c.toNat = 47 then some 63 else none) := by
+    unfold digitVal; simp
+  rw [hbody] at h
+  by_cases h1 : inWin 65 90 c.toNat = true
+  · rw [ite_eq_left h1] at h
+    have hv : v = c.toNat - 65 := (Option.some.inj h).symm
+    subst hv
+    have hw := inWin_eq_true h1
+    rw [byteOfDigitNat_64]
+    by_cases hd : c.toNat - 65 ≤ 25
+    · rw [ite_eq_left hd]; omega
+    · rw [ite_eq_right hd]
+      by_cases hd2 : c.toNat - 65 ≤ 51
+      · rw [ite_eq_left hd2]; omega
+      · rw [ite_eq_right hd2]
+        by_cases hd3 : c.toNat - 65 ≤ 61
+        · rw [ite_eq_left hd3]; omega
+        · rw [ite_eq_right hd3]
+          by_cases hd4 : c.toNat - 65 = 62
+          · rw [ite_eq_left hd4]; omega
+          · rw [ite_eq_right hd4]; omega
+  · rw [ite_eq_right h1] at h
+    by_cases h2 : inWin 97 122 c.toNat = true
+    · rw [ite_eq_left h2] at h
+      have hv : v = c.toNat - 97 + 26 := (Option.some.inj h).symm
+      subst hv
+      have hw := inWin_eq_true h2
+      rw [byteOfDigitNat_64]
+      by_cases hd : c.toNat - 97 + 26 ≤ 25
+      · rw [ite_eq_left hd]; omega
+      · rw [ite_eq_right hd]
+        by_cases hd2 : c.toNat - 97 + 26 ≤ 51
+        · rw [ite_eq_left hd2]; omega
+        · rw [ite_eq_right hd2]
+          by_cases hd3 : c.toNat - 97 + 26 ≤ 61
+          · rw [ite_eq_left hd3]; omega
+          · rw [ite_eq_right hd3]
+            by_cases hd4 : c.toNat - 97 + 26 = 62
+            · rw [ite_eq_left hd4]; omega
+            · rw [ite_eq_right hd4]; omega
+    · rw [ite_eq_right h2] at h
+      by_cases h3 : inWin 48 57 c.toNat = true
+      · rw [ite_eq_left h3] at h
+        have hv : v = c.toNat - 48 + 52 := (Option.some.inj h).symm
+        subst hv
+        have hw := inWin_eq_true h3
+        rw [byteOfDigitNat_64]
+        by_cases hd : c.toNat - 48 + 52 ≤ 25
+        · rw [ite_eq_left hd]; omega
+        · rw [ite_eq_right hd]
+          by_cases hd2 : c.toNat - 48 + 52 ≤ 51
+          · rw [ite_eq_left hd2]; omega
+          · rw [ite_eq_right hd2]
+            by_cases hd3 : c.toNat - 48 + 52 ≤ 61
+            · rw [ite_eq_left hd3]; omega
+            · rw [ite_eq_right hd3]
+              by_cases hd4 : c.toNat - 48 + 52 = 62
+              · rw [ite_eq_left hd4]; omega
+              · rw [ite_eq_right hd4]; omega
+      · rw [ite_eq_right h3] at h
+        by_cases h4 : c.toNat = 43
+        · rw [ite_eq_left h4] at h
+          have hv : v = 62 := (Option.some.inj h).symm
+          subst hv
+          rw [byteOfDigitNat_64]
+          simp
+          omega
+        · rw [ite_eq_right h4] at h
+          by_cases h5 : c.toNat = 47
+          · rw [ite_eq_left h5] at h
+            have hv : v = 63 := (Option.some.inj h).symm
+            subst hv
+            rw [byteOfDigitNat_64]
+            simp
+            omega
+          · rw [ite_eq_right h5] at h
+            exact absurd h (by simp)
+
+
+/-- **The value↔byte bridge**: a byte the fold can read names itself. -/
+theorem digitVal_some_byteOfDigit {b : Nat} (hr : IsRadix b) {c : UInt8} {v : Nat}
+    (h : digitVal b c = some v) : c = byteOfDigit b v := by
+  have hv : v < b := digitVal_lt_of_some hr h
+  apply UInt8.toNat.inj
+  rw [byteOfDigit_toNat_eq b (isRadix_ge2 hr) (isRadix_le64 hr) v hv]
+  cases hr with
+  | b2  => exact bridge_2 c v h
+  | b4  => exact bridge_4 c v h
+  | b8  => exact bridge_8 c v h
+  | b10 => exact bridge_10 c v h
+  | b16 => exact bridge_16 c v h
+  | b32 => exact bridge_32 c v h
+  | b64 => exact bridge_64 c v h
+
+
+
 /-! ## `trimFor` — the normaliser -/
 
 /-- `strip b ds` — `ds` with its leading blanks and leading zero digits removed, in any
