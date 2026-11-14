@@ -689,4 +689,131 @@ theorem trimFor_idem {b : Nat} (hr : IsRadix b) {ds t : List UInt8}
       rfl
     · rw [ite_eq_right hd] at h; simp at h
 
+
+theorem natVal_snoc (b : Nat) (vs : List Nat) (v : Nat) :
+    natVal b (vs ++ [v]) = natVal b vs * b + v := by
+  rw [natVal_append]; simp [natVal]
+
+theorem natVal_mod (b : Nat) (vs : List Nat) (v : Nat) (hv : v < b) :
+    natVal b (vs ++ [v]) % b = v := by
+  rw [natVal_snoc, Nat.add_mod, Nat.mul_comm (natVal b vs) b, Nat.mul_mod_right, Nat.zero_add,
+      Nat.mod_eq_of_lt hv, Nat.mod_eq_of_lt hv]
+
+theorem natVal_div (b : Nat) (vs : List Nat) (v : Nat) (hb : 0 < b) (hv : v < b) :
+    natVal b (vs ++ [v]) / b = natVal b vs := by
+  rw [natVal_snoc]
+  rw [Nat.add_comm, Nat.add_mul_div_right _ _ hb, Nat.div_eq_of_lt hv, Nat.zero_add]
+
+theorem natVal_pos {b : Nat} (hb : 2 ≤ b) :
+    ∀ (vs : List Nat), vs ≠ [] → vs.head? ≠ some 0 → 0 < natVal b vs
+  | [], hne, _ => absurd rfl hne
+  | v :: vs, _, hhd => by
+      have hv : 0 < v := by
+        by_cases h0 : v = 0
+        · exact absurd (by rw [h0]; rfl) hhd
+        · omega
+      cases vs with
+      | nil => simp [natVal]; omega
+      | cons w ws =>
+          simp only [natVal]
+          have hb1 : 0 < b ^ (w :: ws).length := Nat.pow_pos (by omega)
+          have : 0 < v * b ^ (w :: ws).length := Nat.mul_pos hv hb1
+          omega
+
+theorem dropLast_ne_nil {l : List Nat} (h : 2 ≤ l.length) : l.dropLast ≠ [] := by
+  intro hnil
+  have hlen := List.length_dropLast (xs := l)
+  rw [hnil] at hlen
+  simp at hlen
+  omega
+
+theorem head_append_singleton {l : List Nat} {a : Nat} :
+    (l ++ [a]).head? = l.head?.or (some a) := List.head?_append
+
+theorem head_or_some_ne {l : List Nat} {a : Nat} (hne : l ≠ []) :
+    (l.head?.or (some a)) ≠ some 0 ↔ l.head? ≠ some 0 := by
+  cases hh : l.head? with
+  | none => exact absurd (List.head?_eq_none_iff.1 hh) hne
+  | some x => simp
+
+/-- **Canonical digit lists are unique**, by length induction: a non-empty list whose
+every digit is below the radix, with a non-zero head, is exactly `natDigits` of the value
+it denotes. This is the injection the `Iso`'s backward direction needs. -/
+theorem natVal_inj_head {b : Nat} (hr : IsRadix b) :
+    ∀ (n : Nat) (vs : List Nat), vs.length = n → (∀ v ∈ vs, v < b) →
+      vs.head? ≠ some 0 → ∀ m, natVal b vs = m → vs = natDigits b m := by
+  intro n
+  induction n using Nat.strongRecOn with
+  | _ n ih =>
+    intro vs hn hlt hhd m hm
+    have hb2 : 2 ≤ b := isRadix_ge2 hr
+    rcases vs with _ | ⟨v, t⟩
+    · simp [natVal] at hm
+      subst hm
+      rw [natDigits]; rfl
+    · rcases t with _ | ⟨w, ws⟩
+      · -- single element
+        simp only [natVal, List.length_nil, Nat.pow_zero, Nat.mul_one, Nat.add_zero] at hm
+        subst hm
+        have hv0 : v ≠ 0 := by
+          intro h0; exact hhd (by rw [h0]; rfl)
+        have hvlt : v < b := hlt v (by simp)
+        rw [natDigits, ite_eq_right hv0, ite_eq_right (by omega : ¬ b < 2),
+            Nat.div_eq_of_lt hvlt, Nat.mod_eq_of_lt hvlt, natDigits, ite_eq_left rfl]
+        rfl
+      · -- ≥ 2 elements; split off the last
+        have hne : (v :: w :: ws) ≠ [] := by simp
+        have hlen2 : 2 ≤ (v :: w :: ws).length := by simp
+        have hinit : (v :: w :: ws) = (v :: w :: ws).dropLast ++ [(v :: w :: ws).getLast hne] :=
+          (List.dropLast_concat_getLast hne).symm
+        have hs_ne : (v :: w :: ws).dropLast ≠ [] := dropLast_ne_nil hlen2
+        have hlast_mem : (v :: w :: ws).getLast hne ∈ v :: w :: ws := List.getLast_mem hne
+        have hlast : (v :: w :: ws).getLast hne < b := hlt _ hlast_mem
+        have hs_all : ∀ x ∈ (v :: w :: ws).dropLast, x < b := by
+          intro x hx
+          apply hlt x
+          rw [hinit]
+          exact List.mem_append_left _ hx
+        have hshead : (v :: w :: ws).dropLast.head? ≠ some 0 := by
+          rw [show (v :: w :: ws).dropLast.head? = some v from rfl]
+          simpa using hhd
+        have hpos : 0 < natVal b (v :: w :: ws).dropLast :=
+          natVal_pos hb2 _ hs_ne hshead
+        have hslen : (v :: w :: ws).dropLast.length < n := by
+          have hL := List.length_dropLast (xs := (v :: w :: ws))
+          have hn' : (v :: w :: ws).length = n := hn
+          omega
+        have hS : (v :: w :: ws).dropLast = natDigits b (natVal b (v :: w :: ws).dropLast) :=
+          ih _ hslen _ rfl hs_all hshead _ rfl
+        -- `dropLast`/`getLast` are definitionally head/tail, so restate the last element
+        -- as a `Nat` variable first
+        obtain ⟨last, hlast_eq⟩ : ∃ last : Nat, (v :: w :: ws).getLast hne = last := ⟨_, rfl⟩
+        have hinit' : v :: w :: ws = (v :: w :: ws).dropLast ++ [last] := by
+          rw [← hlast_eq]; exact hinit
+        have hval_eq : natVal b (v :: w :: ws) = natVal b (v :: w :: ws).dropLast * b + last := by
+          have h := natVal_snoc b (v :: w :: ws).dropLast last
+          rw [← hinit'] at h
+          exact h
+        have hm2 : m = natVal b (v :: w :: ws).dropLast * b + last := hm ▸ hval_eq
+        rw [hm2]
+        have hne0 : natVal b (v :: w :: ws).dropLast * b + last ≠ 0 := by
+          have h1 : 0 < natVal b (v :: w :: ws).dropLast * b := Nat.mul_pos hpos (by omega)
+          omega
+        have hlt' : last < b := by rw [← hlast_eq]; exact hlast
+        subst hm2
+        rw [natDigits_eq hr _ hne0]
+        have hdv : (natVal b (v :: w :: ws).dropLast * b + last) / b =
+            natVal b (v :: w :: ws).dropLast := by
+          have h := natVal_div b (v :: w :: ws).dropLast last (by omega) hlt'
+          rw [natVal_snoc] at h; exact h
+        have hmd : (natVal b (v :: w :: ws).dropLast * b + last) % b = last := by
+          have h := natVal_mod b (v :: w :: ws).dropLast last hlt'
+          rw [natVal_snoc] at h; exact h
+        rw [hdv, hmd]
+        -- the inner `natDigits (natVal ...)` is `hS`'s left side; rewriting it inside the
+        -- outer `natDigits` is blocked, so prove the outer form separately
+        have : natDigits b (natVal b (v :: w :: ws).dropLast) = (v :: w :: ws).dropLast := hS.symm
+        rw [this]
+        exact hinit'
+
 end BaseN.RadixCodec
