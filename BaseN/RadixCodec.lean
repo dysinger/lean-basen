@@ -595,4 +595,98 @@ theorem ofNat_isDigits {b n : Nat} (hr : IsRadix b) : isDigits b (ofNat b n) = t
     rfl
 
 
+/-- `strip` leaves a list alone when every byte is non-blank and the head is not a zero
+digit. -/
+theorem strip_eq_self {b : Nat} :
+    ∀ (l : List UInt8), (∀ c ∈ l, isBlank c = false) → l ≠ [] →
+      isZeroDigit b (l.headD 0) = false → strip b l = l
+  | [], _, hne, _ => absurd rfl hne
+  | c :: cs, hnb, _, hz => by
+      apply strip_cons
+      rintro (hb | hzz)
+      · have hcf : isBlank c = false := hnb c (List.mem_cons_self ..)
+        rw [hcf] at hb
+        exact absurd hb (by simp)
+      · have hcf : isZeroDigit b c = false := by simpa using hz
+        rw [hcf] at hzz
+        exact absurd hzz (by simp)
+
+/-- `ofNat`'s head at a positive value is not the zero digit. -/
+theorem ofNat_head_not_zeroD {b n : Nat} (hr : IsRadix b) (hn : n ≠ 0) :
+    isZeroDigit b ((ofNat b n).headD 0) = false := by
+  unfold ofNat
+  rw [ite_eq_right hn]
+  rcases hd : natDigits b n with _ | ⟨d, ds⟩
+  · exact absurd hd (natDigits_ne_nil hr n hn)
+  · have hd_ne : d ≠ 0 := by
+      have := natDigits_head_ne_zero hr n hn
+      rw [hd] at this
+      simpa using this
+    have hdr : d < b := natDigits_lt hr n d (by rw [hd]; exact List.mem_cons_self ..)
+    have hb2 : 2 ≤ b := isRadix_ge2 hr
+    show isZeroDigit b ((List.map (byteOfDigit b) (d :: ds)).headD 0) = false
+    simp only [List.map_cons, List.headD_cons]
+    unfold isZeroDigit
+    rw [beq_eq_false_iff_ne]
+    intro hh
+    exact hd_ne (byteOfDigit_inj hr hdr (by omega) (UInt8.toNat.inj hh))
+
+/-- `strip` leaves a positive `ofNat` alone. -/
+theorem strip_ofNat {b n : Nat} (hr : IsRadix b) (hn : n ≠ 0) :
+    strip b (ofNat b n) = ofNat b n :=
+  strip_eq_self _ (ofNat_isBlank_false hr) (ofNat_ne_nil hr hn) (ofNat_head_not_zeroD hr hn)
+
+/-- **`ofNat` emits canonical spellings**: `trimFor` maps an `ofNat` to itself. -/
+theorem trimFor_ofNat {b n : Nat} (hr : IsRadix b) :
+    trimFor b (ofNat b n) = some (ofNat b n) := by
+  unfold trimFor
+  by_cases hn : n = 0
+  · subst hn
+    have hz : strip b (ofNat b 0) = [] := by
+      rw [ofNat_zero_eq]
+      apply strip_skip
+      right
+      have h : isZeroDigit b (byteOfDigit b 0) = true := by
+        have := isZeroDigit_ofNat_zero b
+        rw [ofNat_zero_eq] at this
+        simpa using this
+      exact h
+    rw [ite_eq_left hz, ite_eq_right (ofNat_zero_ne_nil b),
+        ite_eq_left (ofNat_isDigits hr)]
+  · have hs : strip b (ofNat b n) = ofNat b n := strip_ofNat hr hn
+    rw [ite_eq_right (by rw [hs]; exact ofNat_ne_nil hr hn), hs,
+        ite_eq_left (ofNat_isDigits hr)]
+
+/-- **`trimFor` is idempotent on its image** — the `Codec.Normalizer` law. -/
+theorem trimFor_idem {b : Nat} (hr : IsRadix b) {ds t : List UInt8}
+    (h : trimFor b ds = some t) : trimFor b t = some t := by
+  unfold trimFor at h ⊢
+  by_cases hs : strip b ds = []
+  · rw [ite_eq_left hs] at h
+    by_cases hd0 : ds = []
+    · rw [ite_eq_left hd0] at h; simp at h
+    · rw [ite_eq_right hd0] at h
+      by_cases hd : isDigits b ds = true
+      · rw [ite_eq_left hd] at h
+        rw [← Option.some.inj h]
+        have hz : strip b (ofNat b 0) = [] := by
+          rw [ofNat_zero_eq]
+          apply strip_skip
+          right
+          have h : isZeroDigit b (byteOfDigit b 0) = true := by
+            have := isZeroDigit_ofNat_zero b
+            rw [ofNat_zero_eq] at this
+            simpa using this
+          exact h
+        rw [ite_eq_left hz, ite_eq_right (ofNat_zero_ne_nil b),
+            ite_eq_left (ofNat_isDigits hr)]
+      · rw [ite_eq_right hd] at h; simp at h
+  · rw [ite_eq_right hs] at h
+    by_cases hd : isDigits b (strip b ds) = true
+    · rw [ite_eq_left hd] at h
+      have hst : strip b (strip b ds) = strip b ds := strip_idem b ds
+      rw [← Option.some.inj h, hst, ite_eq_right hs, hd]
+      rfl
+    · rw [ite_eq_right hd] at h; simp at h
+
 end BaseN.RadixCodec
