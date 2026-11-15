@@ -1151,7 +1151,21 @@ theorem radixInstances_areRadix : ∀ b ∈ radixInstances, IsRadix b := by
 /-- The enumeration is exactly the seven radices the spec names. -/
 theorem radixInstances_length : radixInstances.length = 7 := rfl
 
-/-- And they are those seven, in order — so the list cannot drift into a subset. -/
+/-- And they are those seven, in order, **and nothing else**.
+
+**This is `rfl`, and it is still worth having — but not for the reason an `rfl` usually is.**
+Its content is not the equality (the literal is on both sides) but the fact that the list has
+**no eighth element and no duplicate**: a `rfl` between two 7-element literals fails if either
+side changes length or order, so an edit that dropped a radix from `radixInstances` or
+reordered it breaks the build here rather than shortening the enumeration silently. That is a
+constraint on the *source* list; `radixInstances_length` alone would not catch a substitution
+(`[2,4,8,10,16,32,64] → [2,4,8,10,16,32,128]` keeps the length), and the `∀ IsRadix` law alone
+would not catch a duplicate (`[2,2,…]` — every member carries a witness).
+
+§8.15 called this "a restatement, not a constraint". Measured against what it actually blocks,
+that is too harsh: it is the only law that pins the *identity* of the seven. What it does not
+do is constrain any theorem's proof, and that is why it is `rfl` and should say so here rather
+than in a reader's head. -/
 theorem radixInstances_radices : radixInstances = [2, 4, 8, 10, 16, 32, 64] := rfl
 
 -- **`numeralIsoAt` was deleted here (§8.11).** It was a one-line wrapper reading
