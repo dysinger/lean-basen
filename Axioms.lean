@@ -1665,12 +1665,12 @@ the `BaseN` namespace:
 
 | side | count |
 | --- | --- |
-| public theorems in the `BaseN` namespace | **715** |
-| pinned by a `#guard_msgs` above (`gatedNames`) | **663** |
+| public theorems in the `BaseN` namespace | **722** |
+| pinned by a `#guard_msgs` above (`gatedNames`) | **670** |
 | allowlisted (`generatedAuxAllowlist`) | **52** |
 | un-gated and unlisted | **0** |
 
-715 = 663 + 52, with no third route. Of the 52 allowlisted, **40** are the ones the
+722 = 670 + 52, with no third route. Of the 52 allowlisted, **40** are the ones the
 suffix classifier drops (`*.inj` ×9, `*.injEq` ×9, `*.sizeOf_spec` ×11, `*.eq_def`
 ×8) and **9** are the hand-reviewed ones that the classifier does *not* match
 (`brecOn.eq` ×2, `*.go` ×6, `Run.step`) — the `*.go` helpers are the trap, since
@@ -1690,23 +1690,38 @@ is how this package carried eight dead public `Run` values (`bitRun`, `quartetRu
 | side | count |
 | --- | --- |
 | public `def`s in the `BaseN` namespace (after dropping compiler machinery) | **161** |
-| named by a gated theorem's type — *mentioned* | **143** |
-| `definitionSurfaceAllowlist` | **18** |
+| named by a gated theorem's type — *mentioned* | **150** |
+| `definitionSurfaceAllowlist` | **11** |
 | silent | **0** |
 
-161 = 143 + 18. The middle row is a **mention proxy**: it says no public definition
+161 = 150 + 11. The middle row is a **mention proxy**: it says no public definition
 is covered by *silence*, not that it has a characterised law, and it can be satisfied
-vacuously. The 15 allowlisted are 10 `Iso`-law-as-field values (the `*BlockIso` /
-`*TailIso` whose `law` is a structure field proved at the definition site, which the
-proxy cannot see), 2 helpers whose law is stated in an unfolded form (`bitsOf`,
-`quartetsOf`), and the 3 `Run` part-functions (`Run.decode`/`encode`/`rel`). Reasons
-are in place at each entry. **Nothing ever goes on the allowlist while dead** — the
-eight `*Run` values and the seven `decode*` wrappers were **deleted**, not
+vacuously. The **11** allowlisted, decomposed by cause (counted from the list, not
+recalled):
+
+| cause | count | entries |
+| --- | --- | --- |
+| `Iso`-law-as-field, no theorem names it | **3** | `hexBlockIsoF`, `b32TailIso`, `b64TailIso` |
+| law stated in an unfolded form | **2** | `bitsOf`, `quartetsOf` |
+| `Run` part-functions | **3** | `Run.decode`, `Run.encode`, `Run.rel` |
+| numeral-layer values | **3** | `numeralIso`, `numeralIsoAt`, `isNumeral` |
+
+Reasons are in place at each entry. **Nothing ever goes on the allowlist while dead** —
+the eight `*Run` values and the seven `decode*` wrappers were **deleted**, not
 allowlisted.
+
+**The seven block `Iso` values are no longer here, and that is §4.2's change.** They
+were allowlisted because "no theorem names it" was true. §3.2's ties name
+`bitBlockApply`/`octBlockApply`/… rather than the `Iso` values, so that reason would
+still have held — measured, the def arm refused the removal. So the seven gained a
+`*BlockIso_apply` law each, stating that the `Iso`'s `apply` is definitionally the
+block's `apply`; the values are now **mentioned**, the allowlist reason is false of
+them, and they were dropped. The three kept above are the ones §3.2 generates no
+theorem for: `hexBlockIsoF` is not a block, and the two tails are out of scope by D5.
 
 The 3 `Codec.*` pins (roundtrip/bidir/decode_spec) are the dependency's laws and lie
 *outside* this namespace — pinned for discipline, not partitioned, which is why
-`grep -c '^#print axioms'` reports **669** against `gatedNames`' **663** — the three
+`grep -c '^#print axioms'` reports **676** against `gatedNames`' **670** — the three
 `RadixCodec` `eq_def` blocks measure footprints of names `gatedNames` cannot hold.
 
 **Both figures in that sentence are asserted** (R7-06, `codec-audit-round-six` §2.2).
@@ -1928,15 +1943,8 @@ list exists to avoid. -/
 def definitionSurfaceAllowlist : Array Name := #[
   -- **`Iso`-law-as-field**: the `law` structure field is proved at the definition
   -- site, so the kernel checks it at construction and no theorem names it.
-  `BaseN.Base2.bitBlockIso,
-  `BaseN.Base4.quartetBlockIso,
-  `BaseN.Base8.octBlockIso,
-  `BaseN.Base10.digBlockIso,
-  `BaseN.Base16.hexBlockIso,
   `BaseN.Base16.hexBlockIsoF,
-  `BaseN.Base32.b32BlockIso,
   `BaseN.Base32.b32TailIso,
-  `BaseN.Base64.b64BlockIso,
   `BaseN.Base64.b64TailIso,
   -- **Helper whose law is stated in an unfolded form.** `bitsVal_bitsOf` /
   -- `quartetsVal_quartetsOf` spell out `bitAt`/`quartetAt` in their statements rather
@@ -2864,6 +2872,27 @@ section grows in even steps. The base-2 pair below is the template. -/
 /-- info: 'BaseN.RadixTie.radixInstances_radices' does not depend on any axioms -/
 #guard_msgs in
 #print axioms BaseN.RadixTie.radixInstances_radices
+/-- info: 'BaseN.RadixTie.bitBlockIso_apply' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.bitBlockIso_apply
+/-- info: 'BaseN.RadixTie.quartetBlockIso_apply' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.quartetBlockIso_apply
+/-- info: 'BaseN.RadixTie.octBlockIso_apply' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.octBlockIso_apply
+/-- info: 'BaseN.RadixTie.digBlockIso_apply' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.digBlockIso_apply
+/-- info: 'BaseN.RadixTie.hexBlockIso_apply' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.hexBlockIso_apply
+/-- info: 'BaseN.RadixTie.b32BlockIso_apply' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.b32BlockIso_apply
+/-- info: 'BaseN.RadixTie.b64BlockIso_apply' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.b64BlockIso_apply
 -- BEGIN PINNED gatedNames
 /-- The `BaseN.*` names this file pins a `#guard_msgs` block for. Kept in lockstep
 with the blocks above by the `coverage` check, which fails on any drift. Written
@@ -3472,17 +3501,21 @@ def gatedNames : List Lean.Name := [
   `BaseN.RadixCodec.trimFor_ofNat,
   `BaseN.RadixCodec.trimFor_ofNat_self_zero,
   `BaseN.RadixTie.b32BlockApply_of_toNat,
+  `BaseN.RadixTie.b32BlockIso_apply,
   `BaseN.RadixTie.b64BlockApply_of_toNat,
+  `BaseN.RadixTie.b64BlockIso_apply,
   `BaseN.RadixTie.beVal_eq_natVal,
   `BaseN.RadixTie.beVal_five,
   `BaseN.RadixTie.beVal_foldl_eq,
   `BaseN.RadixTie.beVal_three,
   `BaseN.RadixTie.beVal_two,
   `BaseN.RadixTie.bitBlockApply_of_toNat,
+  `BaseN.RadixTie.bitBlockIso_apply,
   `BaseN.RadixTie.bitVal_on,
   `BaseN.RadixTie.bitValid_of_digitVal_two,
   `BaseN.RadixTie.digBlockApply_of_toNat,
   `BaseN.RadixTie.digBlockApply_overflow,
+  `BaseN.RadixTie.digBlockIso_apply,
   `BaseN.RadixTie.digVal_bounds,
   `BaseN.RadixTie.digVal_on,
   `BaseN.RadixTie.digValid_of_digitVal_ten,
@@ -3497,6 +3530,7 @@ def gatedNames : List Lean.Name := [
   `BaseN.RadixTie.digitVal_two_of_bitValid,
   `BaseN.RadixTie.digitVal_two_shape,
   `BaseN.RadixTie.hexBlockApply_of_toNat,
+  `BaseN.RadixTie.hexBlockIso_apply,
   `BaseN.RadixTie.hexNibbleValid_of_digitVal_sixteen,
   `BaseN.RadixTie.hexToNibble_on,
   `BaseN.RadixTie.hexToNibble_window,
@@ -3506,10 +3540,12 @@ def gatedNames : List Lean.Name := [
   `BaseN.RadixTie.natVal_two,
   `BaseN.RadixTie.octBlockApply_of_toNat,
   `BaseN.RadixTie.octBlockApply_overflow,
+  `BaseN.RadixTie.octBlockIso_apply,
   `BaseN.RadixTie.octToVal_bounds,
   `BaseN.RadixTie.octToVal_on,
   `BaseN.RadixTie.octValid_of_digitVal,
   `BaseN.RadixTie.quartetBlockApply_of_toNat,
+  `BaseN.RadixTie.quartetBlockIso_apply,
   `BaseN.RadixTie.quartetVal_bounds,
   `BaseN.RadixTie.quartetVal_on,
   `BaseN.RadixTie.quartetValid_of_digitVal,
@@ -3764,8 +3800,8 @@ run_cmd do
   let gated := BaseNAxioms.gatedNames.length
   let allow := BaseNAxioms.generatedAuxAllowlist.size
   -- Keep these in lockstep with the "universe, as measured" table above.
-  let expectedPub := 715
-  let expectedGated := 663
+  let expectedPub := 722
+  let expectedGated := 670
   let expectedAllow := 52
   let mut bad : Array String := #[]
   if pub.size != expectedPub then
@@ -3800,14 +3836,14 @@ run_cmd do
     bad := bad.push s!"gatedNames has {baseNPins} entries but the gate counts {gated} pinned"
   -- The prose states the total as `baseNPins + codecPins`; assert it against the
   -- number of `#print axioms` blocks the file actually carries.
-  if baseNPins + codecPins != 666 then
-    bad := bad.push s!"prose says 666 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
+  if baseNPins + codecPins != 673 then
+    bad := bad.push s!"prose says 673 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
   -- **Both figures in the `443 against 440` sentence are asserted** (R7-06, §2.2).
   -- The sentence names two counts and states a relation; asserting only the sum
   -- leaves both free to drift together while the prose goes stale, which is exactly
   -- what happened (`440 against 437` vs a truth of `443 / 440`).
-  let statedPrintBlockCount := 669
-  let statedGatedNamesCount := 663
+  let statedPrintBlockCount := 676
+  let statedGatedNamesCount := 670
   let gateSrc ← IO.FS.readFile "Axioms.lean"
   -- The prose's "443 `#print axioms` blocks" means the *code* blocks: the ones
   -- starting at column 0. A plain substring count also picks up every mention of
@@ -3839,7 +3875,7 @@ run_cmd do
   -- The `Codec.*` pins are inside `distPS` because `collectAxioms` is what counts
   -- them; `gatedNames` does not contain them, so no subtraction is needed — this is
   -- measured, not assumed: a mismatch below prints all four.
-  let statedDistPS := 539
+  let statedDistPS := 546
   let statedDistP := 83
   let statedDistZ := 41
   if distPS != statedDistPS then
@@ -3889,8 +3925,8 @@ run_cmd do
   logInfo m!"basen axiom gate: {defs.size} public definitions covered, {mentionedCount} mentioned and {BaseNAxioms.definitionSurfaceAllowlist.size} allowlisted (mention proxy)"
   -- Asserted, like the theorem table: a stale def count is a build failure.
   let expectedDefs := 161
-  let expectedMentioned := 143
-  let expectedDefAllow := 18
+  let expectedMentioned := 150
+  let expectedDefAllow := 11
   let mut bad : Array String := #[]
   if defs.size != expectedDefs then
     bad := bad.push s!"public defs: table says {expectedDefs}, environment has {defs.size}"

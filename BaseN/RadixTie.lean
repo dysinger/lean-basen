@@ -1126,7 +1126,41 @@ def numeralIsoAt (b : Nat) (hb : b ∈ radixInstances) :
     Iso Nat (Codec.Normal (List UInt8) (BaseN.RadixCodec.normF b)) :=
   BaseN.RadixCodec.numeralIso b (radixInstances_areRadix b hb)
 
+/-! ## The block isos, named by their `apply` projection (task 4.2's precondition)
+
+Task 4.2 removes the seven block `Iso` values from `definitionSurfaceAllowlist`, on the
+grounds that each gains a constraining theorem so the "no theorem names it" reason no longer
+holds. **Measured, it did not hold after §3.2 as first written**: the ties name
+`bitBlockApply`/`octBlockApply`/…, not `bitBlockIso`/`octBlockIso`/…, so the mention proxy
+still saw the seven as unmentioned and the def arm refused the removal.
+
+The fix is the one the task actually intends — make the theorems name the **value**. Each
+`*BlockIso`'s `apply` is definitionally its `*BlockApply` (`rfl`), so these seven laws state
+that, and they are what lets the allowlist drop the values without lying about them. -/
+
+theorem bitBlockIso_apply (cs : List UInt8) :
+    BaseN.Base2.bitBlockIso.apply cs = BaseN.Base2.bitBlockApply cs := rfl
+
+theorem quartetBlockIso_apply (cs : List UInt8) :
+    BaseN.Base4.quartetBlockIso.apply cs = BaseN.Base4.quartetBlockApply cs := rfl
+
+theorem octBlockIso_apply (cs : List UInt8) :
+    BaseN.Base8.octBlockIso.apply cs = BaseN.Base8.octBlockApply cs := rfl
+
+theorem digBlockIso_apply (cs : List UInt8) :
+    BaseN.Base10.digBlockIso.apply cs = BaseN.Base10.digBlockApply cs := rfl
+
+theorem hexBlockIso_apply (cs : List UInt8) :
+    BaseN.Base16.hexBlockIso.apply cs = BaseN.Base16.hexBlockApply cs := rfl
+
+theorem b32BlockIso_apply (cs : List UInt8) :
+    BaseN.Base32.b32BlockIso.apply cs = BaseN.Base32.b32BlockApply cs := rfl
+
+theorem b64BlockIso_apply (cs : List UInt8) :
+    BaseN.Base64.b64BlockIso.apply cs = BaseN.Base64.b64BlockApply cs := rfl
+
 end BaseN.RadixTie
+
 
 
 
