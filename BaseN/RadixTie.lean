@@ -806,6 +806,83 @@ theorem toNat_of_digBlockApply (d0 d1 d2 : UInt8) (v : UInt8)
   · rw [ite_eq_right hgood] at h
     exact absurd h (by simp)
 
+/-! ## Bases 32 and 64 — schema `_L`
+
+The last two ties, and the only ones whose block iso's codomain is `List UInt8` rather
+than `UInt8`.
+
+**D6's `_L` schema named `bytesOfNat` and `natOfBytes`, and neither exists in this tree.**
+Stating the tie against them would have meant inventing two functions before it could be
+written — the schema named its own preconditions. The statements below are against what the
+code actually holds, which is the re-encode-and-compare pair `b{32,64}BlockApply` /
+`b{32,64}BlockUnapply`, plus the **big-endian byte fold** `beVal` that both already rest on.
+
+**The shape was decided against the code before any proof was attempted** (measured on the
+shipped tree):
+
+```
+toNat 64 [81,81,81,81]             -> some 4260880
+b64BlockApply [81,81,81,81]        -> some [65, 4, 16]      beVal [65,4,16] = 4260880   agree
+toNat 32 [55,55,55,55,55,55,55,55] -> some 1099511627775
+b32BlockApply ...                  -> some <5 bytes>        beVal ...     = same         agree
+toNat 32 [77,89,61,61,61,61,61,61] -> none                 ('=' is not a base-32 digit)
+b32BlockApply [77,89,61,...]       -> some [102]            the block accepts a pad the fold cannot read
+```
+
+So the tie is **`toNat b cs = some (beVal bs) ↔ blockApply cs = some bs`**, stated at each
+block's literal arity and only on **pad-free** vectors. Padding is not a canonicity guard
+here but an arity fact: `=` is outside the fold's alphabet, so a padded block is outside its
+domain exactly as a short block is.
+
+**There is no overflow law here, and that is arithmetic rather than an omission.** Base 32's
+eight characters reach `32^8 - 1 = 1099511627775`, exactly `2^40 - 1` — a whole 5-byte
+block; base 64's four reach `2^24 - 1` — a whole 3-byte block. Neither can overflow its
+codomain, so the strong form needs no range hypothesis, unlike bases 8 and 10. -/
+
+/-- The big-endian byte fold: the value a byte list denotes read as base 256. This is the
+bridge between the block layer (which speaks bytes) and the fold (which speaks digits). -/
+def beVal (bs : List UInt8) : Nat := bs.foldl (fun acc b => acc * 256 + b.toNat) 0
+
+/-- `beVal`'s fold carried from an arbitrary accumulator, stated against `natVal` so it closes
+by **one** induction. The accumulator must be generalised: `beVal`'s own recursion starts from
+a carried value rather than from `0`, so an induction at `acc = 0` does not reach the step —
+which is why this lemma exists rather than a direct induction on `beVal`. -/
+theorem beVal_foldl_eq (bs : List UInt8) (acc : Nat) :
+    bs.foldl (fun a b => a * 256 + b.toNat) acc
+      = acc * 256 ^ bs.length + natVal 256 (bs.map UInt8.toNat) := by
+  induction bs generalizing acc with
+  | nil => simp [natVal]
+  | cons b bs ih =>
+      rw [List.foldl_cons, ih (acc * 256 + b.toNat)]
+      simp only [List.map_cons, natVal, List.length_cons, List.length_map, Nat.pow_succ]
+      generalize 256 ^ bs.length = p at *
+      generalize natVal 256 (List.map UInt8.toNat bs) = q at *
+      have expand : (acc * 256 + b.toNat) * p = acc * 256 * p + b.toNat * p :=
+        Nat.add_mul _ _ _
+      rw [expand]
+      rw [show (acc * 256 * p + b.toNat * p) + q
+            = acc * 256 * p + (b.toNat * p + q) from Nat.add_assoc _ _ _]
+      rw [show acc * (p * 256) = acc * 256 * p from by rw [Nat.mul_comm p 256, Nat.mul_assoc]]
+
+/-- `beVal` is `natVal 256` of the bytes' values. -/
+theorem beVal_eq_natVal (bs : List UInt8) : beVal bs = natVal 256 (bs.map UInt8.toNat) := by
+  unfold beVal
+  rw [beVal_foldl_eq bs 0]
+  simp
+
+theorem beVal_two (v0 v1 : UInt8) : beVal [v0, v1] = v0.toNat * 256 + v1.toNat := by
+  simp [beVal]
+
+theorem beVal_three (v0 v1 v2 : UInt8) :
+    beVal [v0, v1, v2] = v0.toNat * 65536 + v1.toNat * 256 + v2.toNat := by
+  simp [beVal]; omega
+
+theorem beVal_five (v0 v1 v2 v3 v4 : UInt8) :
+    beVal [v0, v1, v2, v3, v4] = v0.toNat * 4294967296 + v1.toNat * 16777216
+      + v2.toNat * 65536 + v3.toNat * 256 + v4.toNat := by
+  simp [beVal]; omega
+
 end BaseN.RadixTie
+
 
 
