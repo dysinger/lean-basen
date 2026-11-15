@@ -607,11 +607,13 @@ example : Codec.decodeFull Base10.digElem Base10.digConsumesByte 3
 -- the canonical uppercase encoding is a fixed point; `decodeHexFold` applies it
 -- outside the strict `Iso`, so encoding stays canonical.
 
-example : Base16.foldByte 0x61 = 0x41 := rfl                                   -- 'a' -> 'A'
-example : Base16.foldByte 0x66 = 0x46 := rfl                                   -- 'f' -> 'F'
-example : Base16.foldByte 0x46 = 0x46 := rfl                                   -- 'F' fixed
-example : Base16.foldByte 0x39 = 0x39 := rfl                                   -- '9' fixed
-example : Base16.foldList [0x36, 0x66] = [0x36, 0x46] := rfl                   -- "6f" -> "6F"
+-- The pre-pass is `BaseN.Common.upperByte`, shared with base 32 rather than
+-- re-implemented per base (`basen-uppercase-prepass`).
+example : Common.upperByte 0x61 = 0x41 := rfl                                  -- 'a' -> 'A'
+example : Common.upperByte 0x66 = 0x46 := rfl                                  -- 'f' -> 'F'
+example : Common.upperByte 0x46 = 0x46 := rfl                                  -- 'F' fixed
+example : Common.upperByte 0x39 = 0x39 := rfl                                  -- '9' fixed
+example : (Common.upperBytes (fun i : Fin 2 => [0x36, 0x66][i])) 1 = 0x46 := rfl -- "6f" -> "6F"
 
 -- The strict decoder still rejects lowercase (it is the canonical bijection)...
 example : Codec.decodeFull Base16.hexElem Base16.hexConsumesByte 1

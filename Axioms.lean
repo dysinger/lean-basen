@@ -42,12 +42,12 @@ So every number below is now checked against the environment by `headerNumbers`,
 three separate claims: the pin total, its `BaseN`/`Codec` split, and the footprint
 distribution's three-way split. If this paragraph drifts, the build names the figure.
 
-The file carries **673 pins**: **670** are `BaseN.*` laws and **3** are `Codec.*`
+The file carries **649 pins**: **646** are `BaseN.*` laws and **3** are `Codec.*`
 (`roundtrip`, `bidir`, `decode_spec`) — the *dependency's* laws, pinned for discipline
 and outside this repo's own universe. `publicTheorems` walks only `BaseN`, so the
-gate's own universe is **722 = 670 + 52 allowlisted**. The 670 `BaseN` pinned
-footprints are 545 `[propext, Quot.sound]`, 83 `[propext]`-only and 42 axiom-free
-(545 + 83 + 42 = 670), and all 3 `Codec.*` pins are `[propext, Quot.sound]`.
+gate's own universe is **698 = 646 + 52 allowlisted**. The 646 `BaseN` pinned
+footprints are 527 `[propext, Quot.sound]`, 79 `[propext]`-only and 40 axiom-free
+(527 + 79 + 40 = 646), and all 3 `Codec.*` pins are `[propext, Quot.sound]`.
 `Classical.choice` appears nowhere.
 
 The 22 theorems added by §4 are the base32 §3.5 family: the 2/3/4-byte pad-bit
@@ -85,6 +85,12 @@ Adding a law therefore means adding its gate: the count above is checkable with
 #guard_msgs in
 #print axioms BaseN.Base10.roundtrip
 
+/-- info: 'BaseN.Base16.upperByte_of_hexDigit' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.upperByte_of_hexDigit
+/-- info: 'BaseN.Base16.upperBytes_of_encodeHex' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base16.upperBytes_of_encodeHex
 /-- info: 'BaseN.Base16.decode_encode_inverse' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.decode_encode_inverse
@@ -113,6 +119,15 @@ Adding a law therefore means adding its gate: the count above is checkable with
 #guard_msgs in
 #print axioms BaseN.Base2.roundtrip
 
+/-- info: 'BaseN.Base32.decodeB32Fold_lowercase_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeB32Fold_lowercase_eq
+/-- info: 'BaseN.Base32.decodeB32Fold_of_fixed' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.decodeB32Fold_of_fixed
+/-- info: 'BaseN.Base32.strict_rejects_lowercase' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.Base32.strict_rejects_lowercase
 /-- info: 'BaseN.Base32.decodeFullB32_conv' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base32.decodeFullB32_conv
@@ -453,21 +468,9 @@ encoding is a fixed point. The quotient lives in the **object**
 `Iso` law, the acceptance-preservation lemma the law needs, and the both-cases
 decode law. -/
 
-/-- info: 'BaseN.Base16.foldByte_idem' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.foldByte_idem
 
-/-- info: 'BaseN.Base16.foldList_idem' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.foldList_idem
 
-/-- info: 'BaseN.Base16.hexBlockIsoF_law' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexBlockIsoF_law
 
-/-- info: 'BaseN.Base16.hexBlockApply_foldList' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexBlockApply_foldList
 
 /-- info: 'BaseN.Base16.decodeHexFold_lowercase_eq' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
@@ -476,9 +479,6 @@ decode law. -/
 /-- info: 'BaseN.Base16.decodeHexFold_of_fixed' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.decodeHexFold_of_fixed
-/-- info: 'BaseN.Base16.decodeHexFold_roundtrip' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.decodeHexFold_roundtrip
 
 /-! ## Split-reassembly laws (pre-archive audit §6.6)
 
@@ -1070,81 +1070,9 @@ which is exactly the failure mode this block exists to make impossible. -/
 /-- info: 'BaseN.Base16.rejects_single_char' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.rejects_single_char
-/-- info: 'BaseN.Base16.foldByteBytes_of_encodeHex' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.foldByteBytes_of_encodeHex
-/-- info: 'BaseN.Base16.foldByte_fixed' depends on axioms: [propext] -/
-#guard_msgs in
-#print axioms BaseN.Base16.foldByte_fixed
-/-- info: 'BaseN.Base16.foldByte_of_hexDigit' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.foldByte_of_hexDigit
-/-- info: 'BaseN.Base16.foldByte_folded' depends on axioms: [propext] -/
-#guard_msgs in
-#print axioms BaseN.Base16.foldByte_folded
-/-- info: 'BaseN.Base16.ofNat_sub32_toNat' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.ofNat_sub32_toNat
-/-- info: 'BaseN.Base16.foldList_nil' does not depend on any axioms -/
-#guard_msgs in
-#print axioms BaseN.Base16.foldList_nil
-/-- info: 'BaseN.Base16.foldList_cons' does not depend on any axioms -/
-#guard_msgs in
-#print axioms BaseN.Base16.foldList_cons
-/-- info: 'BaseN.Base16.foldNormalizer' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.foldNormalizer
-/-- info: 'BaseN.Base16.hexToNibble_lower' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexToNibble_lower
-/-- info: 'BaseN.Base16.hexNibbleValid_false_of_lower' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexNibbleValid_false_of_lower
-/-- info: 'BaseN.Base16.hexNibbleValid_foldByte' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexNibbleValid_foldByte
-/-- info: 'BaseN.Base16.hexToNibble_foldByte_true' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexToNibble_foldByte_true
-/-- info: 'BaseN.Base16.hexToNibble_foldByte_false' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexToNibble_foldByte_false
-/-- info: 'BaseN.Base16.hexToNibble_foldByte_value' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexToNibble_foldByte_value
-/-- info: 'BaseN.Base16.hexBlockApply_none_of_not_len2' depends on axioms: [propext] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexBlockApply_none_of_not_len2
-/-- info: 'BaseN.Base16.hexBlockApply_foldList_ne' depends on axioms: [propext] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexBlockApply_foldList_ne
-/-- info: 'BaseN.Base16.fill_foldList' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.fill_foldList
 /-- info: 'BaseN.Base16.hexToNibble_range' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.Base16.hexToNibble_range
-/-- info: 'BaseN.Base16.decodeHexBlockFold_both_cases' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.decodeHexBlockFold_both_cases
-/-- info: 'BaseN.Base16.foldList_hexBlockUnapply' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.foldList_hexBlockUnapply
-/-- info: 'BaseN.Base16.hexNibbleValid_of_hexFixed' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexNibbleValid_of_hexFixed
-/-- info: 'BaseN.Base16.hexFixed_of_valid' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.hexFixed_of_valid
-/-- info: 'BaseN.Base16.decodeHexBlockFold_case_insensitive' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.decodeHexBlockFold_case_insensitive
-/-- info: 'BaseN.Base16.foldByteBytes_idem' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.foldByteBytes_idem
-/-- info: 'BaseN.Base16.decodeHexFold_both_cases' depends on axioms: [propext, Quot.sound] -/
-#guard_msgs in
-#print axioms BaseN.Base16.decodeHexFold_both_cases
 
 /- Every `Base32` law not gated above (ledger §6.4 complete coverage). -/
 /-- info: 'BaseN.Base32.b32ToVal_valToB32' depends on axioms: [propext, Quot.sound] -/
@@ -1668,12 +1596,12 @@ the `BaseN` namespace:
 
 | side | count |
 | --- | --- |
-| public theorems in the `BaseN` namespace | **722** |
-| pinned by a `#guard_msgs` above (`gatedNames`) | **670** |
+| public theorems in the `BaseN` namespace | **698** |
+| pinned by a `#guard_msgs` above (`gatedNames`) | **646** |
 | allowlisted (`generatedAuxAllowlist`) | **52** |
 | un-gated and unlisted | **0** |
 
-722 = 670 + 52, with no third route. Of the 52 allowlisted, **40** are the ones the
+698 = 646 + 52, with no third route. Of the 52 allowlisted, **40** are the ones the
 suffix classifier drops (`*.inj` ×9, `*.injEq` ×9, `*.sizeOf_spec` ×11, `*.eq_def`
 ×8) and **9** are the hand-reviewed ones that the classifier does *not* match
 (`brecOn.eq` ×2, `*.go` ×6, `Run.step`) — the `*.go` helpers are the trap, since
@@ -1692,19 +1620,19 @@ is how this package carried eight dead public `Run` values (`bitRun`, `quartetRu
 
 | side | count |
 | --- | --- |
-| public `def`s in the `BaseN` namespace (after dropping compiler machinery) | **161** |
-| named by a gated theorem's type — *mentioned* | **144** |
-| `definitionSurfaceAllowlist` | **17** |
+| public `def`s in the `BaseN` namespace (after dropping compiler machinery) | **156** |
+| named by a gated theorem's type — *mentioned* | **140** |
+| `definitionSurfaceAllowlist` | **16** |
 | silent | **0** |
 
-161 = 144 + 17. The middle row is a **mention proxy**: it says no public definition
+156 = 140 + 16. The middle row is a **mention proxy**: it says no public definition
 is covered by *silence*, not that it has a characterised law, and it can be satisfied
-vacuously. The **17** allowlisted, decomposed by cause (counted from the list, not
+vacuously. The **16** allowlisted, decomposed by cause (counted from the list, not
 recalled):
 
 | cause | count | entries |
 | --- | --- | --- |
-| `Iso`-law-as-field, no theorem names it | **10** | the seven `*BlockIso` values, `hexBlockIsoF`, `b32TailIso`, `b64TailIso` |
+| `Iso`-law-as-field, no theorem names it | **9** | the seven `*BlockIso` values, `b32TailIso`, `b64TailIso` |
 | law stated in an unfolded form | **2** | `bitsOf`, `quartetsOf` |
 | `Run` part-functions | **3** | `Run.decode`, `Run.encode`, `Run.rel` |
 | numeral-layer values | **2** | `numeralIso`, `isNumeral` |
@@ -1726,7 +1654,7 @@ law obligation, and §3.2's ties already constrain these blocks where it counts.
 
 The 3 `Codec.*` pins (roundtrip/bidir/decode_spec) are the dependency's laws and lie
 *outside* this namespace — pinned for discipline, not partitioned, which is why
-`grep -c '^#print axioms'` reports **676** against `gatedNames`' **670** — the three
+`grep -c '^#print axioms'` reports **652** against `gatedNames`' **646** — the three
 `RadixCodec` `eq_def` blocks measure footprints of names `gatedNames` cannot hold.
 
 **Both figures in that sentence are asserted** (R7-06, `codec-audit-round-six` §2.2).
@@ -1953,7 +1881,6 @@ def definitionSurfaceAllowlist : Array Name := #[
   `BaseN.Base8.octBlockIso,
   `BaseN.Base10.digBlockIso,
   `BaseN.Base16.hexBlockIso,
-  `BaseN.Base16.hexBlockIsoF,
   `BaseN.Base32.b32BlockIso,
   `BaseN.Base32.b32TailIso,
   `BaseN.Base64.b64BlockIso,
@@ -2904,6 +2831,11 @@ with the blocks above by the `coverage` check, which fails on any drift. Written
 from the `#print axioms` lines, so it is a record of what is gated rather than a
 second list to maintain by hand. -/
 def gatedNames : List Lean.Name := [
+  `BaseN.Base32.decodeB32Fold_lowercase_eq,
+  `BaseN.Base32.decodeB32Fold_of_fixed,
+  `BaseN.Base32.strict_rejects_lowercase,
+  `BaseN.Base16.upperByte_of_hexDigit,
+  `BaseN.Base16.upperBytes_of_encodeHex,
   `BaseN.Base10.Rel_digElem_canonical,
   `BaseN.Base10.Rel_digElem_len,
   `BaseN.Base10.decodeFull_B10_char,
@@ -2939,12 +2871,8 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base16.Rel_hexElem_len,
   `BaseN.Base16.decodeFull_B16_char,
   `BaseN.Base16.decodeFull_canonical,
-  `BaseN.Base16.decodeHexBlockFold_both_cases,
-  `BaseN.Base16.decodeHexBlockFold_case_insensitive,
-  `BaseN.Base16.decodeHexFold_both_cases,
   `BaseN.Base16.decodeHexFold_lowercase_eq,
   `BaseN.Base16.decodeHexFold_of_fixed,
-  `BaseN.Base16.decodeHexFold_roundtrip,
   `BaseN.Base16.decode_encode_inverse,
   `BaseN.Base16.decodes_6F,
   `BaseN.Base16.encodeHex_6F,
@@ -2952,23 +2880,7 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base16.encodeHex_injective_eq,
   `BaseN.Base16.encodeHex_ne_none,
   `BaseN.Base16.encode_injective,
-  `BaseN.Base16.fill_foldList,
-  `BaseN.Base16.foldByteBytes_idem,
-  `BaseN.Base16.foldByteBytes_of_encodeHex,
-  `BaseN.Base16.foldByte_fixed,
-  `BaseN.Base16.foldByte_folded,
-  `BaseN.Base16.foldByte_idem,
-  `BaseN.Base16.foldByte_of_hexDigit,
-  `BaseN.Base16.foldList_cons,
-  `BaseN.Base16.foldList_hexBlockUnapply,
-  `BaseN.Base16.foldList_idem,
-  `BaseN.Base16.foldList_nil,
-  `BaseN.Base16.foldNormalizer,
-  `BaseN.Base16.hexBlockApply_foldList,
-  `BaseN.Base16.hexBlockApply_foldList_ne,
-  `BaseN.Base16.hexBlockApply_none_of_not_len2,
   `BaseN.Base16.hexBlockApply_unapply,
-  `BaseN.Base16.hexBlockIsoF_law,
   `BaseN.Base16.hexBlockIso_law,
   `BaseN.Base16.hexBlockUnapply_digits,
   `BaseN.Base16.hexConsumesByte,
@@ -2977,16 +2889,8 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base16.hexElem_encode_ne_none,
   `BaseN.Base16.hexElem_functional,
   `BaseN.Base16.hexElem_unambiguous,
-  `BaseN.Base16.hexFixed_of_valid,
-  `BaseN.Base16.hexNibbleValid_false_of_lower,
-  `BaseN.Base16.hexNibbleValid_foldByte,
   `BaseN.Base16.hexNibbleValid_of_decide,
-  `BaseN.Base16.hexNibbleValid_of_hexFixed,
   `BaseN.Base16.hexToNibble_digit,
-  `BaseN.Base16.hexToNibble_foldByte_false,
-  `BaseN.Base16.hexToNibble_foldByte_true,
-  `BaseN.Base16.hexToNibble_foldByte_value,
-  `BaseN.Base16.hexToNibble_lower,
   `BaseN.Base16.hexToNibble_nibbleToHex,
   `BaseN.Base16.hexToNibble_range,
   `BaseN.Base16.hexToNibble_toByte_nibbleToHex,
@@ -2995,7 +2899,6 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base16.nibbleToHex_hexToNibble_of_valid,
   `BaseN.Base16.nibbleToHex_lt_256,
   `BaseN.Base16.nibbleToHex_valid,
-  `BaseN.Base16.ofNat_sub32_toNat,
   `BaseN.Base16.rejects_invalid_byte,
   `BaseN.Base16.rejects_lowercase,
   `BaseN.Base16.rejects_lowercase_even_arity,
@@ -3805,8 +3708,8 @@ run_cmd do
   let gated := BaseNAxioms.gatedNames.length
   let allow := BaseNAxioms.generatedAuxAllowlist.size
   -- Keep these in lockstep with the "universe, as measured" table above.
-  let expectedPub := 722
-  let expectedGated := 670
+  let expectedPub := 698
+  let expectedGated := 646
   let expectedAllow := 52
   let mut bad : Array String := #[]
   if pub.size != expectedPub then
@@ -3875,8 +3778,8 @@ run_cmd do
   -- The sentence names two counts and states a relation; asserting only the sum
   -- leaves both free to drift together while the prose goes stale, which is exactly
   -- what happened (`440 against 437` vs a truth of `443 / 440`).
-  let statedPrintBlockCount := 676
-  let statedGatedNamesCount := 670
+  let statedPrintBlockCount := 652
+  let statedGatedNamesCount := 646
   let gateSrc ← IO.FS.readFile "Axioms.lean"
   -- The prose's "443 `#print axioms` blocks" means the *code* blocks: the ones
   -- starting at column 0. A plain substring count also picks up every mention of
@@ -3908,9 +3811,9 @@ run_cmd do
   -- The `Codec.*` pins are inside `distPS` because `collectAxioms` is what counts
   -- them; `gatedNames` does not contain them, so no subtraction is needed — this is
   -- measured, not assumed: a mismatch below prints all four.
-  let statedDistPS := 545
-  let statedDistP := 83
-  let statedDistZ := 42
+  let statedDistPS := 527
+  let statedDistP := 79
+  let statedDistZ := 40
   if distPS != statedDistPS then
     bad := bad.push s!"distribution says {statedDistPS} [propext, Quot.sound], measured {distPS}"
   if distP != statedDistP then
@@ -3957,9 +3860,9 @@ run_cmd do
   let mentionedCount := defs.size - BaseNAxioms.definitionSurfaceAllowlist.size
   logInfo m!"basen axiom gate: {defs.size} public definitions covered, {mentionedCount} mentioned and {BaseNAxioms.definitionSurfaceAllowlist.size} allowlisted (mention proxy)"
   -- Asserted, like the theorem table: a stale def count is a build failure.
-  let expectedDefs := 161
-  let expectedMentioned := 144
-  let expectedDefAllow := 17
+  let expectedDefs := 156
+  let expectedMentioned := 140
+  let expectedDefAllow := 16
   let mut bad : Array String := #[]
   if defs.size != expectedDefs then
     bad := bad.push s!"public defs: table says {expectedDefs}, environment has {defs.size}"

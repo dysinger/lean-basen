@@ -3970,4 +3970,92 @@ theorem decodeFullB32_reject_arity {n : Nat} (s : Bytes n) (hmod : n % 8 ≠ 0) 
   | some v =>
       exact absurd (decodeFullB32_arity s v h) hmod
 
+/-! ## Case-insensitive decoding (`basen-uppercase-prepass` §4)
+
+**Base 32's alphabet has no lowercase symbols**, so case folding is safe here for the
+same reason it is in base 16: `b32ToVal` has no branch for `97`–`122` at all, so
+`"my======"` is rejected today while `"MY======"` decodes to `[102]`. The lowercase
+letters are lax spellings carrying no value, which is exactly the class
+`BaseN.Common.upperBytes` exists for.
+
+This is **purely additive**: the strict `decodeFullB32` is untouched and still rejects
+lowercase (`strict_rejects_lowercase` below pins that, so the widening cannot have
+quietly become the strict decoder's behaviour).
+
+**Base 64 is not in this section and must not be**, because there lowercase letters ARE
+alphabet members denoting distinct values — see `BaseN.Common`'s header and
+`Bench.b64Lower_decodes`. -/
+
+/-- **The case-insensitive base-32 decoder**: uppercase the input, then decode strictly. -/
+def decodeB32Fold {n : Nat} (s : Bytes n) : Option (List UInt8) :=
+  decodeFullB32 (Common.upperBytes s)
+
+/-- On already-uppercase input the pre-pass is the identity, so the tolerant decoder
+agrees with the strict one. -/
+theorem decodeB32Fold_of_fixed {n : Nat} (s : Bytes n)
+    (hfix : Common.upperBytes s = s) :
+    decodeB32Fold s = decodeFullB32 s := by
+  rw [decodeB32Fold, hfix]
+
+/-- The lowercase spelling `"my======"`, as bytes. -/
+def b32LowerMy : Bytes 8 := fun i => [0x6D, 0x79, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D][i]
+
+/-- The uppercase spelling `"MY======"`, as bytes. -/
+def b32UpperMy : Bytes 8 := fun i => [0x4D, 0x59, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D, 0x3D][i]
+
+/-- **Lowercase base-32 decodes to the same value as uppercase**, because the pre-pass
+erases the two letters' case and fixes the six pad bytes — so both spellings normalise
+to the *same* byte string and therefore decode alike. -/
+theorem decodeB32Fold_lowercase_eq : decodeB32Fold b32LowerMy = decodeB32Fold b32UpperMy := by
+  have hun : Common.upperBytes b32LowerMy = b32UpperMy := by
+    funext i
+    have h0 : Common.upperByte (0x6D : UInt8) = 0x4D := rfl
+    have h1 : Common.upperByte (0x79 : UInt8) = 0x59 := rfl
+    have h2 : Common.upperByte (0x3D : UInt8) = 0x3D := rfl
+    refine Fin.cases h0 ?_ i
+    intro i1
+    refine Fin.cases h1 ?_ i1
+    intro i2
+    refine Fin.cases h2 ?_ i2
+    intro i3
+    refine Fin.cases h2 ?_ i3
+    intro i4
+    refine Fin.cases h2 ?_ i4
+    intro i5
+    refine Fin.cases h2 ?_ i5
+    intro i6
+    refine Fin.cases h2 ?_ i6
+    intro i7
+    refine Fin.cases h2 ?_ i7
+    intro i8
+    exact Fin.elim0 i8
+  have hfix : Common.upperBytes b32UpperMy = b32UpperMy := by
+    funext i
+    have h0 : Common.upperByte (0x4D : UInt8) = 0x4D := rfl
+    have h1 : Common.upperByte (0x59 : UInt8) = 0x59 := rfl
+    have h2 : Common.upperByte (0x3D : UInt8) = 0x3D := rfl
+    refine Fin.cases h0 ?_ i
+    intro i1
+    refine Fin.cases h1 ?_ i1
+    intro i2
+    refine Fin.cases h2 ?_ i2
+    intro i3
+    refine Fin.cases h2 ?_ i3
+    intro i4
+    refine Fin.cases h2 ?_ i4
+    intro i5
+    refine Fin.cases h2 ?_ i5
+    intro i6
+    refine Fin.cases h2 ?_ i6
+    intro i7
+    refine Fin.cases h2 ?_ i7
+    intro i8
+    exact Fin.elim0 i8
+  simp only [decodeB32Fold, hun, hfix]
+
+/-- **The strict decoder still rejects lowercase** — measured, so the widening is purely
+additive and `decodeB32Fold` is the only path that accepts it. -/
+theorem strict_rejects_lowercase : decodeFullB32 b32LowerMy = none :=
+  decodeFullB32_reject_first_invalid b32LowerMy (by decide)
+
 end BaseN.Base32
