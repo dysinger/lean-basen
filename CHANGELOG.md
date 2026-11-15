@@ -7,6 +7,39 @@ the OpenSpec ledger in the sibling `lean-codec` repo
 (`openspec/changes/lean-basen/`) records the task-level detail, and `AGENTS.md`
 records the conventions.
 
+## 2026-11-15 — the numeral layer, and every block iso tied to it
+
+`basen` decoded text to `List UInt8` and **never to a number**. This adds the one missing
+rung (`basen-radix` §1–§4): a radix-generic `digitVal` / `toNat` / `ofNat` over `Nat`,
+`numeralIso` per radix over the `Codec.Normal` quotient, and a proved tie from each existing
+block isomorphism to that fold.
+
+Three requirements were added to the `basen` spec:
+
+- **A numeral denotes a number** — one generic conversion serving all seven radices.
+- **A number is its canonical numeral modulo information-free variation** — a total
+  bijection into the quotient, with the equivalence in the codomain rather than as a
+  weakened law.
+- **The block isomorphisms are tied to the generic fold** — a canonicity-filtered
+  implication pair per base, not an equality.
+
+The seven radices are 2, 4, 8, 10, 16, 32 and 64, enumerated from one source
+(`RadixTie.radixInstances`) so a missing radix is a build failure rather than a shorter list.
+
+**Two corrections the code forced, both recorded where they bite:**
+
+- `design.md` D6's `_L` schema named `bytesOfNat`/`natOfBytes`, which do not exist. Bases
+  32/64 are tied through `beVal` (the big-endian byte fold) with `*BlockDecodeLenient` /
+  `*BlockUnapply` instead, on **pad-free** vectors — `=` is outside the fold's alphabet, so
+  padding is an arity fact there, not a canonicity guard.
+- The seven block `Iso` values could not be dropped from `definitionSurfaceAllowlist` on the
+  stated grounds: the ties name `*BlockApply`, not the `Iso` values. Each gained a
+  `*BlockIso_apply` law instead, so the reason became false of them and the drop is honest.
+  Allowlist 18 → 11.
+
+Every law is `[propext, Quot.sound]`-only with zero `Classical.choice`; each is pinned by a
+`#guard_msgs` block and mutation-tested by perturbing the corresponding digit order.
+
 ## 2026-11-05 — full axiom-gate coverage, and every lint suppression removed
 
 Two pre-archive audit findings (ledger §6.4 / §6.5), plus the toolchain question
