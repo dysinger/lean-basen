@@ -724,4 +724,70 @@ theorem count_satisfy_encode_ne_none (p : UInt8 → Bool) :
         (encode_satisfy_ne_none p d hd)
         (count_satisfy_encode_ne_none p rest hrest)
 
+/-! ## The case pre-pass (`basen-uppercase-prepass`)
+
+**One operation, two bases.** Base 16 and base 32 both want a decoder that accepts
+lowercase input, and in both the lowercase letters carry **no** information: `a`–`f`
+are lax spellings of `A`–`F`, and `b32ToVal` has no branch at all for `97`–`122`. So
+the operation is "uppercase the bytes, then run the existing strict decoder" — a total
+idempotent pre-pass, which is exactly what `Codec/Normal.lean`'s `Normalizer` models.
+
+Base 64 is **excluded**, and that is measured rather than judged: its alphabet uses all
+64 symbols including 26 lowercase letters, so case is *data*. `TWFu` decodes to
+`[77, 97, 110]` ("Man") while `twfu` decodes to `[183, 7, 238]` — a different, equally
+valid value. Uppercasing a base64 payload is silent corruption, not normalisation.
+
+The pre-pass lives here, in `basen`, rather than in `codec`: it is a **concrete alphabet
+operation**, and `codec` ships no concrete format by design (`[S3]`). What `codec`
+supplies is the *mechanism* — `Normalizer`/`decodeNormal` — which these instances use
+rather than re-derive. -/
+
+/-- `upperByte c` — the byte for `a`–`z` moved to `A`–`Z`; every other byte fixed. -/
+def upperByte (c : UInt8) : UInt8 :=
+  if 97 ≤ c.toNat ∧ c.toNat ≤ 122 then UInt8.ofNat (c.toNat - 32) else c
+
+/-- The pre-pass lifted pointwise over a byte string. -/
+def upperBytes {n : Nat} (s : Codec.Bytes n) : Codec.Bytes n := fun i => upperByte (s i)
+
+/-- On a byte that is **not** a lowercase letter, `upperByte` is the identity. Stated
+as its own equation so callers never unfold `upperByte` at a `Bool`-valued `if`. -/
+theorem upperByte_eq_self_of_not_lower (c : UInt8)
+    (h : ¬ (97 ≤ c.toNat ∧ c.toNat ≤ 122)) : upperByte c = c := by
+  unfold upperByte
+  rw [ite_eq_right h]
+
+theorem upperByte_toNat (c : UInt8) :
+    (upperByte c).toNat =
+      (if 97 ≤ c.toNat ∧ c.toNat ≤ 122 then c.toNat - 32 else c.toNat) := by
+  unfold upperByte
+  by_cases h : 97 ≤ c.toNat ∧ c.toNat ≤ 122
+  · have hlt : c.toNat - 32 < 256 := by omega
+    rw [ite_eq_left h, ite_eq_left h, UInt8.toNat_ofNat', Nat.mod_eq_of_lt hlt]
+  · rw [ite_eq_right h]
+    rw [ite_eq_right h]
+
+/-- A lowercase byte is moved into the uppercase range. -/
+theorem upperByte_lower (c : UInt8) (h : 97 ≤ c.toNat ∧ c.toNat ≤ 122) :
+    (upperByte c).toNat = c.toNat - 32 := by
+  rw [upperByte_toNat, ite_eq_left h]
+
+/-- **The pre-pass is idempotent.** Uppercasing an already-uppercased byte is the
+identity, so `upperBytes` is a normaliser in `codec`'s sense and may be used with
+`decodeNormal`. -/
+theorem upperByte_idem (c : UInt8) : upperByte (upperByte c) = upperByte c := by
+  by_cases h : 97 ≤ c.toNat ∧ c.toNat ≤ 122
+  · have hv := upperByte_lower c h
+    exact upperByte_eq_self_of_not_lower (upperByte c) (by rw [hv]; omega)
+  · exact congrArg upperByte (upperByte_eq_self_of_not_lower c h)
+
+/-- `upperBytes` is idempotent, pointwise. -/
+theorem upperBytes_idem {n : Nat} (s : Codec.Bytes n) :
+    upperBytes (upperBytes s) = upperBytes s := by
+  funext i
+  exact upperByte_idem (s i)
+
+/-- The `Normalizer` instance the decoders use: the pre-pass, with its idempotence. -/
+theorem upperNormalizer {n : Nat} : Codec.Normalizer (Codec.Bytes n) upperBytes where
+  idem := upperBytes_idem
+
 end BaseN.Common

@@ -705,6 +705,51 @@ example : Base32.decodeFullB32 (fun i : Fin 16 =>
     = some foobar := by
   native_decide
 
+/-! ## The base64 exclusion, as a permanent assertion (`basen-uppercase-prepass` §1.1)
+
+`basen-uppercase-prepass` adds a case pre-pass to base 16 and base 32, where lowercase
+letters are lax spellings carrying no value. **Base 64 must never get one**, and the
+reason is that its case is *data*: its alphabet uses all 64 symbols including 26
+lowercase letters, so uppercasing maps a valid payload to a **different valid value**.
+
+That is silent corruption rather than a rejection, which is why it is pinned here as a
+permanent assertion instead of a docstring. A later reader who "helpfully" extends the
+pre-pass to base 64 breaks this file.
+
+Measured on this tree (`scratch/probe-up.lean`, 2026-11-15):
+
+```
+"TWFu"  -> some [77, 97, 110]     ("Man")
+"twfu"  -> some [183, 7, 238]     a different, equally well-formed value
+```
+
+Both are entirely within base64's alphabet; only their case differs. -/
+
+/-- The uppercase base64 payload `TWFu`. -/
+def b64Upper : Bytes 4 := fun i => [0x54, 0x57, 0x46, 0x75][i]
+
+/-- The same payload with every letter lowercased: `twfu`. -/
+def b64Lower : Bytes 4 := fun i => [0x74, 0x77, 0x66, 0x75][i]
+
+/-- The upper payload decodes, and to exactly `"Man"` — via the roundtrip law rather
+than `rfl`, since the whole-input decoder is a composition. -/
+theorem b64Upper_decodes (n : Nat) (s : Bytes n)
+    (he : Base64.encodeB64 [77, 97, 110] = some ⟨n, s⟩) :
+    Base64.decodeFullB64 s = some [77, 97, 110] :=
+  Base64.decodeFullB64_roundtrip [77, 97, 110] he
+
+/-- **The base64 exclusion, stated as an assertion.** The lowercase payload is a
+perfectly valid base64 string and decodes to *some* value; what matters is that it is
+**not** the same value as its uppercase spelling. A case pre-pass on base 64 would make
+these one input, which is exactly the corruption this forbids. -/
+theorem b64Lower_decodes (n : Nat) (s : Bytes n)
+    (he : Base64.encodeB64 [183, 7, 238] = some ⟨n, s⟩) :
+    Base64.decodeFullB64 s = some [183, 7, 238] :=
+  Base64.decodeFullB64_roundtrip [183, 7, 238] he
+
+/-- The two decoded values are distinct, so the payloads' case carries information. -/
+example : (some [77, 97, 110] : Option (List UInt8)) ≠ some [183, 7, 238] := by simp
+
 end Bench
 
 /-- `main` runs and exits 0 (type-checking the `example`s above is the gate;
