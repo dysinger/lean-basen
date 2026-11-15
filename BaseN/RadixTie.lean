@@ -54,46 +54,23 @@ namespace BaseN.RadixTie
 
 open BaseN.Radix
 
-/-! ## The generic fold, in `natVal` form
+/-! ## The generic fold at a literal arity
 
-The reusable core of every `_8` tie. `toNat` folds `d ↦ v` with weights
-`radix ^ (length - 1 - i)`, which is exactly `natVal` of the digit-value list — so this
-lemma converts "the fold read these bytes as `n`" into "`n` is that sum", which is the
-form a block's own arithmetic lives in. -/
+`toNat` folds `d ↦ v` with weights `radix ^ (length - 1 - i)`, which is `natVal` of the
+digit-value list. Each tie below needs that fact at **one fixed width**, so the lemmas are
+per-arity (`toNat_two` … `toNat_eight`) rather than through a general
+`∃ vs, valAt … ∧ n = natVal b vs` form.
 
-/-- `valAt b ds vs` — `vs` is `ds`'s digit values, position by position. -/
-def valAt (b : Nat) (ds : List UInt8) (vs : List Nat) : Prop :=
-  ∀ (i : Nat) (hi : i < vs.length) (hj : i < ds.length),
-    digitVal b (ds.get ⟨i, hj⟩) = some (vs.get ⟨i, hi⟩)
+**A general form existed and was deleted here (§8.11).** `valAt` plus
+`toNat_eq_natVal_map` stated the fold as `∃ vs, vs.length = ds.length ∧ valAt b ds vs ∧ n =
+natVal b vs`, and its docstring advertised it as "the reusable core of every `_8` tie". It had
+**zero consumers**: every tie goes through the per-arity lemmas instead, because a tie's
+proof needs the width to drive `omega`, and an existentially quantified value vector throws
+that away. Keeping it would have meant keeping a public `def`, a public theorem and a false
+docstring to serve no proof — so both are gone.
 
-theorem toNat_eq_natVal_map : ∀ (b : Nat) (ds : List UInt8) (n : Nat),
-    toNat b ds = some n →
-    ∃ vs : List Nat, vs.length = ds.length ∧ valAt b ds vs ∧ n = natVal b vs := by
-  intro b ds
-  induction ds with
-  | nil =>
-      intro n h
-      have h0 : n = 0 := by simpa [toNat] using h.symm
-      exact ⟨[], rfl, fun i _ hj => absurd hj (by simp), by simp [natVal, h0]⟩
-  | cons d ds ih =>
-      intro n h
-      cases hd : digitVal b d with
-      | none => rw [toNat_cons_none b d ds hd] at h; exact absurd h (by simp)
-      | some v =>
-          rw [toNat_cons_some b d ds v hd] at h
-          obtain ⟨a, ha, hn⟩ : ∃ a, toNat b ds = some a ∧ v * b ^ ds.length + a = n := by
-            simpa only [Option.map_eq_some_iff] using h
-          obtain ⟨vs, hlen, hval, hnat⟩ := ih a ha
-          refine ⟨v :: vs, by simp [hlen], ?_, ?_⟩
-          · intro i hi hj
-            cases i with
-            | zero => simpa using hd
-            | succ k =>
-                have h1 : k < vs.length := by simpa using hi
-                have h2 : k < ds.length := by simpa using hj
-                simpa using hval k h1 h2
-          · simp only [natVal, hlen]
-            omega
+The section keeps the machinery the per-arity lemmas share: `toNat_nil` and the `natVal_*`
+width lemmas below. -/
 
 theorem toNat_nil (b : Nat) : toNat b [] = some 0 := rfl
 
@@ -911,15 +888,6 @@ theorem beVal_foldl_eq (bs : List UInt8) (acc : Nat) :
             = acc * 256 * p + (b.toNat * p + q) from Nat.add_assoc _ _ _]
       rw [show acc * (p * 256) = acc * 256 * p from by rw [Nat.mul_comm p 256, Nat.mul_assoc]]
 
-/-- `beVal` is `natVal 256` of the bytes' values. -/
-theorem beVal_eq_natVal (bs : List UInt8) : beVal bs = natVal 256 (bs.map UInt8.toNat) := by
-  unfold beVal
-  rw [beVal_foldl_eq bs 0]
-  simp
-
-theorem beVal_two (v0 v1 : UInt8) : beVal [v0, v1] = v0.toNat * 256 + v1.toNat := by
-  simp [beVal]
-
 theorem beVal_three (v0 v1 v2 : UInt8) :
     beVal [v0, v1, v2] = v0.toNat * 65536 + v1.toNat * 256 + v2.toNat := by
   simp [beVal]; omega
@@ -1186,11 +1154,13 @@ theorem radixInstances_length : radixInstances.length = 7 := rfl
 /-- And they are those seven, in order — so the list cannot drift into a subset. -/
 theorem radixInstances_radices : radixInstances = [2, 4, 8, 10, 16, 32, 64] := rfl
 
-/-- `numeralIso` at an enumerated radix: the instance, with its witness supplied by
-`radixInstances_areRadix` rather than by a literal at each call site. -/
-def numeralIsoAt (b : Nat) (hb : b ∈ radixInstances) :
-    Iso Nat (Codec.Normal (List UInt8) (BaseN.RadixCodec.normF b)) :=
-  BaseN.RadixCodec.numeralIso b (radixInstances_areRadix b hb)
+-- **`numeralIsoAt` was deleted here (§8.11).** It was a one-line wrapper reading
+-- `numeralIso b (radixInstances_areRadix b hb)`, allowlisted as "no new law appears here" —
+-- which was true, and is exactly why it should not have existed: it had **zero callers**,
+-- and `numeralIso b hr` is already the same call with the witness the caller holds. The
+-- seven-instance enumeration is `radixInstances` plus its three gated laws; a fourth
+-- spelling of the accessor adds a name, an allowlist entry and a maintainer obligation for
+-- no consumer.
 
 end BaseN.RadixTie
 
