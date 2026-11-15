@@ -944,41 +944,29 @@ theorem toNat_b64_unapply_three (b0 b1 b2 : UInt8) :
   rw [Option.some.injEq]
   omega
 
-/-- **The base-64 tie, `→`, at the block's own encoding vector.**
+/-- **The base-64 tie, `→`, at the block's own encoding vector.** The block's `apply` on the
+characters it itself writes for `bs` returns `bs`.
 
-Read as: the block's `apply` on the characters it itself writes for `bs` returns `bs`, and
-the generic fold on those same characters returns `beVal bs`. So the two agree on every
-vector the block itself produces.
+**This is the first half of an implication pair, not a conjunction.** The earlier statement
+here concluded `toNat 64 cs = some (beVal …) ∧ b64BlockApply cs = some bs` with `cs` closed —
+a conjunction whose first conjunct is an existing lemma (`toNat_b64_unapply_three`) and whose
+second never mentions `toNat`. That is not the tie the spec mandates: `PAPER.md:262-266`
+defines the law over `apply`/`unapply` as *functions*, so a closed conjunction about a result
+tuple is a different statement. The pair is now split, one theorem per direction, matching the
+five `_8` bases (`bitBlockApply_of_toNat` / `toNat_of_bitBlockApply`).
 
-**The statement is over that vector, not over every input the block accepts — and an earlier
-version of this docstring claimed the latter, which is false.** Measured:
-
-```
-BaseN.Base64.b64BlockApply [90,103,61,61]  ->  some [102]    ("Zg==")
-BaseN.Radix.toNat 64 [90,103,61,61]        ->  none
-```
-
-`=` is not in the fold's alphabet, so the 1- and 2-byte blocks are outside the fold's domain
-even though the block accepts them. That is the pad-free restriction `toNat_of_b64BlockApply_three`
-states on the other side; it is a genuine limitation of the tie, not an arity formality.
-
-**No domain hypothesis**, unlike bases 8 and 10: four base-64 characters reach
-`2^24 - 1 = 16777215`, exactly a whole 3-byte block, so the codomain cannot be
-overflowed. -/
+**The `←` half carries a real hypothesis**, because the pad bytes `=` are outside the fold's
+alphabet: `b64BlockApply [90,103,61,61]` (`"Zg=="`) returns `some [102]` while `toNat 64` on
+the same bytes is `none`. So the tie holds on `apply`'s *image*, which is what the pair below
+states — neither direction claims the two agree on a short-tail block. -/
 theorem b64BlockApply_of_toNat (b0 b1 b2 : UInt8) :
-    toNat 64 [BaseN.Base64.toByte (BaseN.Base64.valToB64 (b0.toNat / 4)),
-              BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
-              BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)),
-              BaseN.Base64.toByte (BaseN.Base64.valToB64 (b2.toNat % 64))]
-        = some (beVal [b0, b1, b2])
-    ∧ BaseN.Base64.b64BlockApply
+    BaseN.Base64.b64BlockApply
         [BaseN.Base64.toByte (BaseN.Base64.valToB64 (b0.toNat / 4)),
          BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
          BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)),
          BaseN.Base64.toByte (BaseN.Base64.valToB64 (b2.toNat % 64))]
-        = some [b0, b1, b2] := by
-  refine ⟨toNat_b64_unapply_three b0 b1 b2, ?_⟩
-  exact (BaseN.Base64.b64BlockIso_law _ _).2 rfl
+        = some [b0, b1, b2] :=
+  (BaseN.Base64.b64BlockIso_law _ _).2 rfl
 
 /-- **The base-64 tie, `←`, on the pad-free block.** A 4-character base-64 block is pad-free
 exactly when it encodes three bytes; the 1- and 2-byte blocks carry `=`, which is outside the
@@ -997,6 +985,17 @@ theorem toNat_of_b64BlockApply_three (cs : List UInt8) (b0 b1 b2 : UInt8)
   simp only [BaseN.Base64.b64BlockUnapply, Option.some.injEq] at hun
   rw [← hun]
   exact toNat_b64_unapply_three b0 b1 b2
+
+/-- **The base-64 tie, `←`, as one statement.** `toNat_of_b64BlockApply_three`'s hypothesis
+pins the block's value to a three-element literal; this form lets the caller carry an
+arbitrary `bs` and discharge it by `subst`. Together with `b64BlockApply_of_toNat` it is the
+implication pair the requirement mandates. -/
+theorem toNat_of_b64BlockApply (cs : List UInt8) (bs : List UInt8) (b0 b1 b2 : UInt8)
+    (hbs : bs = [b0, b1, b2])
+    (h : BaseN.Base64.b64BlockApply cs = some bs) :
+    toNat 64 cs = some (beVal [b0, b1, b2]) := by
+  subst hbs
+  exact toNat_of_b64BlockApply_three cs b0 b1 b2 h
 
 /-- The base-32 block's own encoding of five bytes, read by the generic fold. Same bridge
 as base 64's, one block wider: eight characters reaching `2^40 - 1`, exactly a 5-byte block,
@@ -1064,19 +1063,12 @@ theorem toNat_b32_unapply_five (b0 b1 b2 b3 b4 : UInt8) :
 
 /-- **The base-32 tie, `→`, at the block's own encoding vector.** Eight characters reach
 `2^40 - 1`, exactly a whole 5-byte block, so there is no domain hypothesis — the strong form
-of the paper's law, as for bases 2, 4 and 16. `b32BlockApply`'s re-encode-and-compare guard
-is what makes the `←` direction hold without a range bound. -/
+of the paper's law, as for bases 2, 4 and 16.
+
+First half of the pair; see `b64BlockApply_of_toNat` for why the earlier conjunctive form was
+replaced. -/
 theorem b32BlockApply_of_toNat (b0 b1 b2 b3 b4 : UInt8) :
-    toNat 32 [BaseN.Base32.toByte (BaseN.Base32.valToB32 (b0.toNat / 8)),
-              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b0.toNat % 8) * 4 + b1.toNat / 64)),
-              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b1.toNat / 2) % 32)),
-              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16)),
-              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b2.toNat % 16) * 2 + b3.toNat / 128)),
-              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat / 4) % 32)),
-              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat % 4) * 8 + b4.toNat / 32)),
-              BaseN.Base32.toByte (BaseN.Base32.valToB32 (b4.toNat % 32))]
-        = some (beVal [b0, b1, b2, b3, b4])
-    ∧ BaseN.Base32.b32BlockApply
+    BaseN.Base32.b32BlockApply
         [BaseN.Base32.toByte (BaseN.Base32.valToB32 (b0.toNat / 8)),
          BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b0.toNat % 8) * 4 + b1.toNat / 64)),
          BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b1.toNat / 2) % 32)),
@@ -1085,9 +1077,8 @@ theorem b32BlockApply_of_toNat (b0 b1 b2 b3 b4 : UInt8) :
          BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat / 4) % 32)),
          BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat % 4) * 8 + b4.toNat / 32)),
          BaseN.Base32.toByte (BaseN.Base32.valToB32 (b4.toNat % 32))]
-        = some [b0, b1, b2, b3, b4] := by
-  refine ⟨toNat_b32_unapply_five b0 b1 b2 b3 b4, ?_⟩
-  exact (BaseN.Base32.b32BlockIso_law _ _).2 rfl
+        = some [b0, b1, b2, b3, b4] :=
+  (BaseN.Base32.b32BlockIso_law _ _).2 rfl
 
 /-- **The base-32 tie, `←`, on the pad-free block.** Eight base-32 characters are pad-free
 exactly when they encode five bytes; shorter blocks carry `=`, outside the fold's alphabet,
@@ -1104,6 +1095,15 @@ theorem toNat_of_b32BlockApply_five (cs : List UInt8) (b0 b1 b2 b3 b4 : UInt8)
   simp only [BaseN.Base32.b32BlockUnapply, Option.some.injEq] at hun
   rw [← hun]
   exact toNat_b32_unapply_five b0 b1 b2 b3 b4
+
+/-- **The base-32 tie, `←`, as one statement** — the mirror of `toNat_of_b64BlockApply`, and
+the second half of the pair. -/
+theorem toNat_of_b32BlockApply (cs : List UInt8) (bs : List UInt8) (b0 b1 b2 b3 b4 : UInt8)
+    (hbs : bs = [b0, b1, b2, b3, b4])
+    (h : BaseN.Base32.b32BlockApply cs = some bs) :
+    toNat 32 cs = some (beVal [b0, b1, b2, b3, b4]) := by
+  subst hbs
+  exact toNat_of_b32BlockApply_five cs b0 b1 b2 b3 b4 h
 
 /-! ## The seven radix instances (task 3.1)
 
@@ -1144,39 +1144,6 @@ theorem radixInstances_radices : radixInstances = [2, 4, 8, 10, 16, 32, 64] := r
 def numeralIsoAt (b : Nat) (hb : b ∈ radixInstances) :
     Iso Nat (Codec.Normal (List UInt8) (BaseN.RadixCodec.normF b)) :=
   BaseN.RadixCodec.numeralIso b (radixInstances_areRadix b hb)
-
-/-! ## The block isos, named by their `apply` projection (task 4.2's precondition)
-
-Task 4.2 removes the seven block `Iso` values from `definitionSurfaceAllowlist`, on the
-grounds that each gains a constraining theorem so the "no theorem names it" reason no longer
-holds. **Measured, it did not hold after §3.2 as first written**: the ties name
-`bitBlockApply`/`octBlockApply`/…, not `bitBlockIso`/`octBlockIso`/…, so the mention proxy
-still saw the seven as unmentioned and the def arm refused the removal.
-
-The fix is the one the task actually intends — make the theorems name the **value**. Each
-`*BlockIso`'s `apply` is definitionally its `*BlockApply` (`rfl`), so these seven laws state
-that, and they are what lets the allowlist drop the values without lying about them. -/
-
-theorem bitBlockIso_apply (cs : List UInt8) :
-    BaseN.Base2.bitBlockIso.apply cs = BaseN.Base2.bitBlockApply cs := rfl
-
-theorem quartetBlockIso_apply (cs : List UInt8) :
-    BaseN.Base4.quartetBlockIso.apply cs = BaseN.Base4.quartetBlockApply cs := rfl
-
-theorem octBlockIso_apply (cs : List UInt8) :
-    BaseN.Base8.octBlockIso.apply cs = BaseN.Base8.octBlockApply cs := rfl
-
-theorem digBlockIso_apply (cs : List UInt8) :
-    BaseN.Base10.digBlockIso.apply cs = BaseN.Base10.digBlockApply cs := rfl
-
-theorem hexBlockIso_apply (cs : List UInt8) :
-    BaseN.Base16.hexBlockIso.apply cs = BaseN.Base16.hexBlockApply cs := rfl
-
-theorem b32BlockIso_apply (cs : List UInt8) :
-    BaseN.Base32.b32BlockIso.apply cs = BaseN.Base32.b32BlockApply cs := rfl
-
-theorem b64BlockIso_apply (cs : List UInt8) :
-    BaseN.Base64.b64BlockIso.apply cs = BaseN.Base64.b64BlockApply cs := rfl
 
 end BaseN.RadixTie
 
