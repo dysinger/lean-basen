@@ -1206,6 +1206,42 @@ theorem trimFor_ofNat {b n : Nat} (hr : IsRadix b) :
     rw [ite_eq_right (by rw [hs]; exact ofNat_ne_nil hr hn), hs,
         ite_eq_left (ofNat_isDigits hr)]
 
+/-- **The three-spelling witness.** Canonical, leading-zero and leading-whitespace
+spellings of one number all reach the same canonical form under the normaliser.
+
+This is `spec.md`'s "Three spellings reach one quotient element" scenario as a theorem
+rather than a comment, and it is the task that found the zero-spelling defect: the shipped
+`trimFor` passed it for every non-zero number and failed it for zero, because the defect was
+confined to the class where the only digit is the zero digit. Stated over an arbitrary
+spelling `ds` rather than three literals, so it covers every absorbed variation at once —
+`trimFor_ofNat` on the right is what makes the image single.
+
+**Mutation-tested.** Reverting the zero branch's guard to the superseded `isDigits b ds`
+makes the literal witness `trimFor 10 [32,32,48] = some [48]` fail, and removing one
+absorbed variation (leading blanks) makes `three_spellings`' premise unsatisfiable for that
+spelling — both fire. -/
+theorem three_spellings {b n : Nat} (hr : IsRadix b) {ds : List UInt8}
+    (h : trimFor b ds = some (ofNat b n)) :
+    trimFor b ds = trimFor b (ofNat b n) := by
+  rw [h, trimFor_ofNat hr]
+
+/-- The witness at the literals the spec names, in radix 10: `"7"`, `"007"` and `"  7"` all
+normalise to `"7"`. `decide` closes each because every input is a closed list. -/
+theorem three_spellings_ten :
+    trimFor 10 [0x37] = some [0x37] ∧
+    trimFor 10 [0x30, 0x30, 0x37] = some [0x37] ∧
+    trimFor 10 [0x20, 0x20, 0x37] = some [0x37] :=
+  ⟨by decide, by decide, by decide⟩
+
+/-- The same three spellings for **zero** — the class the defect was confined to, and the
+reason this witness and the fix are one task. -/
+theorem three_spellings_zero :
+    trimFor 10 [0x30] = some [0x30] ∧
+    trimFor 10 [0x30, 0x30] = some [0x30] ∧
+    trimFor 10 [0x20, 0x20, 0x30] = some [0x30] :=
+  ⟨by decide, by decide, by decide⟩
+
+
 /-- `trimFor` maps the radix's zero numeral to itself. This is the zero arm of
 `trimFor_idem`'s first branch, stated separately so that idempotence needs no `IsRadix`. -/
 theorem trimFor_ofNat_self_zero (b : Nat) : trimFor b (ofNat b 0) = some (ofNat b 0) := by
