@@ -1665,12 +1665,12 @@ the `BaseN` namespace:
 
 | side | count |
 | --- | --- |
-| public theorems in the `BaseN` namespace | **712** |
-| pinned by a `#guard_msgs` above (`gatedNames`) | **660** |
+| public theorems in the `BaseN` namespace | **715** |
+| pinned by a `#guard_msgs` above (`gatedNames`) | **663** |
 | allowlisted (`generatedAuxAllowlist`) | **52** |
 | un-gated and unlisted | **0** |
 
-712 = 660 + 52, with no third route. Of the 52 allowlisted, **40** are the ones the
+715 = 663 + 52, with no third route. Of the 52 allowlisted, **40** are the ones the
 suffix classifier drops (`*.inj` ×9, `*.injEq` ×9, `*.sizeOf_spec` ×11, `*.eq_def`
 ×8) and **9** are the hand-reviewed ones that the classifier does *not* match
 (`brecOn.eq` ×2, `*.go` ×6, `Run.step`) — the `*.go` helpers are the trap, since
@@ -1689,12 +1689,12 @@ is how this package carried eight dead public `Run` values (`bitRun`, `quartetRu
 
 | side | count |
 | --- | --- |
-| public `def`s in the `BaseN` namespace (after dropping compiler machinery) | **159** |
-| named by a gated theorem's type — *mentioned* | **142** |
-| `definitionSurfaceAllowlist` | **17** |
+| public `def`s in the `BaseN` namespace (after dropping compiler machinery) | **161** |
+| named by a gated theorem's type — *mentioned* | **143** |
+| `definitionSurfaceAllowlist` | **18** |
 | silent | **0** |
 
-159 = 142 + 17. The middle row is a **mention proxy**: it says no public definition
+161 = 143 + 18. The middle row is a **mention proxy**: it says no public definition
 is covered by *silence*, not that it has a characterised law, and it can be satisfied
 vacuously. The 15 allowlisted are 10 `Iso`-law-as-field values (the `*BlockIso` /
 `*TailIso` whose `law` is a structure field proved at the definition site, which the
@@ -1706,7 +1706,7 @@ allowlisted.
 
 The 3 `Codec.*` pins (roundtrip/bidir/decode_spec) are the dependency's laws and lie
 *outside* this namespace — pinned for discipline, not partitioned, which is why
-`grep -c '^#print axioms'` reports **666** against `gatedNames`' **660** — the three
+`grep -c '^#print axioms'` reports **669** against `gatedNames`' **663** — the three
 `RadixCodec` `eq_def` blocks measure footprints of names `gatedNames` cannot hold.
 
 **Both figures in that sentence are asserted** (R7-06, `codec-audit-round-six` §2.2).
@@ -1957,6 +1957,13 @@ def definitionSurfaceAllowlist : Array Name := #[
   -- repeats the field — a theorem restating a proved field would be the
   -- `propProjections` defect wearing a `def` name.
   `BaseN.RadixCodec.numeralIso,
+  -- **`numeralIsoAt` — the same value, read from the single radix enumeration.** It is
+  -- `numeralIso b (radixInstances_areRadix b hb)`, i.e. an application of the `def` above to
+  -- a witness the gate already checks (`radixInstances_areRadix`, `radixInstances_length`,
+  -- `radixInstances_radices` are all gated). No new law appears here: the `Iso`'s law is the
+  -- same proved structure field, and the seven-instance enumeration is what §3.1 adds, which
+  -- those three theorems constrain.
+  `BaseN.RadixTie.numeralIsoAt,
   -- **`isNumeral` — a one-line predicate whose only content is its own `trimFor`.** It
   -- is `(trimFor b ds).isSome`, so every fact about it *is* a fact about `trimFor`,
   -- which is gated by name (`trimFor_ofNat`, `trimFor_idem`,
@@ -2848,6 +2855,15 @@ section grows in even steps. The base-2 pair below is the template. -/
 /-- info: 'BaseN.RadixTie.valToB64_eq_byteOfDigitNat' depends on axioms: [propext] -/
 #guard_msgs in
 #print axioms BaseN.RadixTie.valToB64_eq_byteOfDigitNat
+/-- info: 'BaseN.RadixTie.radixInstances_areRadix' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.radixInstances_areRadix
+/-- info: 'BaseN.RadixTie.radixInstances_length' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.radixInstances_length
+/-- info: 'BaseN.RadixTie.radixInstances_radices' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.radixInstances_radices
 -- BEGIN PINNED gatedNames
 /-- The `BaseN.*` names this file pins a `#guard_msgs` block for. Kept in lockstep
 with the blocks above by the `coverage` check, which fails on any drift. Written
@@ -3497,6 +3513,9 @@ def gatedNames : List Lean.Name := [
   `BaseN.RadixTie.quartetVal_bounds,
   `BaseN.RadixTie.quartetVal_on,
   `BaseN.RadixTie.quartetValid_of_digitVal,
+  `BaseN.RadixTie.radixInstances_areRadix,
+  `BaseN.RadixTie.radixInstances_length,
+  `BaseN.RadixTie.radixInstances_radices,
   `BaseN.RadixTie.toNat_b32_unapply_five,
   `BaseN.RadixTie.toNat_b64_unapply_three,
   `BaseN.RadixTie.toNat_eight,
@@ -3745,8 +3764,8 @@ run_cmd do
   let gated := BaseNAxioms.gatedNames.length
   let allow := BaseNAxioms.generatedAuxAllowlist.size
   -- Keep these in lockstep with the "universe, as measured" table above.
-  let expectedPub := 712
-  let expectedGated := 660
+  let expectedPub := 715
+  let expectedGated := 663
   let expectedAllow := 52
   let mut bad : Array String := #[]
   if pub.size != expectedPub then
@@ -3781,14 +3800,14 @@ run_cmd do
     bad := bad.push s!"gatedNames has {baseNPins} entries but the gate counts {gated} pinned"
   -- The prose states the total as `baseNPins + codecPins`; assert it against the
   -- number of `#print axioms` blocks the file actually carries.
-  if baseNPins + codecPins != 663 then
-    bad := bad.push s!"prose says 663 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
+  if baseNPins + codecPins != 666 then
+    bad := bad.push s!"prose says 666 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
   -- **Both figures in the `443 against 440` sentence are asserted** (R7-06, §2.2).
   -- The sentence names two counts and states a relation; asserting only the sum
   -- leaves both free to drift together while the prose goes stale, which is exactly
   -- what happened (`440 against 437` vs a truth of `443 / 440`).
-  let statedPrintBlockCount := 666
-  let statedGatedNamesCount := 660
+  let statedPrintBlockCount := 669
+  let statedGatedNamesCount := 663
   let gateSrc ← IO.FS.readFile "Axioms.lean"
   -- The prose's "443 `#print axioms` blocks" means the *code* blocks: the ones
   -- starting at column 0. A plain substring count also picks up every mention of
@@ -3821,8 +3840,8 @@ run_cmd do
   -- them; `gatedNames` does not contain them, so no subtraction is needed — this is
   -- measured, not assumed: a mismatch below prints all four.
   let statedDistPS := 539
-  let statedDistP := 82
-  let statedDistZ := 39
+  let statedDistP := 83
+  let statedDistZ := 41
   if distPS != statedDistPS then
     bad := bad.push s!"distribution says {statedDistPS} [propext, Quot.sound], measured {distPS}"
   if distP != statedDistP then
@@ -3869,9 +3888,9 @@ run_cmd do
   let mentionedCount := defs.size - BaseNAxioms.definitionSurfaceAllowlist.size
   logInfo m!"basen axiom gate: {defs.size} public definitions covered, {mentionedCount} mentioned and {BaseNAxioms.definitionSurfaceAllowlist.size} allowlisted (mention proxy)"
   -- Asserted, like the theorem table: a stale def count is a build failure.
-  let expectedDefs := 159
-  let expectedMentioned := 142
-  let expectedDefAllow := 17
+  let expectedDefs := 161
+  let expectedMentioned := 143
+  let expectedDefAllow := 18
   let mut bad : Array String := #[]
   if defs.size != expectedDefs then
     bad := bad.push s!"public defs: table says {expectedDefs}, environment has {defs.size}"

@@ -1086,7 +1086,48 @@ theorem toNat_of_b32BlockApply_five (cs : List UInt8) (b0 b1 b2 b3 b4 : UInt8)
   rw [← hun]
   exact toNat_b32_unapply_five b0 b1 b2 b3 b4
 
+/-! ## The seven radix instances (task 3.1)
+
+`numeralIso` is a single definition parameterised by the radix, so the "seven instances" are
+its seven `IsRadix` witnesses. They are enumerated **once**, in `radixInstances`, so a missing
+radix is a build failure rather than a shorter list — the "completeness claim that fails
+silently" shape this repo has closed five times.
+
+`IsRadix` is a `Prop`, so the enumeration is a `List Nat` plus a `∀` proof that each member is
+an `IsRadix`; `radixInstances_length` asserts the count and `radixInstances_radices` asserts
+the exact members, so the list cannot silently drift into a subset. -/
+
+/-- The seven radices this layer serves. **One source**, so a missing radix is a build failure
+and not a shorter list. -/
+def radixInstances : List Nat := [2, 4, 8, 10, 16, 32, 64]
+
+/-- Every enumerated radix carries its `IsRadix` witness, which is what `numeralIso` needs. -/
+theorem radixInstances_areRadix : ∀ b ∈ radixInstances, IsRadix b := by
+  intro b hb
+  simp only [radixInstances, List.mem_cons, List.not_mem_nil, or_false] at hb
+  rcases hb with rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact IsRadix.b2
+  · exact IsRadix.b4
+  · exact IsRadix.b8
+  · exact IsRadix.b10
+  · exact IsRadix.b16
+  · exact IsRadix.b32
+  · exact IsRadix.b64
+
+/-- The enumeration is exactly the seven radices the spec names. -/
+theorem radixInstances_length : radixInstances.length = 7 := rfl
+
+/-- And they are those seven, in order — so the list cannot drift into a subset. -/
+theorem radixInstances_radices : radixInstances = [2, 4, 8, 10, 16, 32, 64] := rfl
+
+/-- `numeralIso` at an enumerated radix: the instance, with its witness supplied by
+`radixInstances_areRadix` rather than by a literal at each call site. -/
+def numeralIsoAt (b : Nat) (hb : b ∈ radixInstances) :
+    Iso Nat (Codec.Normal (List UInt8) (BaseN.RadixCodec.normF b)) :=
+  BaseN.RadixCodec.numeralIso b (radixInstances_areRadix b hb)
+
 end BaseN.RadixTie
+
 
 
 
