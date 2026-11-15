@@ -504,10 +504,10 @@ theorem octBlockApply_of_toNat (d0 d1 d2 : UInt8) (n : Nat)
 /-- **The base-8 overflow law — `apply`'s domain, stated separately.**
 
 Three octal digits reach `511`, so a block whose value exceeds `255` is a numeral the fold
-accepts and the block *rejects*. This is the measured characterisation of the block's
-domain: `octBlockApply` succeeds **exactly** when its value is at most `255` (verified over
-all 512 digit triples), so this is a complete statement about the rejection rather than one
-half of it.
+accepts and the block *rejects*. **This theorem is the one-directional half** —
+`255 < value → none`. The complete characterisation is `octBlockApply_domain_iff` below, which
+states the iff; an earlier version of this docstring called *this* theorem a complete
+statement, which was false of the code beside it (§8.10).
 
 Stated over the block's own value expression: the block binds that expression with a `let`,
 so restating it as `n` first would shadow rather than connect. -/
@@ -520,6 +520,33 @@ theorem octBlockApply_overflow (d0 d1 d2 : UInt8)
   rw [BaseN.Base8.octBlockApply]
   simp only [hv, hv2, hv3, Bool.and_self, ite_true]
   rw [ite_eq_right (by omega)]
+
+/-- **Base 8's block domain, as an iff — the spec's "complete characterisation".**
+
+`octBlockApply_overflow` above gives one direction (`255 < value → none`), which is a
+*sufficient* condition for rejection, not a characterisation of the block's domain. This is
+the other half and then some: the block succeeds **exactly when** its value is at most `255`.
+
+The spec asks for precisely this (`basen-radix`'s third requirement: "for bases 8 and 10 a
+block succeeds exactly when its value is at most `255`, which makes the rejection law an iff
+about the block's domain rather than one half of it"), and §8.10 records that the prose said
+"complete" while only the one-directional theorem existed.
+
+The three `octValid` hypotheses are not slack: without them `octBlockApply` rejects on its
+alphabet guard, so the iff would be false for a digit like `'9'` whatever its value. -/
+theorem octBlockApply_domain_iff (d0 d1 d2 : UInt8)
+    (h0 : BaseN.Base8.octValid d0.toNat = true)
+    (h1 : BaseN.Base8.octValid d1.toNat = true)
+    (h2 : BaseN.Base8.octValid d2.toNat = true) :
+    (BaseN.Base8.octBlockApply [d0, d1, d2]).isSome = true
+      ↔ BaseN.Base8.octToVal d0.toNat * 64 + BaseN.Base8.octToVal d1.toNat * 8
+          + BaseN.Base8.octToVal d2.toNat ≤ 255 := by
+  rw [BaseN.Base8.octBlockApply]
+  simp only [h0, h1, h2, Bool.and_self, ite_true]
+  by_cases hle : BaseN.Base8.octToVal d0.toNat * 64 + BaseN.Base8.octToVal d1.toNat * 8
+      + BaseN.Base8.octToVal d2.toNat ≤ 255
+  · rw [ite_eq_left hle]; simp [hle]
+  · rw [ite_eq_right hle]; simp [hle]
 
 /-- **The base-8 tie, `←`.** -/
 theorem toNat_of_octBlockApply (d0 d1 d2 : UInt8) (v : UInt8)
@@ -680,10 +707,11 @@ theorem toNat_of_hexBlockApply (d0 d1 : UInt8) (v : UInt8)
 
 The mechanical repeat of base 8: three digits, `"999"` folds to `999`, so `digBlockApply`
 — whose codomain is `UInt8` — is **partial** on the numerals the fold accepts. Same
-repair as base 8 (design.md D6's third correction), and measured exhaustively rather
-than argued: over all 1000 decimal digit triples `digBlockApply ds` succeeds **iff** its
-value is at most `255`, so the overflow law below is a complete statement about the
-block's domain rather than a sufficient condition. -/
+repair as base 8 (design.md D6's third correction). The domain is characterised by an iff —
+over all 1000 decimal digit triples `digBlockApply ds` succeeds exactly when its value is at
+most `255` — and **the theorem that states it is `digBlockApply_domain_iff`, not the
+overflow law**; an earlier version of this docstring said the overflow law was the complete
+statement, which was one direction of a two-direction claim (§8.10). -/
 
 theorem digitVal_ten_shape (d : UInt8) :
     digitVal 10 d = (if inWin 48 57 d.toNat = true then some (d.toNat - 48) else none) := by
@@ -764,9 +792,10 @@ theorem digBlockApply_of_toNat (d0 d1 d2 : UInt8) (n : Nat)
 
 /-- **The base-10 overflow law — `digBlockApply`'s domain, stated separately.**
 
-Measured exhaustively over all 1000 decimal digit triples: the block succeeds **exactly
-when** its value is at most `255`. So this is a complete characterisation of the block's
-domain, matching base 8's `octBlockApply_overflow` in shape and reason. -/
+**This theorem is the one-directional half** — `255 < value → none`. The complete
+characterisation, the iff the spec actually mandates, is `digBlockApply_domain_iff` below;
+an earlier version of this docstring claimed the characterisation here, which this theorem
+does not state (§8.10). -/
 theorem digBlockApply_overflow (d0 d1 d2 : UInt8)
     (h : 255 < BaseN.Base10.digVal d0.toNat * 100 + BaseN.Base10.digVal d1.toNat * 10
       + BaseN.Base10.digVal d2.toNat)
@@ -776,6 +805,24 @@ theorem digBlockApply_overflow (d0 d1 d2 : UInt8)
   rw [BaseN.Base10.digBlockApply]
   simp only [hv, hv2, hv3, Bool.and_self, ite_true]
   rw [ite_eq_right (by omega)]
+
+/-- **Base 10's block domain, as an iff** — `octBlockApply_domain_iff`'s twin, and the second
+half of the spec's "complete characterisation" for the two bases whose blocks can overflow
+`UInt8`. Three decimal digits reach `999`, so `"999"` is a numeral the fold accepts
+(`some 999`) and the block rejects; the iff says that is the *only* reason it rejects. -/
+theorem digBlockApply_domain_iff (d0 d1 d2 : UInt8)
+    (h0 : BaseN.Base10.digValid d0.toNat = true)
+    (h1 : BaseN.Base10.digValid d1.toNat = true)
+    (h2 : BaseN.Base10.digValid d2.toNat = true) :
+    (BaseN.Base10.digBlockApply [d0, d1, d2]).isSome = true
+      ↔ BaseN.Base10.digVal d0.toNat * 100 + BaseN.Base10.digVal d1.toNat * 10
+          + BaseN.Base10.digVal d2.toNat ≤ 255 := by
+  rw [BaseN.Base10.digBlockApply]
+  simp only [h0, h1, h2, Bool.and_self, ite_true]
+  by_cases hle : BaseN.Base10.digVal d0.toNat * 100 + BaseN.Base10.digVal d1.toNat * 10
+      + BaseN.Base10.digVal d2.toNat ≤ 255
+  · rw [ite_eq_left hle]; simp [hle]
+  · rw [ite_eq_right hle]; simp [hle]
 
 /-- **The base-10 tie, `←`.** -/
 theorem toNat_of_digBlockApply (d0 d1 d2 : UInt8) (v : UInt8)

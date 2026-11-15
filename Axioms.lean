@@ -42,12 +42,12 @@ So every number below is now checked against the environment by `headerNumbers`,
 three separate claims: the pin total, its `BaseN`/`Codec` split, and the footprint
 distribution's three-way split. If this paragraph drifts, the build names the figure.
 
-The file carries **668 pins**: **665** are `BaseN.*` laws and **3** are `Codec.*`
+The file carries **670 pins**: **667** are `BaseN.*` laws and **3** are `Codec.*`
 (`roundtrip`, `bidir`, `decode_spec`) — the *dependency's* laws, pinned for discipline
 and outside this repo's own universe. `publicTheorems` walks only `BaseN`, so the
-gate's own universe is **717 = 665 + 52 allowlisted**. The 665 `BaseN` pinned
-footprints are 541 `[propext, Quot.sound]`, 83 `[propext]`-only and 41 axiom-free
-(541 + 83 + 41 = 665), and all 3 `Codec.*` pins are `[propext, Quot.sound]`.
+gate's own universe is **719 = 667 + 52 allowlisted**. The 667 `BaseN` pinned
+footprints are 541 `[propext, Quot.sound]`, 85 `[propext]`-only and 41 axiom-free
+(541 + 85 + 41 = 667), and all 3 `Codec.*` pins are `[propext, Quot.sound]`.
 `Classical.choice` appears nowhere.
 
 The 22 theorems added by §4 are the base32 §3.5 family: the 2/3/4-byte pad-bit
@@ -1668,12 +1668,12 @@ the `BaseN` namespace:
 
 | side | count |
 | --- | --- |
-| public theorems in the `BaseN` namespace | **717** |
-| pinned by a `#guard_msgs` above (`gatedNames`) | **665** |
+| public theorems in the `BaseN` namespace | **719** |
+| pinned by a `#guard_msgs` above (`gatedNames`) | **667** |
 | allowlisted (`generatedAuxAllowlist`) | **52** |
 | un-gated and unlisted | **0** |
 
-717 = 665 + 52, with no third route. Of the 52 allowlisted, **40** are the ones the
+719 = 667 + 52, with no third route. Of the 52 allowlisted, **40** are the ones the
 suffix classifier drops (`*.inj` ×9, `*.injEq` ×9, `*.sizeOf_spec` ×11, `*.eq_def`
 ×8) and **9** are the hand-reviewed ones that the classifier does *not* match
 (`brecOn.eq` ×2, `*.go` ×6, `Run.step`) — the `*.go` helpers are the trap, since
@@ -1726,7 +1726,7 @@ law obligation, and §3.2's ties already constrain these blocks where it counts.
 
 The 3 `Codec.*` pins (roundtrip/bidir/decode_spec) are the dependency's laws and lie
 *outside* this namespace — pinned for discipline, not partitioned, which is why
-`grep -c '^#print axioms'` reports **671** against `gatedNames`' **665** — the three
+`grep -c '^#print axioms'` reports **673** against `gatedNames`' **667** — the three
 `RadixCodec` `eq_def` blocks measure footprints of names `gatedNames` cannot hold.
 
 **Both figures in that sentence are asserted** (R7-06, `codec-audit-round-six` §2.2).
@@ -2763,6 +2763,9 @@ section grows in even steps. The base-2 pair below is the template. -/
 /-- info: 'BaseN.RadixTie.octBlockApply_overflow' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.RadixTie.octBlockApply_overflow
+/-- info: 'BaseN.RadixTie.octBlockApply_domain_iff' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.octBlockApply_domain_iff
 /-- info: 'BaseN.RadixTie.octToVal_bounds' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.RadixTie.octToVal_bounds
@@ -2818,6 +2821,9 @@ section grows in even steps. The base-2 pair below is the template. -/
 /-- info: 'BaseN.RadixTie.digBlockApply_overflow' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.RadixTie.digBlockApply_overflow
+/-- info: 'BaseN.RadixTie.digBlockApply_domain_iff' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixTie.digBlockApply_domain_iff
 /-- info: 'BaseN.RadixTie.digVal_bounds' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in
 #print axioms BaseN.RadixTie.digVal_bounds
@@ -3509,6 +3515,7 @@ def gatedNames : List Lean.Name := [
   `BaseN.RadixTie.bitValid_of_digitVal_two,
   `BaseN.RadixTie.digBlockApply_of_toNat,
   `BaseN.RadixTie.digBlockApply_overflow,
+  `BaseN.RadixTie.digBlockApply_domain_iff,
   `BaseN.RadixTie.digVal_bounds,
   `BaseN.RadixTie.digVal_on,
   `BaseN.RadixTie.digValid_of_digitVal_ten,
@@ -3532,6 +3539,7 @@ def gatedNames : List Lean.Name := [
   `BaseN.RadixTie.natVal_two,
   `BaseN.RadixTie.octBlockApply_of_toNat,
   `BaseN.RadixTie.octBlockApply_overflow,
+  `BaseN.RadixTie.octBlockApply_domain_iff,
   `BaseN.RadixTie.octToVal_bounds,
   `BaseN.RadixTie.octToVal_on,
   `BaseN.RadixTie.octValid_of_digitVal,
@@ -3792,8 +3800,8 @@ run_cmd do
   let gated := BaseNAxioms.gatedNames.length
   let allow := BaseNAxioms.generatedAuxAllowlist.size
   -- Keep these in lockstep with the "universe, as measured" table above.
-  let expectedPub := 717
-  let expectedGated := 665
+  let expectedPub := 719
+  let expectedGated := 667
   let expectedAllow := 52
   let mut bad : Array String := #[]
   if pub.size != expectedPub then
@@ -3862,8 +3870,8 @@ run_cmd do
   -- The sentence names two counts and states a relation; asserting only the sum
   -- leaves both free to drift together while the prose goes stale, which is exactly
   -- what happened (`440 against 437` vs a truth of `443 / 440`).
-  let statedPrintBlockCount := 671
-  let statedGatedNamesCount := 665
+  let statedPrintBlockCount := 673
+  let statedGatedNamesCount := 667
   let gateSrc ← IO.FS.readFile "Axioms.lean"
   -- The prose's "443 `#print axioms` blocks" means the *code* blocks: the ones
   -- starting at column 0. A plain substring count also picks up every mention of
@@ -3896,7 +3904,7 @@ run_cmd do
   -- them; `gatedNames` does not contain them, so no subtraction is needed — this is
   -- measured, not assumed: a mismatch below prints all four.
   let statedDistPS := 541
-  let statedDistP := 83
+  let statedDistP := 85
   let statedDistZ := 41
   if distPS != statedDistPS then
     bad := bad.push s!"distribution says {statedDistPS} [propext, Quot.sound], measured {distPS}"
