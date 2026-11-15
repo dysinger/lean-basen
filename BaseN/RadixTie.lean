@@ -948,8 +948,19 @@ theorem toNat_b64_unapply_three (b0 b1 b2 : UInt8) :
 
 Read as: the block's `apply` on the characters it itself writes for `bs` returns `bs`, and
 the generic fold on those same characters returns `beVal bs`. So the two agree on every
-input the block accepts *canonically* — which, because `b64BlockApply` re-encodes and
-compares, is every input it accepts at all (`b64BlockIso_law`).
+vector the block itself produces.
+
+**The statement is over that vector, not over every input the block accepts — and an earlier
+version of this docstring claimed the latter, which is false.** Measured:
+
+```
+BaseN.Base64.b64BlockApply [90,103,61,61]  ->  some [102]    ("Zg==")
+BaseN.Radix.toNat 64 [90,103,61,61]        ->  none
+```
+
+`=` is not in the fold's alphabet, so the 1- and 2-byte blocks are outside the fold's domain
+even though the block accepts them. That is the pad-free restriction `toNat_of_b64BlockApply_three`
+states on the other side; it is a genuine limitation of the tie, not an arity formality.
 
 **No domain hypothesis**, unlike bases 8 and 10: four base-64 characters reach
 `2^24 - 1 = 16777215`, exactly a whole 3-byte block, so the codomain cannot be
@@ -972,8 +983,12 @@ theorem b64BlockApply_of_toNat (b0 b1 b2 : UInt8) :
 /-- **The base-64 tie, `←`, on the pad-free block.** A 4-character base-64 block is pad-free
 exactly when it encodes three bytes; the 1- and 2-byte blocks carry `=`, which is outside the
 fold's alphabet, so those are outside its domain and this statement does not claim otherwise.
-That restriction is an *arity* fact, not a canonicity guard — the same shape as
-`toNat 32 [77,89,61,…] = none` while the block accepts it. -/
+
+**That restriction is a canonicity divergence, not an arity fact.** An earlier version of this
+docstring called it the latter and that was the error: `b64BlockApply [90,103,61,61]` (`"Zg=="`)
+returns `some [102]`, so a short-tail block IS accepted by the block and IS unreadable by the
+fold. The gap is the pad byte, which the block's own re-encode-and-compare guard admits and the
+fold's alphabet does not contain. -/
 theorem toNat_of_b64BlockApply_three (cs : List UInt8) (b0 b1 b2 : UInt8)
     (h : BaseN.Base64.b64BlockApply cs = some [b0, b1, b2]) :
     toNat 64 cs = some (beVal [b0, b1, b2]) := by
@@ -1076,7 +1091,11 @@ theorem b32BlockApply_of_toNat (b0 b1 b2 b3 b4 : UInt8) :
 
 /-- **The base-32 tie, `←`, on the pad-free block.** Eight base-32 characters are pad-free
 exactly when they encode five bytes; shorter blocks carry `=`, outside the fold's alphabet,
-so this statement is over the full 5-byte block only — an arity fact, not a canonicity guard. -/
+so this statement is over the full 5-byte block only.
+
+**That restriction is a canonicity divergence, not an arity fact** — the same correction as
+`toNat_of_b64BlockApply_three`'s, and measured: `toNat 32 [77,89,61,61,61,61,61,61] = none`
+(`'='` is not a base-32 digit) while `b32BlockApply` on it returns `some [102]`. -/
 theorem toNat_of_b32BlockApply_five (cs : List UInt8) (b0 b1 b2 b3 b4 : UInt8)
     (h : BaseN.Base32.b32BlockApply cs = some [b0, b1, b2, b3, b4]) :
     toNat 32 cs = some (beVal [b0, b1, b2, b3, b4]) := by
