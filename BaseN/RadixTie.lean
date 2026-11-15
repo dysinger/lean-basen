@@ -676,5 +676,136 @@ theorem toNat_of_hexBlockApply (d0 d1 : UInt8) (v : UInt8)
   · rw [ite_eq_right hgood] at h
     exact absurd h (by simp)
 
+/-! ## Base 10 — the three-decimal-digit block
+
+The mechanical repeat of base 8: three digits, `"999"` folds to `999`, so `digBlockApply`
+— whose codomain is `UInt8` — is **partial** on the numerals the fold accepts. Same
+repair as base 8 (design.md D6's third correction), and measured exhaustively rather
+than argued: over all 1000 decimal digit triples `digBlockApply ds` succeeds **iff** its
+value is at most `255`, so the overflow law below is a complete statement about the
+block's domain rather than a sufficient condition. -/
+
+theorem digitVal_ten_shape (d : UInt8) :
+    digitVal 10 d = (if inWin 48 57 d.toNat = true then some (d.toNat - 48) else none) := by
+  rw [digitVal_eq]; simp
+
+theorem digVal_on {c : Nat} (h : inWin 48 57 c = true) :
+    BaseN.Base10.digVal c = c - 48 := by
+  obtain ⟨hlo, hhi⟩ := inWin_eq_true h
+  unfold BaseN.Base10.digVal
+  rw [ite_eq_left hhi, ite_eq_left hlo]
+
+theorem digVal_bounds (c : Nat) (h : BaseN.Base10.digVal c ≤ 9) : 48 ≤ c ∧ c ≤ 57 := by
+  unfold BaseN.Base10.digVal at h
+  by_cases h1 : c ≤ 57
+  · rw [ite_eq_left h1] at h
+    by_cases h2 : 48 ≤ c
+    · exact ⟨h2, h1⟩
+    · rw [ite_eq_right h2] at h
+      omega
+  · rw [ite_eq_right h1] at h
+    omega
+
+theorem digitVal_ten_of_digValid (d : UInt8) (hv : BaseN.Base10.digValid d.toNat = true) :
+    digitVal 10 d = some (BaseN.Base10.digVal d.toNat) := by
+  have hle := BaseN.Base10.digValid_of_decide d.toNat hv
+  obtain ⟨hlo, hhi⟩ := digVal_bounds d.toNat hle
+  rw [digitVal_ten_shape]
+  have hin : inWin 48 57 d.toNat = true := by rw [inWin_iff]; exact ⟨hlo, hhi⟩
+  rw [hin]
+  simp only [ite_true]
+  rw [digVal_on hin]
+
+theorem digValid_of_digitVal_ten (d : UInt8) (h : (digitVal 10 d).isSome = true) :
+    BaseN.Base10.digValid d.toNat = true := by
+  rw [digitVal_ten_shape] at h
+  by_cases hin : inWin 48 57 d.toNat = true
+  · obtain ⟨hlo, hhi⟩ := inWin_eq_true hin
+    unfold BaseN.Base10.digValid
+    show decide (BaseN.Base10.digVal d.toNat ≤ 9) = true
+    rw [digVal_on hin]
+    simp only [decide_eq_true_eq]
+    omega
+  · simp only [hin] at h
+    exact absurd h (by simp)
+
+/-- **The base-10 tie, `→`, with the domain hypothesis.** Three decimal digits reach `999`,
+so `digBlockApply` is partial on the numerals the fold accepts, exactly as base 8 is. The
+domain condition belongs in the hypothesis for the reason D6's third correction gives:
+`PAPER.md`'s `apply : α → Maybe β` is a function, so a partial iso's domain is what the
+arrow models. The rejection is `digBlockApply_overflow` below, not a disjunct here. -/
+theorem digBlockApply_of_toNat (d0 d1 d2 : UInt8) (n : Nat)
+    (h : toNat 10 [d0, d1, d2] = some n) (hn : n ≤ 255) :
+    BaseN.Base10.digBlockApply [d0, d1, d2] = some (UInt8.ofNat n) := by
+  have hdig : BaseN.RadixCodec.isDigits 10 [d0, d1, d2] = true :=
+    BaseN.RadixCodec.isDigits_of_toNat (by rw [h]; rfl)
+  rw [BaseN.RadixCodec.isDigits_iff] at hdig
+  have hv0 := digValid_of_digitVal_ten d0 (hdig d0 (by simp))
+  have hv1 := digValid_of_digitVal_ten d1 (hdig d1 (by simp))
+  have hv2 := digValid_of_digitVal_ten d2 (hdig d2 (by simp))
+  have hval := toNat_three 10 d0 d1 d2
+      (BaseN.Base10.digVal d0.toNat) (BaseN.Base10.digVal d1.toNat)
+      (BaseN.Base10.digVal d2.toNat) n
+      (digitVal_ten_of_digValid d0 hv0) (digitVal_ten_of_digValid d1 hv1)
+      (digitVal_ten_of_digValid d2 hv2) h
+  rw [BaseN.Base10.digBlockApply]
+  simp only [hv0, hv1, hv2, Bool.and_self, ite_true]
+  rw [hval, natVal_three]
+  simp only [Nat.reducePow]
+  have hn' : BaseN.Base10.digVal d0.toNat * 100 + BaseN.Base10.digVal d1.toNat * 10
+      + BaseN.Base10.digVal d2.toNat ≤ 255 := by
+    rw [show BaseN.Base10.digVal d0.toNat * 100 + BaseN.Base10.digVal d1.toNat * 10
+      + BaseN.Base10.digVal d2.toNat
+        = natVal 10 [BaseN.Base10.digVal d0.toNat, BaseN.Base10.digVal d1.toNat,
+            BaseN.Base10.digVal d2.toNat] from (natVal_three 10 _ _ _).symm]
+    rw [← hval]
+    exact hn
+  rw [ite_eq_left hn']
+
+/-- **The base-10 overflow law — `digBlockApply`'s domain, stated separately.**
+
+Measured exhaustively over all 1000 decimal digit triples: the block succeeds **exactly
+when** its value is at most `255`. So this is a complete characterisation of the block's
+domain, matching base 8's `octBlockApply_overflow` in shape and reason. -/
+theorem digBlockApply_overflow (d0 d1 d2 : UInt8)
+    (h : 255 < BaseN.Base10.digVal d0.toNat * 100 + BaseN.Base10.digVal d1.toNat * 10
+      + BaseN.Base10.digVal d2.toNat)
+    (hv : BaseN.Base10.digValid d0.toNat = true) (hv2 : BaseN.Base10.digValid d1.toNat = true)
+    (hv3 : BaseN.Base10.digValid d2.toNat = true) :
+    BaseN.Base10.digBlockApply [d0, d1, d2] = none := by
+  rw [BaseN.Base10.digBlockApply]
+  simp only [hv, hv2, hv3, Bool.and_self, ite_true]
+  rw [ite_eq_right (by omega)]
+
+/-- **The base-10 tie, `←`.** -/
+theorem toNat_of_digBlockApply (d0 d1 d2 : UInt8) (v : UInt8)
+    (h : BaseN.Base10.digBlockApply [d0, d1, d2] = some v) :
+    toNat 10 [d0, d1, d2] = some v.toNat := by
+  rw [BaseN.Base10.digBlockApply] at h
+  by_cases hgood : (BaseN.Base10.digValid d0.toNat && BaseN.Base10.digValid d1.toNat &&
+      BaseN.Base10.digValid d2.toNat) = true
+  · rw [ite_eq_left hgood] at h
+    simp only [Bool.and_eq_true] at hgood
+    obtain ⟨⟨hg0, hg1⟩, hg2⟩ := hgood
+    by_cases hle : BaseN.Base10.digVal d0.toNat * 100 + BaseN.Base10.digVal d1.toNat * 10
+        + BaseN.Base10.digVal d2.toNat ≤ 255
+    · rw [ite_eq_left hle] at h
+      injection h with hv
+      subst hv
+      rw [toNat_cons_some 10 d0 _ _ (digitVal_ten_of_digValid d0 hg0),
+          toNat_cons_some 10 d1 _ _ (digitVal_ten_of_digValid d1 hg1),
+          toNat_cons_some 10 d2 [] _ (digitVal_ten_of_digValid d2 hg2),
+          toNat_nil]
+      simp only [Option.map_some]
+      rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (by omega)]
+      congr 1
+      simp only [List.length_cons, List.length_nil, Nat.pow_zero, Nat.pow_succ, Nat.mul_one]
+      omega
+    · rw [ite_eq_right hle] at h
+      exact absurd h (by simp)
+  · rw [ite_eq_right hgood] at h
+    exact absurd h (by simp)
+
 end BaseN.RadixTie
+
 
