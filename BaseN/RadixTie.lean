@@ -550,4 +550,131 @@ theorem toNat_of_octBlockApply (d0 d1 d2 : UInt8) (v : UInt8)
   · rw [ite_eq_right hgood] at h
     exact absurd h (by simp)
 
+/-! ## Base 16 — the two-nibble block
+
+Two digits, and the only `_8` base whose alphabet has **two** windows (`0`–`9` and `A`–`F`),
+so the digit bridge is a two-arm shape rather than base 2's single window. The digit-level
+halves already exist in `Base16` (`hexToNibble_digit`, `hexToNibble_upper`), measured
+`[propext, Quot.sound]`-only; what this section adds is the lift to `digitVal 16`.
+
+**No overflow law here**, unlike base 8: two nibbles reach `15 * 16 + 15 = 255` exactly, so
+`n ≤ 255` follows from the digit bounds and the strong form needs no hypothesis. -/
+
+theorem digitVal_sixteen_shape (d : UInt8) :
+    digitVal 16 d = (if inWin 48 57 d.toNat = true then some (d.toNat - 48)
+      else if inWin 65 70 d.toNat = true then some (d.toNat - 55) else none) := by
+  rw [digitVal_eq]; simp
+
+/-- `hexToNibble` on either of its two windows, as one statement. -/
+theorem hexToNibble_on {c : Nat} (h : inWin 48 57 c = true ∨ inWin 65 70 c = true) :
+    BaseN.Base16.hexToNibble c = (if inWin 48 57 c = true then c - 48 else c - 55) := by
+  rcases h with h | h
+  · obtain ⟨hlo, hhi⟩ := inWin_eq_true h
+    rw [BaseN.Base16.hexToNibble_digit c hlo hhi, ite_eq_left h]
+  · obtain ⟨hlo, hhi⟩ := inWin_eq_true h
+    have hnot : ¬ inWin 48 57 c = true := by
+      rw [inWin_iff]; omega
+    rw [BaseN.Base16.hexToNibble_upper c hlo hhi, ite_eq_right hnot]
+
+/-- The two windows of base 16, recovered from the value being `≤ 15`. -/
+theorem hexToNibble_window (c : Nat) (h : BaseN.Base16.hexToNibble c ≤ 15) :
+    inWin 48 57 c = true ∨ inWin 65 70 c = true := by
+  unfold BaseN.Base16.hexToNibble at h
+  by_cases h1 : c ≤ 57
+  · rw [ite_eq_left h1] at h
+    by_cases h2 : 48 ≤ c
+    · exact Or.inl (by rw [inWin_iff]; exact ⟨h2, h1⟩)
+    · rw [ite_eq_right h2] at h
+      exact absurd h (by omega)
+  · rw [ite_eq_right h1] at h
+    by_cases h2 : c ≤ 70
+    · rw [ite_eq_left h2] at h
+      by_cases h3 : 65 ≤ c
+      · exact Or.inr (by rw [inWin_iff]; exact ⟨h3, h2⟩)
+      · rw [ite_eq_right h3] at h
+        exact absurd h (by omega)
+    · rw [ite_eq_right h2] at h
+      exact absurd h (by omega)
+
+theorem digitVal_sixteen_of_hexNibbleValid (d : UInt8)
+    (hv : BaseN.Base16.hexNibbleValid d.toNat = true) :
+    digitVal 16 d = some (BaseN.Base16.hexToNibble d.toNat) := by
+  have hle := BaseN.Base16.hexNibbleValid_of_decide d.toNat hv
+  rcases hexToNibble_window d.toNat hle with hin | hin
+  · rw [digitVal_sixteen_shape]
+    rw [ite_eq_left hin]
+    rw [hexToNibble_on (Or.inl hin), ite_eq_left hin]
+  · have hnot : ¬ inWin 48 57 d.toNat = true := by
+      rw [inWin_iff]; obtain ⟨a, b⟩ := inWin_eq_true hin; omega
+    rw [digitVal_sixteen_shape]
+    rw [ite_eq_right hnot]
+    rw [ite_eq_left hin]
+    rw [hexToNibble_on (Or.inr hin), ite_eq_right hnot]
+theorem hexNibbleValid_of_digitVal_sixteen (d : UInt8)
+    (h : (digitVal 16 d).isSome = true) : BaseN.Base16.hexNibbleValid d.toNat = true := by
+  rw [digitVal_sixteen_shape] at h
+  by_cases hd : inWin 48 57 d.toNat = true
+  · obtain ⟨hlo, hhi⟩ := inWin_eq_true hd
+    unfold BaseN.Base16.hexNibbleValid
+    show decide (BaseN.Base16.hexToNibble d.toNat ≤ 15) = true
+    rw [BaseN.Base16.hexToNibble_digit d.toNat hlo hhi]
+    simp only [decide_eq_true_eq]
+    omega
+  · simp only [hd] at h
+    by_cases hu : inWin 65 70 d.toNat = true
+    · obtain ⟨hlo, hhi⟩ := inWin_eq_true hu
+      unfold BaseN.Base16.hexNibbleValid
+      show decide (BaseN.Base16.hexToNibble d.toNat ≤ 15) = true
+      rw [BaseN.Base16.hexToNibble_upper d.toNat hlo hhi]
+      simp only [decide_eq_true_eq]
+      omega
+    · simp only [hu] at h
+      exact absurd h (by simp)
+
+/-- **The base-16 tie, `→`.** Two nibbles reach exactly `255`, so there is no domain
+hypothesis — the strong form of the paper's law, as for bases 2 and 4. -/
+theorem hexBlockApply_of_toNat (d0 d1 : UInt8) (n : Nat)
+    (h : toNat 16 [d0, d1] = some n) :
+    BaseN.Base16.hexBlockApply [d0, d1] = some (UInt8.ofNat n) := by
+  have hdig : BaseN.RadixCodec.isDigits 16 [d0, d1] = true :=
+    BaseN.RadixCodec.isDigits_of_toNat (by rw [h]; rfl)
+  rw [BaseN.RadixCodec.isDigits_iff] at hdig
+  have hv0 := hexNibbleValid_of_digitVal_sixteen d0 (hdig d0 (by simp))
+  have hv1 := hexNibbleValid_of_digitVal_sixteen d1 (hdig d1 (by simp))
+  rw [BaseN.Base16.hexBlockApply]
+  simp only [hv0, hv1, Bool.and_self, ite_true]
+  have hval := toNat_two 16 d0 d1
+      (BaseN.Base16.hexToNibble d0.toNat) (BaseN.Base16.hexToNibble d1.toNat) n
+      (digitVal_sixteen_of_hexNibbleValid d0 hv0)
+      (digitVal_sixteen_of_hexNibbleValid d1 hv1) h
+  rw [hval, natVal_two]
+
+/-- **The base-16 tie, `←`.** -/
+theorem toNat_of_hexBlockApply (d0 d1 : UInt8) (v : UInt8)
+    (h : BaseN.Base16.hexBlockApply [d0, d1] = some v) :
+    toNat 16 [d0, d1] = some v.toNat := by
+  rw [BaseN.Base16.hexBlockApply] at h
+  by_cases hgood : (BaseN.Base16.hexNibbleValid d0.toNat &&
+      BaseN.Base16.hexNibbleValid d1.toNat) = true
+  · rw [ite_eq_left hgood] at h
+    simp only [Bool.and_eq_true] at hgood
+    obtain ⟨hg0, hg1⟩ := hgood
+    injection h with hv
+    subst hv
+    rw [toNat_cons_some 16 d0 _ _ (digitVal_sixteen_of_hexNibbleValid d0 hg0),
+        toNat_cons_some 16 d1 [] _ (digitVal_sixteen_of_hexNibbleValid d1 hg1),
+        toNat_nil]
+    simp only [Option.map_some]
+    rw [UInt8.toNat_ofNat']
+    rw [Nat.mod_eq_of_lt (by
+      have l0 := BaseN.Base16.hexNibbleValid_of_decide d0.toNat hg0
+      have l1 := BaseN.Base16.hexNibbleValid_of_decide d1.toNat hg1
+      omega)]
+    congr 1
+    simp only [List.length_cons, List.length_nil, Nat.pow_zero, Nat.pow_succ, Nat.mul_one]
+    omega
+  · rw [ite_eq_right hgood] at h
+    exact absurd h (by simp)
+
 end BaseN.RadixTie
+
