@@ -1933,7 +1933,24 @@ theorem fixed_is_numeral {b : Nat} (hr : IsRadix b) {ds : List UInt8}
       rw [← hfix]
 
 
-/-- `numeralIso b`: `Nat` ≃ the quotient of numerals, which `normF`'s fixed points are. -/
+/-- `numeralIso b`: `Nat` ≃ the quotient of numerals, which `normF`'s fixed points are.
+
+**This is a `[S7]` strengthening in `lean-codec`'s `README.md`, not a departure.** The
+reference paper (`PAPER.md` §3.1) states the inverse law and then relaxes it to hold "modulo
+equivalence classes", implementing that by parameterising its constructor over an `Eq`
+instance — `element :: Eq α ⇒ α → Iso () α` (`PAPER.md:789`), with `≡` deciding the class.
+`Codec.Iso.law` has no `Eq` slot (`law` is a plain `↔` field), so that device is *not
+available* here rather than merely unchosen.
+
+What this definition does instead is reify a **canonical representative**: `Normal` is the
+subtype of `normF`'s fixed points, so the equivalence lives in the codomain *type* and the
+law holds **unconditionally on the quotient** — strictly stronger than the paper's softened
+reading, and with no `Eq` argument.
+
+The quotient absorbs only variation that denotes the **same** value. `trimFor` — not this
+`Iso` — is what rejects a trailing blank, a trailing non-digit and an out-of-alphabet
+digit; absorbing those would be `Codec.ignore`'s lossy capture, which `[D4]` exists to
+remove, not an equivalence class. -/
 def numeralIso (b : Nat) (hr : IsRadix b) : Iso Nat (Normal (List UInt8) (normF b)) where
   apply n := some ⟨normF b (ofNat b n), normF_idem b hr (ofNat b n)⟩
   unapply f := toNat b f.raw
