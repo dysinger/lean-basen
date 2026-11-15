@@ -13,7 +13,22 @@ chars + `=`.
 
 All digit math is `Nat`-level; the alphabet is ASCII, every produced byte is
 `< 256`.  `[propext, Quot.sound]`-only, zero `sorry`.
--/
+
+**This base has no case pre-pass, and must not get one.** Base 16 and base 32 fold
+`a`–`z` to `A`–`Z` because their alphabets contain no lowercase symbols — the letters
+only ever appear as lax spellings of the uppercase ones. Base 64's alphabet uses **all
+64 symbols including 26 lowercase letters**, so `a` and `A` are two different values
+(26 vs 0). Uppercasing a base64 payload therefore does not normalise it; it **silently
+corrupts** it:
+
+```
+"TWFu"  -> some [77, 97, 110]     "Man"
+"twfu"  -> some [183, 7, 238]     a different, equally well-formed value
+```
+
+Both are entirely within the alphabet and differ only in case. The exclusion is
+asserted rather than described: see `Bench.b64Lower_decodes`, which pins both decodes
+so that adding the pre-pass here breaks the build. (`basen-uppercase-prepass` §5.) -/
 
 import BaseN.Common
 
