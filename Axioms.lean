@@ -28,24 +28,27 @@ pinned by a `#guard_msgs` below or recorded in `generatedAuxAllowlist` with a re
 (The audit that prompted this found 91 of 404, i.e. 22.5% — the gap was real and took
 two sessions to close.)
 
-**The counts, stated correctly, and now *asserted*.** An earlier version of this
+**The counts, stated correctly, and now *bound*.** An earlier version of this
 paragraph over-counted by conflating two namespaces; a later one said
-`440 / 437 / 483` and had rotted a full regeneration behind, because the header
-`run_cmd` asserted the *table* further down and never read this paragraph. Both are
-fixed: the figures here are now computed by `headerNumbers` from `gatedNames` and
-`generatedAuxAllowlist`, so this paragraph cannot be stale while the build is green.
+`440 / 437 / 483` and had rotted a full regeneration behind. The *reason* it could rot
+is worth keeping, because the first two attempts at a fix both missed it:
 
-The file carries **487 pins**: **484** are `BaseN.*` laws and **3** are `Codec.*`
+* the header `run_cmd` asserted the *table* further down and never read this paragraph;
+* the sentence claiming the paragraph "cannot be stale" was **itself unbound**, and
+  went 189 theorems out of date beside a green gate that compared a literal `673`
+  against a computed value and never looked at these words.
+
+So every number below is now checked against the environment by `headerNumbers`, as
+three separate claims: the pin total, its `BaseN`/`Codec` split, and the footprint
+distribution's three-way split. If this paragraph drifts, the build names the figure.
+
+The file carries **668 pins**: **665** are `BaseN.*` laws and **3** are `Codec.*`
 (`roundtrip`, `bidir`, `decode_spec`) — the *dependency's* laws, pinned for discipline
 and outside this repo's own universe. `publicTheorems` walks only `BaseN`, so the
-gate's own universe is **533 = 484 + 49 allowlisted**. The 484 `BaseN` pinned
-footprints are 412 `[propext, Quot.sound]`, 50 `[propext]`-only and 22 axiom-free
-(412 + 50 + 22 = 484), and all 3 `Codec.*` pins are `[propext, Quot.sound]`.
-`Classical.choice` appears nowhere. (An earlier revision of these last two sentences
-said `375 / 48 / 15` for the `BaseN` side but then had the `Codec` pins contribute
-"2 `[propext, Quot.sound]` and 1 `[Quot.sound]`", which no longer reconciles with the
-`#print axioms` blocks below — all three are `[propext, Quot.sound]`. Re-derived by
-parsing every `#guard_msgs` footprint block.)
+gate's own universe is **717 = 665 + 52 allowlisted**. The 665 `BaseN` pinned
+footprints are 541 `[propext, Quot.sound]`, 83 `[propext]`-only and 41 axiom-free
+(541 + 83 + 41 = 665), and all 3 `Codec.*` pins are `[propext, Quot.sound]`.
+`Classical.choice` appears nowhere.
 
 The 22 theorems added by §4 are the base32 §3.5 family: the 2/3/4-byte pad-bit
 lemmas, their block-level rejections, and the three whole-input rejections plus
@@ -3823,10 +3826,38 @@ run_cmd do
     | none => bad := bad.push s!"prose names the Codec.* pin {n}, which is not in the environment"
   if baseNPins != gated then
     bad := bad.push s!"gatedNames has {baseNPins} entries but the gate counts {gated} pinned"
-  -- The prose states the total as `baseNPins + codecPins`; assert it against the
-  -- number of `#print axioms` blocks the file actually carries.
-  if baseNPins + codecPins != 668 then
-    bad := bad.push s!"prose says 668 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
+  -- **The prose paragraph is READ, not transcribed into a constant here.** This is
+  -- the §8.5 fix: the paragraph went 189 theorems stale beside a green gate because
+  -- the only check compared a literal against a computed value and never looked at
+  -- the words. The `**N pins**` and `**N**` / `**N = a + b**` forms below are pulled
+  -- out of the *source text* and each one is compared with the environment, so the
+  -- sentence is bound rather than asserted-about.
+  let proseSrc ← IO.FS.readFile "Axioms.lean"
+  -- Take the module docstring: from the start of the file to the first `-/`.
+  -- The module docstring runs from the LAST `/-!` in the file's first 200 lines to the
+  -- first `-/` after it. Segment 0 is the copyright block, so segment 1 is the docstring
+  -- and everything from `headerNumbers`'s own comment on is far past it.
+  let head := ((String.splitOn proseSrc "/-!").drop 1).head?.getD ""
+  let paragraph := (String.splitOn head "-/").head?.getD ""
+  -- Pull `**<digits>` out of the paragraph. Two markers, because the paragraph states
+  -- the pin total *before* the word "pins" and the universe total after "is ".
+  let digitsAfter (hay : String) (marker : String) : Option Nat := Id.run do
+    let parts := String.splitOn hay marker
+    if parts.length < 2 then return none
+    let rest := parts[1]!
+    let ds := rest.takeWhile Char.isDigit
+    if ds.isEmpty then none else ds.toNat?
+  match digitsAfter paragraph "carries **" with
+  | none => bad := bad.push "the header paragraph no longer states `carries **N pins**`, so §8.5's binding cannot read it"
+  | some stated =>
+      if stated != baseNPins + codecPins then
+        bad := bad.push s!"the header paragraph says {stated} pins; the environment has {baseNPins + codecPins} ({baseNPins} BaseN + {codecPins} Codec)"
+  -- Pull `**717 = 665 + 52 allowlisted**`: the universe the paragraph states.
+  match digitsAfter paragraph "universe is **" with
+  | none => bad := bad.push "the header paragraph no longer states `universe is **N = a + b`"
+  | some stated =>
+      if stated != pub.size then
+        bad := bad.push s!"the header paragraph says the universe is {stated}; the environment has {pub.size}"
   -- **Both figures in the `443 against 440` sentence are asserted** (R7-06, §2.2).
   -- The sentence names two counts and states a relation; asserting only the sum
   -- leaves both free to drift together while the prose goes stale, which is exactly
