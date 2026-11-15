@@ -1945,4 +1945,198 @@ def numeralIso (b : Nat) (hr : IsRadix b) : Iso Nat (Normal (List UInt8) (normF 
       rw [this]
 
 
+/-! ## The three rejection laws of `trimFor` (task 2.4)
+
+`spec.md` requires that a spelling naming no number be **rejected** rather than normalised:
+a trailing blank, a digit outside the radix's alphabet, and trailing data after a valid
+numeral. Each gets its own theorem here.
+
+`trimFor` accepts through exactly two routes — `isZeroSpelling b ds` when `strip` empties the
+input, and `isDigits b (strip b ds)` otherwise — so a rejection law is a proof that neither
+holds. The `IsRadix` hypothesis appears only where the alphabet is consulted. -/
+
+/-- A `Bool` that is not `true` is `false`. -/
+theorem bool_eq_false_of_ne_true {x : Bool} (h : x ≠ true) : x = false := by
+  cases x with
+  | false => rfl
+  | true => exact absurd rfl h
+
+/-- The radix's zero digit reads as value `0`. -/
+theorem isZeroDigit_zero_val {b : Nat} (hr : IsRadix b) {c : UInt8}
+    (h : isZeroDigit b c = true) : digitVal b c = some 0 := by
+  rw [isZeroDigit_eq_true_iff] at h
+  have hc : c = byteOfDigit b 0 := UInt8.toNat.inj h
+  rw [hc]
+  exact digitVal_byteOfDigit hr 0 (by have := isRadix_ge2 hr; omega)
+
+/-- `strip` of a single byte either empties it (it was blank or the zero digit) or leaves it. -/
+theorem strip_singleton {b : Nat} {c : UInt8} :
+    strip b [c] = [] ∨ strip b [c] = [c] := by
+  by_cases h : isBlank c = true ∨ isZeroDigit b c = true
+  · left
+    rw [strip_skip h]
+    rfl
+  · right
+    rw [strip_cons h]
+
+/-- `strip` of `t ++ [blank]` is empty or still contains that blank. -/
+theorem strip_append_blank {b : Nat} :
+    ∀ (t : List UInt8) (c : UInt8), isBlank c = true →
+      strip b (t ++ [c]) = [] ∨ ∃ x ∈ strip b (t ++ [c]), isBlank x = true
+  | [], c, hb => by
+      left
+      rw [List.nil_append, strip_skip (Or.inl hb)]
+      rfl
+  | d :: ds, c, hb => by
+      rw [List.cons_append]
+      by_cases h : isBlank d = true ∨ isZeroDigit b d = true
+      · rw [strip_skip h]; exact strip_append_blank ds c hb
+      · right
+        refine ⟨c, ?_, hb⟩
+        rw [strip_cons h]
+        exact List.mem_cons_of_mem d (by simp)
+
+/-- `strip` of a list ending in a **non-absorbable** byte leaves the prefix's result intact. -/
+theorem strip_append_keep {b : Nat} :
+    ∀ (t : List UInt8) {c : UInt8}, isBlank c = false → isZeroDigit b c = false →
+      strip b (t ++ [c]) = strip b t ++ [c]
+  | [], c, hb, hz => by
+      show strip b [c] = strip b [] ++ [c]
+      rw [strip_cons (by rw [hb, hz]; simp)]
+      rfl
+  | d :: ds, c, hb, hz => by
+      rw [List.cons_append]
+      by_cases h : isBlank d = true ∨ isZeroDigit b d = true
+      · rw [strip_skip h, strip_skip h]
+        exact strip_append_keep ds hb hz
+      · rw [strip_cons h, strip_cons h]
+        rfl
+
+/-- A list ending in a blank is never a zero spelling. -/
+theorem not_zeroSpelling_append_blank {b : Nat} :
+    ∀ (t : List UInt8) (c : UInt8), isBlank c = true → isZeroSpelling b (t ++ [c]) = false
+  | [], c, hb => by
+      show isZeroSpelling b [c] = false
+      rw [isZeroSpelling_cons_blank hb]
+      rfl
+  | d :: ds, c, hb => by
+      rw [List.cons_append]
+      show isZeroSpelling b (d :: (ds ++ [c])) = false
+      by_cases hd : isBlank d = true
+      · rw [isZeroSpelling_cons_blank hd]
+        exact not_zeroSpelling_append_blank ds c hb
+      · have hdf : isBlank d = false := bool_eq_false_of_ne_true hd
+        rw [isZeroSpelling_cons_zeros hdf]
+        by_cases hz : isZeroZeros b (d :: (ds ++ [c])) = true
+        · exfalso
+          have hmem : c ∈ (d :: (ds ++ [c])) := by simp
+          have hb' := isZeroZeros_blank_free hz c hmem
+          rw [hb] at hb'
+          exact absurd hb' (by simp)
+        · exact bool_eq_false_of_ne_true hz
+
+/-- A list containing a blank is not all digits. -/
+theorem isDigits_false_of_mem_blank {b : Nat} (hr : IsRadix b) :
+    ∀ {ds : List UInt8}, (∃ c ∈ ds, isBlank c = true) → isDigits b ds = false
+  | [], h => by rcases h with ⟨_, hc, _⟩; simp at hc
+  | d :: t, h => by
+      obtain ⟨c, hc, hb⟩ := h
+      have hnone : (digitVal b c).isSome = false := by
+        rw [digitVal_eq_none_of_blank hr hb]; rfl
+      cases hh : isDigits b (d :: t) with
+      | false => rfl
+      | true =>
+          have hc' := (isDigits_iff (d :: t)).1 hh c hc
+          rw [hnone] at hc'
+          exact absurd hc' (by simp)
+
+/-! ### The three laws -/
+
+/-- **A trailing blank is rejected.** `spec.md`: `"7 "` is not a numeral. -/
+theorem trailing_blank_rejected {b : Nat} (hr : IsRadix b) (t : List UInt8) {c : UInt8}
+    (hb : isBlank c = true) : trimFor b (t ++ [c]) = none := by
+  unfold trimFor
+  by_cases hs : strip b (t ++ [c]) = []
+  · rw [ite_eq_left hs]
+    rw [ite_eq_right (by rw [not_zeroSpelling_append_blank t c hb]; simp)]
+  · rw [ite_eq_right hs]
+    rcases strip_append_blank t c hb with h | h
+    · exact absurd h hs
+    · rw [ite_eq_right (by rw [isDigits_false_of_mem_blank hr h]; simp)]
+
+/-- **An out-of-alphabet digit is rejected.** `spec.md`: `"9"` in radix 8. -/
+theorem out_of_alphabet_rejected {b : Nat} (hr : IsRadix b) {c : UInt8}
+    (h : digitVal b c = none) : trimFor b [c] = none := by
+  have hns : (digitVal b c).isSome = false := by rw [h]; rfl
+  unfold trimFor
+  rcases strip_singleton (b := b) (c := c) with hs | hs
+  · rw [ite_eq_left hs]
+    have hz : isZeroSpelling b [c] = false := by
+      cases hz2 : isZeroSpelling b [c] with
+      | false => rfl
+      | true =>
+          have hmax : isBlank c = true ∨ isZeroZeros b [c] = true := by
+            by_cases hb : isBlank c = true
+            · exact Or.inl hb
+            · exact Or.inr (by
+                rw [← isZeroSpelling_cons_zeros (bool_eq_false_of_ne_true hb)]
+                exact hz2)
+          rcases hmax with hb | hzz
+          · rw [isZeroSpelling_cons_blank hb] at hz2
+            rw [isZeroSpelling_nil b] at hz2
+            exact absurd hz2 (by simp)
+          · have hzd : isZeroDigit b c = true := (isZeroZeros_cons.1 hzz).1
+            rw [show digitVal b c = some 0 from isZeroDigit_zero_val hr hzd] at h
+            exact absurd h (by simp)
+    rw [ite_eq_right (by rw [hz]; simp)]
+  · rw [ite_eq_right (by rw [hs]; simp)]
+    have hf : isDigits b (strip b [c]) = false := by
+      rw [hs]
+      show ((digitVal b c).isSome && isDigits b []) = false
+      rw [hns]
+      rfl
+    rw [ite_eq_right (by rw [hf]; simp)]
+
+/-- **Trailing data after a valid numeral is rejected.** `spec.md`: `"7x"`.
+
+The off-alphabet byte is neither absorbed by `strip` nor accepted by `isDigits`:
+`not_blank_not_zero_of_no_digit` says so, and `strip_append_keep` says `strip` cannot delete
+it. -/
+theorem trailing_data_rejected {b : Nat} (hr : IsRadix b) (t : List UInt8) {c : UInt8}
+    (hb0 : isBlank c = false) (hc : (digitVal b c).isSome = false) :
+    trimFor b (t ++ [c]) = none := by
+  have hz0 : isZeroDigit b c = false := by
+    cases hz : isZeroDigit b c with
+    | false => rfl
+    | true =>
+        have hnc : (digitVal b c).isSome = false := hc
+        rw [show digitVal b c = some 0 from isZeroDigit_zero_val hr hz,
+            Option.isSome_some] at hnc
+        exact absurd hnc (by simp)
+  have hstrip := strip_append_keep t hb0 hz0
+  unfold trimFor
+  by_cases hs : strip b (t ++ [c]) = []
+  · rw [ite_eq_left hs]
+    have hns : isZeroSpelling b (t ++ [c]) = false := by
+      cases hz : isZeroSpelling b (t ++ [c]) with
+      | false => rfl
+      | true =>
+          -- a zero spelling's bytes are all blanks or zero digits; `c` is neither
+          have hall := strip_nil_all' b hz c (List.mem_append_right _ (by simp))
+          rcases hall with hb' | hz'
+          · rw [hb0] at hb'; exact absurd hb' (by simp)
+          · rw [hz0] at hz'; exact absurd hz' (by simp)
+    rw [ite_eq_right (by rw [hns]; simp)]
+  · rw [ite_eq_right hs]
+    have hf : isDigits b (strip b (t ++ [c])) = false := by
+      rw [hstrip]
+      cases hh : isDigits b (strip b t ++ [c]) with
+      | false => rfl
+      | true =>
+          have hlast := (isDigits_iff (strip b t ++ [c])).1 hh c
+            (List.mem_append_right _ (by simp))
+          rw [hc] at hlast
+          exact absurd hlast (by simp)
+    rw [ite_eq_right (by rw [hf]; simp)]
+
 end BaseN.RadixCodec
