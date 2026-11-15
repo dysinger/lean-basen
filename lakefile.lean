@@ -46,5 +46,13 @@ lean_lib Axioms where
   satisfied by an unproven law. -/
   moreLeanArgs := #["-DwarningAsError=true"]
 
+/- The same flag again, for the same reason, and it was **missing** here until
+`basen-radix`'s §8.8. `-DwarningAsError` on `lean_lib basen` rides on the modules *that
+lib compiles*; `Bench.lean` is in neither `basen` nor `Axioms`, so a `sorry` in its own
+theorems was a **warning** and `lake build bench` still went green. `lean-codec` fixed
+exactly this shape in `codec-audit-round-nine` §1.8; the port to `basen` never happened,
+so the "zero warnings" claim was *observed*, not *enforced*. Verified load-bearing: with
+this flag, stubbing one of `Bench.lean`'s own `example`s to `sorry` fails the build. -/
 lean_exe bench where
   root := `Bench
+  moreLeanArgs := #["-DwarningAsError=true"]
