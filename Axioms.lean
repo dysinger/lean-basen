@@ -1665,12 +1665,12 @@ the `BaseN` namespace:
 
 | side | count |
 | --- | --- |
-| public theorems in the `BaseN` namespace | **490** |
-| pinned by a `#guard_msgs` above (`gatedNames`) | **444** |
-| allowlisted (`generatedAuxAllowlist`) | **46** |
+| public theorems in the `BaseN` namespace | **653** |
+| pinned by a `#guard_msgs` above (`gatedNames`) | **601** |
+| allowlisted (`generatedAuxAllowlist`) | **52** |
 | un-gated and unlisted | **0** |
 
-490 = 444 + 46, with no third route. Of the 46 allowlisted, **37** are the ones the
+653 = 601 + 52, with no third route. Of the 52 allowlisted, **40** are the ones the
 suffix classifier drops (`*.inj` ×9, `*.injEq` ×9, `*.sizeOf_spec` ×11, `*.eq_def`
 ×8) and **9** are the hand-reviewed ones that the classifier does *not* match
 (`brecOn.eq` ×2, `*.go` ×6, `Run.step`) — the `*.go` helpers are the trap, since
@@ -1689,12 +1689,12 @@ is how this package carried eight dead public `Run` values (`bitRun`, `quartetRu
 
 | side | count |
 | --- | --- |
-| public `def`s in the `BaseN` namespace (after dropping compiler machinery) | **137** |
-| named by a gated theorem's type — *mentioned* | **122** |
-| `definitionSurfaceAllowlist` | **15** |
+| public `def`s in the `BaseN` namespace (after dropping compiler machinery) | **157** |
+| named by a gated theorem's type — *mentioned* | **140** |
+| `definitionSurfaceAllowlist` | **17** |
 | silent | **0** |
 
-137 = 122 + 15. The middle row is a **mention proxy**: it says no public definition
+157 = 140 + 17. The middle row is a **mention proxy**: it says no public definition
 is covered by *silence*, not that it has a characterised law, and it can be satisfied
 vacuously. The 15 allowlisted are 10 `Iso`-law-as-field values (the `*BlockIso` /
 `*TailIso` whose `law` is a structure field proved at the definition site, which the
@@ -1706,7 +1706,8 @@ allowlisted.
 
 The 3 `Codec.*` pins (roundtrip/bidir/decode_spec) are the dependency's laws and lie
 *outside* this namespace — pinned for discipline, not partitioned, which is why
-`grep -c '^#print axioms'` reports **487** against `gatedNames`' **484**.
+`grep -c '^#print axioms'` reports **607** against `gatedNames`' **601** — the three
+`RadixCodec` `eq_def` blocks measure footprints of names `gatedNames` cannot hold.
 
 **Both figures in that sentence are asserted** (R7-06, `codec-audit-round-six` §2.2).
 It previously said "440 against 437", and asserting only one of the pair had left
@@ -1948,6 +1949,22 @@ def definitionSurfaceAllowlist : Array Name := #[
   `BaseN.Common.Run.decode,
   `BaseN.Common.Run.encode,
   `BaseN.Common.Run.rel,
+  -- **`numeralIso` — `Iso`-law-as-field, the same shape as the ten above** and the
+  -- reason this group exists. Its `law` is proved at the definition site (one
+  -- constructor, `where law := by intro n f; constructor …`), so the kernel checks it
+  -- at construction and no separate theorem names the value. What `basen-radix`'s §3.1
+  -- adds on top is the per-radix *instantiation* (`numeralIso 10 …`), not a law that
+  -- repeats the field — a theorem restating a proved field would be the
+  -- `propProjections` defect wearing a `def` name.
+  `BaseN.RadixCodec.numeralIso,
+  -- **`isNumeral` — a one-line predicate whose only content is its own `trimFor`.** It
+  -- is `(trimFor b ds).isSome`, so every fact about it *is* a fact about `trimFor`,
+  -- which is gated by name (`trimFor_ofNat`, `trimFor_idem`,
+  -- `trimFor_none_toNat_none`, `trimFor_ofNat_self_zero`) — the mention proxy cannot
+  -- see it because those statements spell `trimFor` out. Kept rather than deleted
+  -- because it is the reader-facing form of the question "does this spelling name a
+  -- number?", and deleting it would push callers back to `.isSome` on an `Option`.
+  `BaseN.RadixCodec.isNumeral,
 ]
 
 /-- Declarations knowingly excluded from the `[propext, Quot.sound]`-only discipline,
@@ -2067,7 +2084,23 @@ def generatedAuxAllowlist : Array Name := #[
 -- eight above: they unfold a definition the source already states.
   `BaseN.Radix.natDigits.eq_def,
   `BaseN.Radix.natVal.eq_def,
-  `BaseN.Radix.toNat.eq_def
+  `BaseN.Radix.toNat.eq_def,
+
+-- **`*.eq_def` for `RadixCodec`'s three `match`-defs** (`basen-radix` §2.2c) — same
+-- reason again, and these are the ones the module's own proofs consume rather than
+-- merely derive. `AGENTS.md`: *"`unfold <def>` does not reduce a `match`-def at a
+-- variable argument … state the recursion equation as its own `rfl` lemma or `cases`
+-- on the matched argument first."* `digitTail`, `isDigits` and `strip` are exactly
+-- that shape, and `strip_idem`/`isDigits_iff` cite their recursion equations by name.
+--
+-- **Why they need a `#guard_msgs` block as well** — an earlier revision of this
+-- comment claimed "pinned rather than allowlisted", and the `partition` arm refuted it
+-- by firing on all three: the block measures the *footprint*, this entry accounts for
+-- the *existence*, and an entry here is what `partition` needs because `eq_def` is not
+-- in `isGeneratedAux`'s suffix list. Two registries, two jobs.
+  `BaseN.RadixCodec.digitTail.eq_def,
+  `BaseN.RadixCodec.isDigits.eq_def,
+  `BaseN.RadixCodec.strip.eq_def
 ]
 
 
@@ -2239,6 +2272,394 @@ authoring, so these pins also guard against its reintroduction.
 #guard_msgs in
 #print axioms BaseN.RadixAlphabets.digitVal_two
 
+/-! ## `BaseN.RadixCodec` — the numeral quotient, `numeralIso`, and the rejection laws
+
+Pinned **by hand** (task 4.1): `basen` has no generator — `ls scripts/` fails and
+`grep -c 'BEGIN GENERATED' Axioms.lean` is 0 — so each block below was written from the
+footprint `#print axioms` actually printed. The coverage arm above is the enforcement
+for anything missed, and it named all **117** of these when `BaseN.lean` first imported
+the module (task 2.2c).
+
+The count is not stated as a promise anywhere below; `headerNumbers` computes it, and
+the theorem table's `expectedPub` asserts the total it feeds into. -/
+
+/-- info: 'BaseN.RadixCodec.acceptsDigitZero_iff' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.acceptsDigitZero_iff
+/-- info: 'BaseN.RadixCodec.blank_free_of_not_any' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.blank_free_of_not_any
+/-- info: 'BaseN.RadixCodec.bool_eq_false_of_ne_true' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.bool_eq_false_of_ne_true
+/-- info: 'BaseN.RadixCodec.bridge_10' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.bridge_10
+/-- info: 'BaseN.RadixCodec.bridge_16' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.bridge_16
+/-- info: 'BaseN.RadixCodec.bridge_2' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.bridge_2
+/-- info: 'BaseN.RadixCodec.bridge_32' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.bridge_32
+/-- info: 'BaseN.RadixCodec.bridge_4' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.bridge_4
+/-- info: 'BaseN.RadixCodec.bridge_48' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.bridge_48
+/-- info: 'BaseN.RadixCodec.bridge_64' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.bridge_64
+/-- info: 'BaseN.RadixCodec.bridge_8' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.bridge_8
+/-- info: 'BaseN.RadixCodec.byteOfDigitNat_16' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigitNat_16
+/-- info: 'BaseN.RadixCodec.byteOfDigitNat_32' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigitNat_32
+/-- info: 'BaseN.RadixCodec.byteOfDigitNat_64' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigitNat_64
+/-- info: 'BaseN.RadixCodec.byteOfDigitNat_bounded' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigitNat_bounded
+/-- info: 'BaseN.RadixCodec.byteOfDigitNat_ne_32' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigitNat_ne_32
+/-- info: 'BaseN.RadixCodec.byteOfDigitNat_ne_32'' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigitNat_ne_32'
+/-- info: 'BaseN.RadixCodec.byteOfDigitNat_nonPow' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigitNat_nonPow
+/-- info: 'BaseN.RadixCodec.byteOfDigit_ne_32' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigit_ne_32
+/-- info: 'BaseN.RadixCodec.byteOfDigit_toNat_ne_32' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigit_toNat_ne_32
+/-- info: 'BaseN.RadixCodec.byteOfDigit_toNat_val' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigit_toNat_val
+/-- info: 'BaseN.RadixCodec.byteOfDigit_zero_ne_blank' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigit_zero_ne_blank
+/-- info: 'BaseN.RadixCodec.byteOfDigit_zero_ne_blank_nat' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.byteOfDigit_zero_ne_blank_nat
+/-- info: 'BaseN.RadixCodec.digitTail_cons_ne' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.digitTail_cons_ne
+/-- info: 'BaseN.RadixCodec.digitTail_cons_zero' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.digitTail_cons_zero
+/-- info: 'BaseN.RadixCodec.digitTail_head_ne_zero' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.digitTail_head_ne_zero
+/-- info: 'BaseN.RadixCodec.digitTail_idem' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.digitTail_idem
+/-- info: 'BaseN.RadixCodec.digitVal_byteOfDigit_zero' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.digitVal_byteOfDigit_zero
+/-- info: 'BaseN.RadixCodec.digitVal_eq_none_of_blank' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.digitVal_eq_none_of_blank
+/-- info: 'BaseN.RadixCodec.digitVal_getD_lt' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.digitVal_getD_lt
+/-- info: 'BaseN.RadixCodec.digitVal_lt_of_some' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.digitVal_lt_of_some
+/-- info: 'BaseN.RadixCodec.digitVal_some_byteOfDigit' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.digitVal_some_byteOfDigit
+/-- info: 'BaseN.RadixCodec.dropLast_ne_nil' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.dropLast_ne_nil
+/-- info: 'BaseN.RadixCodec.dropWhile_idem' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.dropWhile_idem
+/-- info: 'BaseN.RadixCodec.eq_map_byteOfDigit' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.eq_map_byteOfDigit
+/-- info: 'BaseN.RadixCodec.exists_blank_iff' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.exists_blank_iff
+/-- info: 'BaseN.RadixCodec.exists_blank_of_strip_nil_not_spelling' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.exists_blank_of_strip_nil_not_spelling
+/-- info: 'BaseN.RadixCodec.fixed_eq_ofNat' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.fixed_eq_ofNat
+/-- info: 'BaseN.RadixCodec.fixed_is_numeral' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.fixed_is_numeral
+/-- info: 'BaseN.RadixCodec.head_append_singleton' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.head_append_singleton
+/-- info: 'BaseN.RadixCodec.head_or_some_ne' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.head_or_some_ne
+/-- info: 'BaseN.RadixCodec.head_val_ne_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.head_val_ne_zero
+/-- info: 'BaseN.RadixCodec.isBlank_eq_true_iff' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isBlank_eq_true_iff
+/-- info: 'BaseN.RadixCodec.isDigits_cons' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isDigits_cons
+/-- info: 'BaseN.RadixCodec.isDigits_false_of_mem_blank' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isDigits_false_of_mem_blank
+/-- info: 'BaseN.RadixCodec.isDigits_iff' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isDigits_iff
+/-- info: 'BaseN.RadixCodec.isDigits_of_toNat' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isDigits_of_toNat
+/-- info: 'BaseN.RadixCodec.isDigits_strip_false' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isDigits_strip_false
+/-- info: 'BaseN.RadixCodec.isZeroDigit_eq_true_iff' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroDigit_eq_true_iff
+/-- info: 'BaseN.RadixCodec.isZeroDigit_not_blank' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroDigit_not_blank
+/-- info: 'BaseN.RadixCodec.isZeroDigit_ofNat_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroDigit_ofNat_zero
+/-- info: 'BaseN.RadixCodec.isZeroDigit_zero_val' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroDigit_zero_val
+/-- info: 'BaseN.RadixCodec.isZeroSpelling_cons' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroSpelling_cons
+/-- info: 'BaseN.RadixCodec.isZeroSpelling_cons_blank' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroSpelling_cons_blank
+/-- info: 'BaseN.RadixCodec.isZeroSpelling_cons_zeros' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroSpelling_cons_zeros
+/-- info: 'BaseN.RadixCodec.isZeroSpelling_nil' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroSpelling_nil
+/-- info: 'BaseN.RadixCodec.isZeroSpelling_ofNat_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroSpelling_ofNat_zero
+/-- info: 'BaseN.RadixCodec.isZeroSpelling_of_blank_free' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroSpelling_of_blank_free
+/-- info: 'BaseN.RadixCodec.isZeroSpelling_of_strip_nil_blank_free' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroSpelling_of_strip_nil_blank_free
+/-- info: 'BaseN.RadixCodec.isZeroSpelling_of_strip_nil_no_blank' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroSpelling_of_strip_nil_no_blank
+/-- info: 'BaseN.RadixCodec.isZeroZeros_all' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroZeros_all
+/-- info: 'BaseN.RadixCodec.isZeroZeros_blank_free' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroZeros_blank_free
+/-- info: 'BaseN.RadixCodec.isZeroZeros_cons' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroZeros_cons
+/-- info: 'BaseN.RadixCodec.isZeroZeros_ofNat_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroZeros_ofNat_zero
+/-- info: 'BaseN.RadixCodec.isZeroZeros_spelling' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroZeros_spelling
+/-- info: 'BaseN.RadixCodec.isZeroZeros_tail' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isZeroZeros_tail
+/-- info: 'BaseN.RadixCodec.map_val_eq_ofNat' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.map_val_eq_ofNat
+/-- info: 'BaseN.RadixCodec.natVal_div' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.natVal_div
+/-- info: 'BaseN.RadixCodec.natVal_eq_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.natVal_eq_zero
+/-- info: 'BaseN.RadixCodec.natVal_inj_head' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.natVal_inj_head
+/-- info: 'BaseN.RadixCodec.natVal_mod' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.natVal_mod
+/-- info: 'BaseN.RadixCodec.natVal_pos' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.natVal_pos
+/-- info: 'BaseN.RadixCodec.natVal_snoc' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.natVal_snoc
+/-- info: 'BaseN.RadixCodec.normF_def' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.normF_def
+/-- info: 'BaseN.RadixCodec.normF_idem' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.normF_idem
+/-- info: 'BaseN.RadixCodec.normF_of_trim' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.normF_of_trim
+/-- info: 'BaseN.RadixCodec.not_zeroSpelling_append_blank' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.not_zeroSpelling_append_blank
+/-- info: 'BaseN.RadixCodec.ofNat_digitTail' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.ofNat_digitTail
+/-- info: 'BaseN.RadixCodec.ofNat_dropWhile_blank' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.ofNat_dropWhile_blank
+/-- info: 'BaseN.RadixCodec.ofNat_head_not_zeroD' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.ofNat_head_not_zeroD
+/-- info: 'BaseN.RadixCodec.ofNat_isBlank_false' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.ofNat_isBlank_false
+/-- info: 'BaseN.RadixCodec.ofNat_isDigits' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.ofNat_isDigits
+/-- info: 'BaseN.RadixCodec.ofNat_ne_nil' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.ofNat_ne_nil
+/-- info: 'BaseN.RadixCodec.ofNat_zero_digitTail' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.ofNat_zero_digitTail
+/-- info: 'BaseN.RadixCodec.ofNat_zero_dropWhile' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.ofNat_zero_dropWhile
+/-- info: 'BaseN.RadixCodec.ofNat_zero_eq' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.ofNat_zero_eq
+/-- info: 'BaseN.RadixCodec.ofNat_zero_head' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.ofNat_zero_head
+/-- info: 'BaseN.RadixCodec.ofNat_zero_ne_nil' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.ofNat_zero_ne_nil
+/-- info: 'BaseN.RadixCodec.out_of_alphabet_rejected' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.out_of_alphabet_rejected
+/-- info: 'BaseN.RadixCodec.strip_append_blank' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_append_blank
+/-- info: 'BaseN.RadixCodec.strip_append_keep' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_append_keep
+/-- info: 'BaseN.RadixCodec.strip_cons' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_cons
+/-- info: 'BaseN.RadixCodec.strip_digits_value_ne_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_digits_value_ne_zero
+/-- info: 'BaseN.RadixCodec.strip_eq_self' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_eq_self
+/-- info: 'BaseN.RadixCodec.strip_head' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_head
+/-- info: 'BaseN.RadixCodec.strip_idem' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_idem
+/-- info: 'BaseN.RadixCodec.strip_length_le' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_length_le
+/-- info: 'BaseN.RadixCodec.strip_nil_all' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_nil_all
+/-- info: 'BaseN.RadixCodec.strip_nil_all'' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_nil_all'
+/-- info: 'BaseN.RadixCodec.strip_nil_of_spelling' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_nil_of_spelling
+/-- info: 'BaseN.RadixCodec.strip_ofNat' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_ofNat
+/-- info: 'BaseN.RadixCodec.strip_singleton' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_singleton
+/-- info: 'BaseN.RadixCodec.strip_skip' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_skip
+/-- info: 'BaseN.RadixCodec.strip_subset' depends on axioms: [propext] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip_subset
+/-- info: 'BaseN.RadixCodec.three_spellings' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.three_spellings
+/-- info: 'BaseN.RadixCodec.three_spellings_ten' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.three_spellings_ten
+/-- info: 'BaseN.RadixCodec.three_spellings_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.three_spellings_zero
+/-- info: 'BaseN.RadixCodec.toNat_isSome_of_isDigits' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.toNat_isSome_of_isDigits
+/-- info: 'BaseN.RadixCodec.toNat_map_val' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.toNat_map_val
+/-- info: 'BaseN.RadixCodec.toNat_none_of_mem_blank' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.toNat_none_of_mem_blank
+/-- info: 'BaseN.RadixCodec.toNat_none_of_not_digits' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.toNat_none_of_not_digits
+/-- info: 'BaseN.RadixCodec.trailing_blank_rejected' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.trailing_blank_rejected
+/-- info: 'BaseN.RadixCodec.trailing_data_rejected' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.trailing_data_rejected
+/-- info: 'BaseN.RadixCodec.trimFor_idem' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.trimFor_idem
+/-- info: 'BaseN.RadixCodec.trimFor_none_toNat_none' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.trimFor_none_toNat_none
+/-- info: 'BaseN.RadixCodec.trimFor_ofNat' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.trimFor_ofNat
+/-- info: 'BaseN.RadixCodec.trimFor_ofNat_self_zero' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.trimFor_ofNat_self_zero
+
+-- **Three recursion equations the compiler generated — pinned here AND allowlisted there.**
+--
+-- `AGENTS.md` records the trap these exist for: *"`unfold <def>` does not reduce a
+-- `match`-def at a variable argument … state the recursion equation as its own `rfl`
+-- lemma (`count_succ`) or `cases` on the matched argument first."* These three are that
+-- lemma, already in the environment because `digitTail`, `isDigits` and `strip` are
+-- structurally recursive `match`-defs, and they are what the proofs above consume.
+--
+-- **Two registries, two jobs, and an earlier revision of this comment conflated them.**
+-- It said "pinned rather than allowlisted"; the `partition` arm then fired on all three.
+-- The block measures the footprint; `gatedNames` names the theorems `publicTheorems`
+-- finds; `generatedAuxAllowlist` is the partition's other side. An `eq_def` *is* a
+-- `thmInfo` in the environment, but `publicTheorems` does not report it, so it cannot be
+-- pinned the way a law is. Hence both — and the allowlist entry, with its reason, sits
+-- in the `eq_def` group above.
+/-- info: 'BaseN.RadixCodec.digitTail.eq_def' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.digitTail.eq_def
+/-- info: 'BaseN.RadixCodec.isDigits.eq_def' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.isDigits.eq_def
+/-- info: 'BaseN.RadixCodec.strip.eq_def' does not depend on any axioms -/
+#guard_msgs in
+#print axioms BaseN.RadixCodec.strip.eq_def
+
 -- BEGIN PINNED gatedNames
 /-- The `BaseN.*` names this file pins a `#guard_msgs` block for. Kept in lockstep
 with the blocks above by the `coverage` check, which fails on any drift. Written
@@ -2268,9 +2689,9 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base10.encodeDig_injective_eq,
   `BaseN.Base10.encodeDig_ne_none,
   `BaseN.Base10.encode_injective,
-  `BaseN.Base10.rejects_single_char,
   `BaseN.Base10.rejects_invalid_byte,
   `BaseN.Base10.rejects_overflow,
+  `BaseN.Base10.rejects_single_char,
   `BaseN.Base10.relDig_unambiguous,
   `BaseN.Base10.roundtrip,
   `BaseN.Base10.valToDig_digVal_of_valid,
@@ -2279,8 +2700,6 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base16.Rel_hexElem_canonical,
   `BaseN.Base16.Rel_hexElem_len,
   `BaseN.Base16.decodeFull_B16_char,
-  `BaseN.Base16.decodes_6F,
-  `BaseN.Base16.encodeHex_6F,
   `BaseN.Base16.decodeFull_canonical,
   `BaseN.Base16.decodeHexBlockFold_both_cases,
   `BaseN.Base16.decodeHexBlockFold_case_insensitive,
@@ -2289,18 +2708,19 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base16.decodeHexFold_of_fixed,
   `BaseN.Base16.decodeHexFold_roundtrip,
   `BaseN.Base16.decode_encode_inverse,
+  `BaseN.Base16.decodes_6F,
+  `BaseN.Base16.encodeHex_6F,
   `BaseN.Base16.encodeHex_canonical,
   `BaseN.Base16.encodeHex_injective_eq,
   `BaseN.Base16.encodeHex_ne_none,
   `BaseN.Base16.encode_injective,
   `BaseN.Base16.fill_foldList,
-  `BaseN.Base16.hexToNibble_range,
   `BaseN.Base16.foldByteBytes_idem,
   `BaseN.Base16.foldByteBytes_of_encodeHex,
   `BaseN.Base16.foldByte_fixed,
-  `BaseN.Base16.foldByte_of_hexDigit,
   `BaseN.Base16.foldByte_folded,
   `BaseN.Base16.foldByte_idem,
+  `BaseN.Base16.foldByte_of_hexDigit,
   `BaseN.Base16.foldList_cons,
   `BaseN.Base16.foldList_hexBlockUnapply,
   `BaseN.Base16.foldList_idem,
@@ -2330,6 +2750,7 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base16.hexToNibble_foldByte_value,
   `BaseN.Base16.hexToNibble_lower,
   `BaseN.Base16.hexToNibble_nibbleToHex,
+  `BaseN.Base16.hexToNibble_range,
   `BaseN.Base16.hexToNibble_toByte_nibbleToHex,
   `BaseN.Base16.hexToNibble_upper,
   `BaseN.Base16.hex_decompose_unique,
@@ -2367,8 +2788,8 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base2.encodeBit_injective_eq,
   `BaseN.Base2.encodeBit_ne_none,
   `BaseN.Base2.encode_injective,
-  `BaseN.Base2.rejects_single_char,
   `BaseN.Base2.rejects_invalid_byte,
+  `BaseN.Base2.rejects_single_char,
   `BaseN.Base2.relBit_unambiguous,
   `BaseN.Base2.roundtrip,
   `BaseN.Base2.valToBit_bitVal_of_valid,
@@ -2519,8 +2940,8 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base4.quartetValid_of_decide,
   `BaseN.Base4.quartetsVal_quartetsOf,
   `BaseN.Base4.quartets_decompose_unique,
-  `BaseN.Base4.rejects_single_char,
   `BaseN.Base4.rejects_invalid_byte,
+  `BaseN.Base4.rejects_single_char,
   `BaseN.Base4.relQuartet_unambiguous,
   `BaseN.Base4.roundtrip,
   `BaseN.Base4.valToQuartet_lt_256,
@@ -2652,9 +3073,9 @@ def gatedNames : List Lean.Name := [
   `BaseN.Base8.octValid_of_decide,
   `BaseN.Base8.oct_decompose_unique,
   `BaseN.Base8.oct_sum_eq,
-  `BaseN.Base8.rejects_single_char,
   `BaseN.Base8.rejects_invalid_byte,
   `BaseN.Base8.rejects_overflow,
+  `BaseN.Base8.rejects_single_char,
   `BaseN.Base8.relOct_unambiguous,
   `BaseN.Base8.roundtrip,
   `BaseN.Base8.valToOct_lt_256,
@@ -2729,6 +3150,123 @@ def gatedNames : List Lean.Name := [
   `BaseN.RadixAlphabets.digitVal_ten,
   `BaseN.RadixAlphabets.digitVal_thirtytwo,
   `BaseN.RadixAlphabets.digitVal_two,
+  `BaseN.RadixCodec.acceptsDigitZero_iff,
+  `BaseN.RadixCodec.blank_free_of_not_any,
+  `BaseN.RadixCodec.bool_eq_false_of_ne_true,
+  `BaseN.RadixCodec.bridge_10,
+  `BaseN.RadixCodec.bridge_16,
+  `BaseN.RadixCodec.bridge_2,
+  `BaseN.RadixCodec.bridge_32,
+  `BaseN.RadixCodec.bridge_4,
+  `BaseN.RadixCodec.bridge_48,
+  `BaseN.RadixCodec.bridge_64,
+  `BaseN.RadixCodec.bridge_8,
+  `BaseN.RadixCodec.byteOfDigitNat_16,
+  `BaseN.RadixCodec.byteOfDigitNat_32,
+  `BaseN.RadixCodec.byteOfDigitNat_64,
+  `BaseN.RadixCodec.byteOfDigitNat_bounded,
+  `BaseN.RadixCodec.byteOfDigitNat_ne_32,
+  `BaseN.RadixCodec.byteOfDigitNat_ne_32',
+  `BaseN.RadixCodec.byteOfDigitNat_nonPow,
+  `BaseN.RadixCodec.byteOfDigit_ne_32,
+  `BaseN.RadixCodec.byteOfDigit_toNat_ne_32,
+  `BaseN.RadixCodec.byteOfDigit_toNat_val,
+  `BaseN.RadixCodec.byteOfDigit_zero_ne_blank,
+  `BaseN.RadixCodec.byteOfDigit_zero_ne_blank_nat,
+  `BaseN.RadixCodec.digitTail_cons_ne,
+  `BaseN.RadixCodec.digitTail_cons_zero,
+  `BaseN.RadixCodec.digitTail_head_ne_zero,
+  `BaseN.RadixCodec.digitTail_idem,
+  `BaseN.RadixCodec.digitVal_byteOfDigit_zero,
+  `BaseN.RadixCodec.digitVal_eq_none_of_blank,
+  `BaseN.RadixCodec.digitVal_getD_lt,
+  `BaseN.RadixCodec.digitVal_lt_of_some,
+  `BaseN.RadixCodec.digitVal_some_byteOfDigit,
+  `BaseN.RadixCodec.dropLast_ne_nil,
+  `BaseN.RadixCodec.dropWhile_idem,
+  `BaseN.RadixCodec.eq_map_byteOfDigit,
+  `BaseN.RadixCodec.exists_blank_iff,
+  `BaseN.RadixCodec.exists_blank_of_strip_nil_not_spelling,
+  `BaseN.RadixCodec.fixed_eq_ofNat,
+  `BaseN.RadixCodec.fixed_is_numeral,
+  `BaseN.RadixCodec.head_append_singleton,
+  `BaseN.RadixCodec.head_or_some_ne,
+  `BaseN.RadixCodec.head_val_ne_zero,
+  `BaseN.RadixCodec.isBlank_eq_true_iff,
+  `BaseN.RadixCodec.isDigits_cons,
+  `BaseN.RadixCodec.isDigits_false_of_mem_blank,
+  `BaseN.RadixCodec.isDigits_iff,
+  `BaseN.RadixCodec.isDigits_of_toNat,
+  `BaseN.RadixCodec.isDigits_strip_false,
+  `BaseN.RadixCodec.isZeroDigit_eq_true_iff,
+  `BaseN.RadixCodec.isZeroDigit_not_blank,
+  `BaseN.RadixCodec.isZeroDigit_ofNat_zero,
+  `BaseN.RadixCodec.isZeroDigit_zero_val,
+  `BaseN.RadixCodec.isZeroSpelling_cons,
+  `BaseN.RadixCodec.isZeroSpelling_cons_blank,
+  `BaseN.RadixCodec.isZeroSpelling_cons_zeros,
+  `BaseN.RadixCodec.isZeroSpelling_nil,
+  `BaseN.RadixCodec.isZeroSpelling_ofNat_zero,
+  `BaseN.RadixCodec.isZeroSpelling_of_blank_free,
+  `BaseN.RadixCodec.isZeroSpelling_of_strip_nil_blank_free,
+  `BaseN.RadixCodec.isZeroSpelling_of_strip_nil_no_blank,
+  `BaseN.RadixCodec.isZeroZeros_all,
+  `BaseN.RadixCodec.isZeroZeros_blank_free,
+  `BaseN.RadixCodec.isZeroZeros_cons,
+  `BaseN.RadixCodec.isZeroZeros_ofNat_zero,
+  `BaseN.RadixCodec.isZeroZeros_spelling,
+  `BaseN.RadixCodec.isZeroZeros_tail,
+  `BaseN.RadixCodec.map_val_eq_ofNat,
+  `BaseN.RadixCodec.natVal_div,
+  `BaseN.RadixCodec.natVal_eq_zero,
+  `BaseN.RadixCodec.natVal_inj_head,
+  `BaseN.RadixCodec.natVal_mod,
+  `BaseN.RadixCodec.natVal_pos,
+  `BaseN.RadixCodec.natVal_snoc,
+  `BaseN.RadixCodec.normF_def,
+  `BaseN.RadixCodec.normF_idem,
+  `BaseN.RadixCodec.normF_of_trim,
+  `BaseN.RadixCodec.not_zeroSpelling_append_blank,
+  `BaseN.RadixCodec.ofNat_digitTail,
+  `BaseN.RadixCodec.ofNat_dropWhile_blank,
+  `BaseN.RadixCodec.ofNat_head_not_zeroD,
+  `BaseN.RadixCodec.ofNat_isBlank_false,
+  `BaseN.RadixCodec.ofNat_isDigits,
+  `BaseN.RadixCodec.ofNat_ne_nil,
+  `BaseN.RadixCodec.ofNat_zero_digitTail,
+  `BaseN.RadixCodec.ofNat_zero_dropWhile,
+  `BaseN.RadixCodec.ofNat_zero_eq,
+  `BaseN.RadixCodec.ofNat_zero_head,
+  `BaseN.RadixCodec.ofNat_zero_ne_nil,
+  `BaseN.RadixCodec.out_of_alphabet_rejected,
+  `BaseN.RadixCodec.strip_append_blank,
+  `BaseN.RadixCodec.strip_append_keep,
+  `BaseN.RadixCodec.strip_cons,
+  `BaseN.RadixCodec.strip_digits_value_ne_zero,
+  `BaseN.RadixCodec.strip_eq_self,
+  `BaseN.RadixCodec.strip_head,
+  `BaseN.RadixCodec.strip_idem,
+  `BaseN.RadixCodec.strip_length_le,
+  `BaseN.RadixCodec.strip_nil_all,
+  `BaseN.RadixCodec.strip_nil_all',
+  `BaseN.RadixCodec.strip_nil_of_spelling,
+  `BaseN.RadixCodec.strip_ofNat,
+  `BaseN.RadixCodec.strip_singleton,
+  `BaseN.RadixCodec.strip_skip,
+  `BaseN.RadixCodec.strip_subset,
+  `BaseN.RadixCodec.three_spellings,
+  `BaseN.RadixCodec.three_spellings_ten,
+  `BaseN.RadixCodec.three_spellings_zero,
+  `BaseN.RadixCodec.toNat_isSome_of_isDigits,
+  `BaseN.RadixCodec.toNat_map_val,
+  `BaseN.RadixCodec.toNat_none_of_mem_blank,
+  `BaseN.RadixCodec.toNat_none_of_not_digits,
+  `BaseN.RadixCodec.trailing_blank_rejected,
+  `BaseN.RadixCodec.trailing_data_rejected,
+  `BaseN.RadixCodec.trimFor_idem,
+  `BaseN.RadixCodec.trimFor_none_toNat_none,
+  `BaseN.RadixCodec.trimFor_ofNat,
+  `BaseN.RadixCodec.trimFor_ofNat_self_zero,
 ]
 -- END PINNED gatedNames
 
@@ -2960,9 +3498,9 @@ run_cmd do
   let gated := BaseNAxioms.gatedNames.length
   let allow := BaseNAxioms.generatedAuxAllowlist.size
   -- Keep these in lockstep with the "universe, as measured" table above.
-  let expectedPub := 533
-  let expectedGated := 484
-  let expectedAllow := 49
+  let expectedPub := 653
+  let expectedGated := 601
+  let expectedAllow := 52
   let mut bad : Array String := #[]
   if pub.size != expectedPub then
     bad := bad.push s!"public theorems: table says {expectedPub}, environment has {pub.size}"
@@ -2996,14 +3534,14 @@ run_cmd do
     bad := bad.push s!"gatedNames has {baseNPins} entries but the gate counts {gated} pinned"
   -- The prose states the total as `baseNPins + codecPins`; assert it against the
   -- number of `#print axioms` blocks the file actually carries.
-  if baseNPins + codecPins != 487 then
-    bad := bad.push s!"prose says 487 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
+  if baseNPins + codecPins != 604 then
+    bad := bad.push s!"prose says 604 pins ({baseNPins} BaseN + {codecPins} Codec), computed {baseNPins + codecPins}"
   -- **Both figures in the `443 against 440` sentence are asserted** (R7-06, §2.2).
   -- The sentence names two counts and states a relation; asserting only the sum
   -- leaves both free to drift together while the prose goes stale, which is exactly
   -- what happened (`440 against 437` vs a truth of `443 / 440`).
-  let statedPrintBlockCount := 487
-  let statedGatedNamesCount := 484
+  let statedPrintBlockCount := 607
+  let statedGatedNamesCount := 601
   let gateSrc ← IO.FS.readFile "Axioms.lean"
   -- The prose's "443 `#print axioms` blocks" means the *code* blocks: the ones
   -- starting at column 0. A plain substring count also picks up every mention of
@@ -3035,9 +3573,9 @@ run_cmd do
   -- The `Codec.*` pins are inside `distPS` because `collectAxioms` is what counts
   -- them; `gatedNames` does not contain them, so no subtraction is needed — this is
   -- measured, not assumed: a mismatch below prints all four.
-  let statedDistPS := 412
-  let statedDistP := 50
-  let statedDistZ := 22
+  let statedDistPS := 496
+  let statedDistP := 71
+  let statedDistZ := 34
   if distPS != statedDistPS then
     bad := bad.push s!"distribution says {statedDistPS} [propext, Quot.sound], measured {distPS}"
   if distP != statedDistP then
@@ -3084,9 +3622,9 @@ run_cmd do
   let mentionedCount := defs.size - BaseNAxioms.definitionSurfaceAllowlist.size
   logInfo m!"basen axiom gate: {defs.size} public definitions covered, {mentionedCount} mentioned and {BaseNAxioms.definitionSurfaceAllowlist.size} allowlisted (mention proxy)"
   -- Asserted, like the theorem table: a stale def count is a build failure.
-  let expectedDefs := 145
-  let expectedMentioned := 130
-  let expectedDefAllow := 15
+  let expectedDefs := 157
+  let expectedMentioned := 140
+  let expectedDefAllow := 17
   let mut bad : Array String := #[]
   if defs.size != expectedDefs then
     bad := bad.push s!"public defs: table says {expectedDefs}, environment has {defs.size}"

@@ -45,3 +45,4 @@ import BaseN.Base32
 import BaseN.Base64
 import BaseN.Radix
 import BaseN.RadixAlphabets
+import BaseN.RadixCodec
