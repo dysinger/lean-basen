@@ -60,6 +60,23 @@ would make `fill` a bijection onto a quotient of strings most of which denote
 nothing. On the accepting subtype (`isNumeral`) `trimFor` is a total endofunction
 into the canonical forms, and *that* is what the `Iso` needs.
 
+## Why `numeralIso` does **not** go through the padded bases' tail spine
+
+A future implementer reaching for `BaseN.Base64.b64BlockIso` here should stop and read
+this. The padded bases (32 and 64) split their encoding into a **full-block layer** plus a
+**terminal-tail layer** whose `=` padding encodes a *length class* — 0, 1 or 2 bytes in the
+last group. A minimal-width numeral has no such thing: `ofNat 64 7` is one digit, not a
+digit plus a length announcement, and `numeralIso`'s codomain is the numeral quotient, so
+composing through the tail spine would attribute a length class to a value that does not
+carry one.
+
+So `numeralIso` is built on `digitVal`/`toNat`/`ofNat` and `trimFor` alone, and this
+module never imports or mentions `b32TailIso` / `b64TailIso`. The block isos **are** tied
+to the fold, but in `BaseN.RadixTie` and over the **block layer only**
+(`b32BlockApply`/`b64BlockApply`), which is where the tie is true. Reading a padded
+encoding as a number is out of scope and no theorem here claims it — the spec states the
+same thing as a requirement, so the boundary is enforced rather than remembered.
+
 ## Relationship to `BaseN.RadixAlphabets`
 
 `isZeroDigit` compares against `byteOfDigit b 0`, the same alphabet `digitVal` reads,

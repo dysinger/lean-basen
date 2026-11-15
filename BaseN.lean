@@ -24,6 +24,17 @@ is the canonical block/tail spine used only to specify the full-block +
 terminal-tail split, and rejection is a `decodeFullB64`/`decodeFullB32 = none`
 inequation over the composition.
 
+**`BaseN.Radix` adds a radix-parameterised *numeral* helper, and that is not a
+`Codec`-level dispatch.**  Its `digitVal`/`toNat`/`ofNat` take the radix as an
+explicit `Nat` argument, so the radix *is* a parameter there — but it is one rung
+**above** the per-base `Codec` values: nothing in this package gains a
+`Codec.decode (b : Base)`-shaped entry point, no existing `Codec` value changes,
+and the per-base `digitVal`/`toNat` pair is a conversion between *numerals and
+numbers* rather than a decoder.  The sentence above is about the **decoding
+surface**, and that surface still has no dispatch index; `numeralIso` at each
+radix is enumerated from one list in `BaseN.RadixTie.radixInstances` precisely so
+the parameterisation is visible and finite rather than an unenumerated index.
+
   * `BaseN.Base2`  — one bit per `0`/`1` char, 8 chars per byte, MSB-first
   * `BaseN.Base4`  — one quartet per `0`-`3` char, 4 chars per byte
   * `BaseN.Base8`  — octal, 3 digits per byte (RFC-adjacent, no padding)
