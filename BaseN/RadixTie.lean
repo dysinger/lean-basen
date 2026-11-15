@@ -306,4 +306,248 @@ theorem toNat_of_bitBlockApply (d0 d1 d2 d3 d4 d5 d6 d7 : UInt8) (v : UInt8)
   · rw [ite_eq_right hgood] at h
     exact absurd h (by simp)
 
+/-! ## Base 4 — the four-quartet block
+
+Same shape as base 2, four digits. `quartetVal` is `e - 48` on its window, and its
+validity predicate is `quartetVal e ≤ 3`. -/
+
+theorem digitVal_four_shape (d : UInt8) :
+    digitVal 4 d = (if inWin 48 51 d.toNat = true then some (d.toNat - 48) else none) := by
+  rw [digitVal_eq]; simp
+
+theorem quartetVal_on {c : Nat} (h : inWin 48 51 c = true) :
+    BaseN.Base4.quartetVal c = c - 48 := by
+  obtain ⟨hlo, hhi⟩ := inWin_eq_true h
+  unfold BaseN.Base4.quartetVal
+  rw [ite_eq_left hhi, ite_eq_left hlo]
+
+theorem quartetVal_bounds (c : Nat) (h : BaseN.Base4.quartetVal c ≤ 3) :
+    48 ≤ c ∧ c ≤ 51 := by
+  unfold BaseN.Base4.quartetVal at h
+  by_cases h1 : c ≤ 51
+  · rw [ite_eq_left h1] at h
+    by_cases h2 : 48 ≤ c
+    · exact ⟨h2, h1⟩
+    · rw [ite_eq_right h2] at h
+      omega
+  · rw [ite_eq_right h1] at h
+    omega
+
+theorem digitVal_four_of_quartetValid (d : UInt8)
+    (hv : BaseN.Base4.quartetValid d.toNat = true) :
+    digitVal 4 d = some (BaseN.Base4.quartetVal d.toNat) := by
+  have hle := BaseN.Base4.quartetValid_of_decide d.toNat hv
+  obtain ⟨hlo, hhi⟩ := quartetVal_bounds d.toNat hle
+  rw [digitVal_four_shape]
+  have hin : inWin 48 51 d.toNat = true := by rw [inWin_iff]; exact ⟨hlo, hhi⟩
+  rw [hin]
+  simp only [ite_true]
+  rw [quartetVal_on hin]
+
+theorem quartetValid_of_digitVal (d : UInt8) (h : (digitVal 4 d).isSome = true) :
+    BaseN.Base4.quartetValid d.toNat = true := by
+  rw [digitVal_four_shape] at h
+  by_cases hin : inWin 48 51 d.toNat = true
+  · obtain ⟨hlo, hhi⟩ := inWin_eq_true hin
+    unfold BaseN.Base4.quartetValid
+    show decide (BaseN.Base4.quartetVal d.toNat ≤ 3) = true
+    rw [quartetVal_on hin]
+    simp only [decide_eq_true_eq]
+    omega
+  · simp only [hin] at h
+    exact absurd h (by simp)
+
+/-- **The base-4 tie, `→`.** -/
+theorem quartetBlockApply_of_toNat (d0 d1 d2 d3 : UInt8) (n : Nat)
+    (h : toNat 4 [d0, d1, d2, d3] = some n) :
+    BaseN.Base4.quartetBlockApply [d0, d1, d2, d3] = some (UInt8.ofNat n) := by
+  have hdig : BaseN.RadixCodec.isDigits 4 [d0, d1, d2, d3] = true :=
+    BaseN.RadixCodec.isDigits_of_toNat (by rw [h]; rfl)
+  rw [BaseN.RadixCodec.isDigits_iff] at hdig
+  have hv0 := quartetValid_of_digitVal d0 (hdig d0 (by simp))
+  have hv1 := quartetValid_of_digitVal d1 (hdig d1 (by simp))
+  have hv2 := quartetValid_of_digitVal d2 (hdig d2 (by simp))
+  have hv3 := quartetValid_of_digitVal d3 (hdig d3 (by simp))
+  rw [BaseN.Base4.quartetBlockApply]
+  simp only [hv0, hv1, hv2, hv3, Bool.and_self, ite_true]
+  have hval := toNat_four 4 d0 d1 d2 d3
+      (BaseN.Base4.quartetVal d0.toNat) (BaseN.Base4.quartetVal d1.toNat)
+      (BaseN.Base4.quartetVal d2.toNat) (BaseN.Base4.quartetVal d3.toNat) n
+      (digitVal_four_of_quartetValid d0 hv0) (digitVal_four_of_quartetValid d1 hv1)
+      (digitVal_four_of_quartetValid d2 hv2) (digitVal_four_of_quartetValid d3 hv3) h
+  rw [hval, natVal_four]
+  congr 1
+
+/-- **The base-4 tie, `←`.** -/
+theorem toNat_of_quartetBlockApply (d0 d1 d2 d3 : UInt8) (v : UInt8)
+    (h : BaseN.Base4.quartetBlockApply [d0, d1, d2, d3] = some v) :
+    toNat 4 [d0, d1, d2, d3] = some v.toNat := by
+  rw [BaseN.Base4.quartetBlockApply] at h
+  by_cases hgood : (BaseN.Base4.quartetValid d0.toNat && BaseN.Base4.quartetValid d1.toNat &&
+      BaseN.Base4.quartetValid d2.toNat && BaseN.Base4.quartetValid d3.toNat) = true
+  · rw [ite_eq_left hgood] at h
+    simp only [Bool.and_eq_true] at hgood
+    obtain ⟨⟨⟨hg0, hg1⟩, hg2⟩, hg3⟩ := hgood
+    injection h with hv
+    subst hv
+    rw [toNat_cons_some 4 d0 _ _ (digitVal_four_of_quartetValid d0 hg0),
+        toNat_cons_some 4 d1 _ _ (digitVal_four_of_quartetValid d1 hg1),
+        toNat_cons_some 4 d2 _ _ (digitVal_four_of_quartetValid d2 hg2),
+        toNat_cons_some 4 d3 [] _ (digitVal_four_of_quartetValid d3 hg3),
+        toNat_nil]
+    simp only [Option.map_some]
+    rw [UInt8.toNat_ofNat']
+    rw [Nat.mod_eq_of_lt (by
+      have l0 := BaseN.Base4.quartetValid_of_decide d0.toNat hg0
+      have l1 := BaseN.Base4.quartetValid_of_decide d1.toNat hg1
+      have l2 := BaseN.Base4.quartetValid_of_decide d2.toNat hg2
+      have l3 := BaseN.Base4.quartetValid_of_decide d3.toNat hg3
+      unfold BaseN.Base4.quartetsVal
+      omega)]
+    congr 1
+    unfold BaseN.Base4.quartetsVal
+    simp only [List.length_cons, List.length_nil, Nat.pow_zero, Nat.pow_succ, Nat.mul_one]
+    omega
+  · rw [ite_eq_right hgood] at h
+    exact absurd h (by simp)
+
+/-! ## Base 8 — the three-octal-digit block
+
+Three digits, and — unlike bases 2 and 4 — the block guards `n ≤ 255` explicitly, because
+three octal digits reach `511`. That guard is vacuous here (`octToVal ≤ 7` gives
+`n ≤ 511`… so the guard is *not* vacuous) and it is why `→` needs the value bound rather
+than only the digit bounds. -/
+
+theorem digitVal_eight_shape (d : UInt8) :
+    digitVal 8 d = (if inWin 48 55 d.toNat = true then some (d.toNat - 48) else none) := by
+  rw [digitVal_eq]; simp
+
+theorem octToVal_on {c : Nat} (h : inWin 48 55 c = true) :
+    BaseN.Base8.octToVal c = c - 48 := by
+  obtain ⟨hlo, hhi⟩ := inWin_eq_true h
+  unfold BaseN.Base8.octToVal
+  rw [ite_eq_left hhi, ite_eq_left hlo]
+
+theorem octToVal_bounds (c : Nat) (h : BaseN.Base8.octToVal c ≤ 7) :
+    48 ≤ c ∧ c ≤ 55 := by
+  unfold BaseN.Base8.octToVal at h
+  by_cases h1 : c ≤ 55
+  · rw [ite_eq_left h1] at h
+    by_cases h2 : 48 ≤ c
+    · exact ⟨h2, h1⟩
+    · rw [ite_eq_right h2] at h
+      omega
+  · rw [ite_eq_right h1] at h
+    omega
+
+theorem digitVal_eight_of_octValid (d : UInt8)
+    (hv : BaseN.Base8.octValid d.toNat = true) :
+    digitVal 8 d = some (BaseN.Base8.octToVal d.toNat) := by
+  have hle := BaseN.Base8.octValid_of_decide d.toNat hv
+  obtain ⟨hlo, hhi⟩ := octToVal_bounds d.toNat hle
+  rw [digitVal_eight_shape]
+  have hin : inWin 48 55 d.toNat = true := by rw [inWin_iff]; exact ⟨hlo, hhi⟩
+  rw [hin]
+  simp only [ite_true]
+  rw [octToVal_on hin]
+
+theorem octValid_of_digitVal (d : UInt8) (h : (digitVal 8 d).isSome = true) :
+    BaseN.Base8.octValid d.toNat = true := by
+  rw [digitVal_eight_shape] at h
+  by_cases hin : inWin 48 55 d.toNat = true
+  · obtain ⟨hlo, hhi⟩ := inWin_eq_true hin
+    unfold BaseN.Base8.octValid
+    show decide (BaseN.Base8.octToVal d.toNat ≤ 7) = true
+    rw [octToVal_on hin]
+    simp only [decide_eq_true_eq]
+    omega
+  · simp only [hin] at h
+    exact absurd h (by simp)
+
+/-- **The base-8 tie, `→`, with the domain hypothesis.** Three octal digits reach `511`, so
+`octBlockApply` — whose codomain is `UInt8` — is **partial** on the numerals the fold
+accepts. The paper models exactly this with a `Maybe` arrow (`PAPER.md`: `apply : α → Maybe β`),
+so the domain condition `n ≤ 255` belongs in the *hypothesis*, which is what reading the
+arrow correctly means; it is not a weakening of the law.
+
+The rejection itself is a separate law (`octBlockApply_overflow` below), not a disjunct in
+this conclusion: `apply` is a function, and a law stating `apply = some … ∨ apply = none` is
+a case analysis on a result rather than the paper's `Just b → g b = Just a`. -/
+theorem octBlockApply_of_toNat (d0 d1 d2 : UInt8) (n : Nat)
+    (h : toNat 8 [d0, d1, d2] = some n) (hn : n ≤ 255) :
+    BaseN.Base8.octBlockApply [d0, d1, d2] = some (UInt8.ofNat n) := by
+  have hdig : BaseN.RadixCodec.isDigits 8 [d0, d1, d2] = true :=
+    BaseN.RadixCodec.isDigits_of_toNat (by rw [h]; rfl)
+  rw [BaseN.RadixCodec.isDigits_iff] at hdig
+  have hv0 := octValid_of_digitVal d0 (hdig d0 (by simp))
+  have hv1 := octValid_of_digitVal d1 (hdig d1 (by simp))
+  have hv2 := octValid_of_digitVal d2 (hdig d2 (by simp))
+  have hval := toNat_three 8 d0 d1 d2
+      (BaseN.Base8.octToVal d0.toNat) (BaseN.Base8.octToVal d1.toNat)
+      (BaseN.Base8.octToVal d2.toNat) n
+      (digitVal_eight_of_octValid d0 hv0) (digitVal_eight_of_octValid d1 hv1)
+      (digitVal_eight_of_octValid d2 hv2) h
+  rw [BaseN.Base8.octBlockApply]
+  simp only [hv0, hv1, hv2, Bool.and_self]
+  rw [hval, natVal_three]
+  simp only [Nat.reducePow, ite_true]
+  have hn' : BaseN.Base8.octToVal d0.toNat * 64 + BaseN.Base8.octToVal d1.toNat * 8
+      + BaseN.Base8.octToVal d2.toNat ≤ 255 := by
+    rw [show BaseN.Base8.octToVal d0.toNat * 64 + BaseN.Base8.octToVal d1.toNat * 8
+      + BaseN.Base8.octToVal d2.toNat
+        = natVal 8 [BaseN.Base8.octToVal d0.toNat, BaseN.Base8.octToVal d1.toNat,
+            BaseN.Base8.octToVal d2.toNat] from (natVal_three 8 _ _ _).symm]
+    rw [← hval]
+    exact hn
+  rw [ite_eq_left hn']
+
+/-- **The base-8 overflow law — `apply`'s domain, stated separately.**
+
+Three octal digits reach `511`, so a block whose value exceeds `255` is a numeral the fold
+accepts and the block *rejects*. This is the measured characterisation of the block's
+domain: `octBlockApply` succeeds **exactly** when its value is at most `255` (verified over
+all 512 digit triples), so this is a complete statement about the rejection rather than one
+half of it.
+
+Stated over the block's own value expression: the block binds that expression with a `let`,
+so restating it as `n` first would shadow rather than connect. -/
+theorem octBlockApply_overflow (d0 d1 d2 : UInt8)
+    (h : 255 < BaseN.Base8.octToVal d0.toNat * 64 + BaseN.Base8.octToVal d1.toNat * 8
+      + BaseN.Base8.octToVal d2.toNat)
+    (hv : BaseN.Base8.octValid d0.toNat = true) (hv2 : BaseN.Base8.octValid d1.toNat = true)
+    (hv3 : BaseN.Base8.octValid d2.toNat = true) :
+    BaseN.Base8.octBlockApply [d0, d1, d2] = none := by
+  rw [BaseN.Base8.octBlockApply]
+  simp only [hv, hv2, hv3, Bool.and_self, ite_true]
+  rw [ite_eq_right (by omega)]
+
+/-- **The base-8 tie, `←`.** -/
+theorem toNat_of_octBlockApply (d0 d1 d2 : UInt8) (v : UInt8)
+    (h : BaseN.Base8.octBlockApply [d0, d1, d2] = some v) :
+    toNat 8 [d0, d1, d2] = some v.toNat := by
+  rw [BaseN.Base8.octBlockApply] at h
+  by_cases hgood : (BaseN.Base8.octValid d0.toNat && BaseN.Base8.octValid d1.toNat &&
+      BaseN.Base8.octValid d2.toNat) = true
+  · rw [ite_eq_left hgood] at h
+    simp only [Bool.and_eq_true] at hgood
+    obtain ⟨⟨hg0, hg1⟩, hg2⟩ := hgood
+    by_cases hle : BaseN.Base8.octToVal d0.toNat * 64 + BaseN.Base8.octToVal d1.toNat * 8
+        + BaseN.Base8.octToVal d2.toNat ≤ 255
+    · rw [ite_eq_left hle] at h
+      injection h with hv
+      subst hv
+      rw [toNat_cons_some 8 d0 _ _ (digitVal_eight_of_octValid d0 hg0),
+          toNat_cons_some 8 d1 _ _ (digitVal_eight_of_octValid d1 hg1),
+          toNat_cons_some 8 d2 [] _ (digitVal_eight_of_octValid d2 hg2),
+          toNat_nil]
+      simp only [Option.map_some]
+      rw [UInt8.toNat_ofNat', Nat.mod_eq_of_lt (by omega)]
+      congr 1
+      simp only [List.length_cons, List.length_nil, Nat.pow_zero, Nat.pow_succ, Nat.mul_one]
+      omega
+    · rw [ite_eq_right hle] at h
+      exact absurd h (by simp)
+  · rw [ite_eq_right hgood] at h
+    exact absurd h (by simp)
+
 end BaseN.RadixTie
