@@ -46,3 +46,4 @@ import BaseN.Base64
 import BaseN.Radix
 import BaseN.RadixAlphabets
 import BaseN.RadixCodec
+import BaseN.RadixTie
