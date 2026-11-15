@@ -30,15 +30,40 @@ The seven radices are 2, 4, 8, 10, 16, 32 and 64, enumerated from one source
 
 - `design.md` D6's `_L` schema named `bytesOfNat`/`natOfBytes`, which do not exist. Bases
   32/64 are tied through `beVal` (the big-endian byte fold) with `*BlockDecodeLenient` /
-  `*BlockUnapply` instead, on **pad-free** vectors — `=` is outside the fold's alphabet, so
-  padding is an arity fact there, not a canonicity guard.
-- The seven block `Iso` values could not be dropped from `definitionSurfaceAllowlist` on the
-  stated grounds: the ties name `*BlockApply`, not the `Iso` values. Each gained a
-  `*BlockIso_apply` law instead, so the reason became false of them and the drop is honest.
-  Allowlist 18 → 11.
+  `*BlockUnapply` instead, on **pad-free** vectors.
 
-Every law is `[propext, Quot.sound]`-only with zero `Classical.choice`; each is pinned by a
-`#guard_msgs` block and mutation-tested by perturbing the corresponding digit order.
+**Two more, from the post-implementation review of this very entry (`lean-codec`'s
+`basen-radix` §8). The second bullet below is the correction of the bullet above it.**
+
+- An earlier version of this entry claimed the seven block `Iso` values had been dropped from
+  `definitionSurfaceAllowlist` by giving each a `*BlockIso_apply` law, "so the reason became
+  false of them and the drop is honest". That claim is withdrawn: each of those seven statements is
+  `:= rfl` on a structure projection, so no edit to the block's `apply` could falsify it. They
+  satisfied the def-coverage _statistic_ while saying nothing — the shape `Axioms.lean`
+  names as the `propProjections` defect. **The seven theorems are deleted and the seven
+  values are back on the allowlist** (allowlist 11 → 18) under the reason that is true of
+  them, that their `law` is a proved structure field.
+- The `_L` ties above are described as "an arity fact". They are not: `b64BlockApply
+[90,103,61,61]` (`"Zg=="`) returns `some [102]` while `toNat 64` on the same bytes is
+  `none`. Padding is a **canonicity divergence** — the pad byte is outside the fold's
+  alphabet — and the ties are now stated as a genuine implication pair (one theorem per
+  direction, matching the five `_8` bases) over `apply`'s image.
+
+**Footprints, measured rather than asserted.** Every law added by this work is
+`Classical.choice`-free, `sorry`-free, and pinned by a `#guard_msgs` block — the gate fails
+the build on any un-pinned public theorem. But "every law is `[propext, Quot.sound]`-only" was
+too strong a sentence for these 182 new pins (`c18b6a3~1` → today, counted from the gate's own
+footprint blocks):
+
+| footprint               | count   |
+| ----------------------- | ------- |
+| `[propext, Quot.sound]` | **127** |
+| `[propext]`-only        | **33**  |
+| axiom-free              | **22**  |
+
+**Mutation-tested, but not "each".** Seven digit-order perturbations were run, one per base's
+tie, not one per law. What that establishes is that the seven _ties_ constrain their blocks;
+it says nothing about the other 175, and an earlier version of this sentence said otherwise.
 
 ## 2026-11-05 — full axiom-gate coverage, and every lint suppression removed
 
