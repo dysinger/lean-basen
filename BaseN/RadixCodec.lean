@@ -97,6 +97,21 @@ normaliser and the fold share one alphabet source. Measured at all seven radices
 says is deliberate is exactly what could make the two disagree. -/
 def isZeroDigit (b : Nat) (c : UInt8) : Bool := c.toNat == (byteOfDigit b 0).toNat
 
+/-- The alphabet's zero byte is never a blank. -/
+theorem byteOfDigit_zero_ne_blank_nat (b : Nat) : (byteOfDigit b 0).toNat ≠ 32 := by
+  rw [byteOfDigit_toNat]
+  unfold byteOfDigitNat
+  by_cases h32 : b = 32
+  · subst h32; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 25)]; omega
+  · rw [ite_eq_right h32]
+    by_cases h64 : b = 64
+    · subst h64; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 25)]; omega
+    · rw [ite_eq_right h64]
+      by_cases h16 : b = 16
+      · subst h16; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 9)]; omega
+      · rw [ite_eq_right h16]; omega
+
+
 theorem isZeroDigit_eq_true_iff {b : Nat} {c : UInt8} :
     isZeroDigit b c = true ↔ c.toNat = (byteOfDigit b 0).toNat :=
   beq_iff_eq
@@ -544,6 +559,183 @@ theorem strip_idem (b : Nat) (l : List UInt8) : strip b (strip b l) = strip b l 
       · rw [strip_cons h]
         exact strip_cons (fun hh => h hh)
 
+/-! ## The zero spelling
+
+`trimFor`'s all-absorbed branch needs to know whether the input it just absorbed was a
+*spelling of zero* or a spelling of nothing. `isDigits` is the wrong question: it asks
+whether the raw bytes are a run of digits, and the blanks that `strip` absorbs are not
+digits — which rejected `"  0"` while `"  7"` was accepted, because `7` is not the zero
+digit. Measured 2026-11-15 at `9a02f89`, at every radix.
+
+The right question has three conjuncts, and the shape of the predicate is what keeps them
+apart: **leading blanks, then one or more zero digits, and nothing else.** The two ways a
+predicate defined against `strip`'s output alone goes wrong are both measured:
+
+- `strip` absorbs `"  0"` and `"0 "` **identically**, so a predicate over `strip`'s output
+  cannot see that the second one's blank is *trailing* — which `design.md` D3 rejects.
+  Hence the blanks and the zero digits are separated in the recursion, not conflated.
+- Placing blanks and zero digits in one interleaving also accepts `"  "`, which names
+  nothing (`design.md` D4). Hence `isZeroZeros` requires a **non-empty** run.
+
+Because `isZeroSpelling b [] = false` by definition, D4's empty-input rule and this
+predicate agree, and `trimFor` needs no separate `ds = []` test. -/
+
+/-- `isZeroZeros b zs` — `zs` is a **non-empty** run of the radix's zero digit. -/
+def isZeroZeros (b : Nat) : List UInt8 → Bool
+  | [] => false
+  | c :: cs => isZeroDigit b c && cs.all (fun x => isZeroDigit b x)
+
+/-- `isZeroSpelling b ds` — leading blanks, then one or more zero digits, and nothing else.
+
+`false` on `[]`, so a spelling of nothing is never a spelling of zero. -/
+def isZeroSpelling (b : Nat) : List UInt8 → Bool
+  | [] => false
+  | c :: cs => if isBlank c = true then isZeroSpelling b cs else isZeroZeros b (c :: cs)
+
+theorem isZeroSpelling_nil (b : Nat) : isZeroSpelling b [] = false := rfl
+
+theorem isZeroSpelling_cons_blank {b : Nat} {c : UInt8} {cs : List UInt8}
+    (hb : isBlank c = true) : isZeroSpelling b (c :: cs) = isZeroSpelling b cs := by
+  show (if isBlank c = true then isZeroSpelling b cs else isZeroZeros b (c :: cs)) = _
+  rw [ite_eq_left hb]
+
+theorem isZeroSpelling_cons_zeros {b : Nat} {c : UInt8} {cs : List UInt8}
+    (hb : isBlank c = false) : isZeroSpelling b (c :: cs) = isZeroZeros b (c :: cs) := by
+  show (if isBlank c = true then isZeroSpelling b cs else isZeroZeros b (c :: cs)) = _
+  rw [ite_eq_right (by simp [hb])]
+
+theorem isZeroZeros_cons {b : Nat} {c : UInt8} {cs : List UInt8} :
+    isZeroZeros b (c :: cs) = true ↔
+      isZeroDigit b c = true ∧ ∀ x ∈ cs, isZeroDigit b x = true := by
+  show (isZeroDigit b c && cs.all (fun x => isZeroDigit b x)) = true ↔ _
+  rw [Bool.and_eq_true_iff, List.all_eq_true]
+
+/-- A zero-digit run is a zero spelling: its head is a zero digit (never a blank) and the
+rest is a run. The disjointness of blanks and zero digits is `byteOfDigit_zero_ne_blank_nat`
+at the `UInt8` level, decided by the alphabet rather than assumed. -/
+theorem isZeroZeros_spelling {b : Nat} {zs : List UInt8} (h : isZeroZeros b zs = true) :
+    isZeroSpelling b zs = true := by
+  rcases zs with _ | ⟨c, cs⟩
+  · exact absurd h (by simp [isZeroZeros])
+  · have hdz := (isZeroZeros_cons.1 h).1
+    rw [isZeroSpelling_cons_zeros ?_]
+    · exact h
+    · rw [isBlank, decide_eq_false_iff_not, isZeroDigit_eq_true_iff.1 hdz]
+      exact byteOfDigit_zero_ne_blank_nat b
+
+/-- `strip` empties exactly on lists whose every byte is a blank or a zero digit — the
+decomposition `strip`'s own recursion performs, so this is the effect of the definition
+rather than a claim about it. -/
+theorem strip_nil_all (b : Nat) :
+    ∀ {ds : List UInt8}, strip b ds = [] →
+      ∀ c ∈ ds, isBlank c = true ∨ isZeroDigit b c = true := by
+  intro ds
+  induction ds with
+  | nil => intro _ c hc; simp at hc
+  | cons e t ih =>
+      intro hs c hc
+      have he : isBlank e = true ∨ isZeroDigit b e = true := by
+        by_cases h' : isBlank e = true ∨ isZeroDigit b e = true
+        · exact h'
+        · rw [strip_cons h'] at hs; exact absurd hs (by simp)
+      have ht : strip b t = [] := by rw [strip_skip he] at hs; exact hs
+      rcases List.mem_cons.1 hc with rfl | hc
+      · exact he
+      · exact ih ht c hc
+
+
+/-- A zero spelling starts either with a blank (and is its tail's) or is a zero-digit run.
+Stated as a disjunction because those are the only two shapes the definition admits. -/
+theorem isZeroSpelling_cons {b : Nat} {c : UInt8} {cs : List UInt8}
+    (h : isZeroSpelling b (c :: cs) = true) :
+    (isBlank c = true ∧ isZeroSpelling b cs = true) ∨ isZeroZeros b (c :: cs) = true := by
+  by_cases hb : isBlank c = true
+  · exact Or.inl ⟨hb, by rwa [isZeroSpelling_cons_blank hb] at h⟩
+  · have hbf : isBlank c = false := by
+      cases hh : isBlank c with
+      | false => rfl
+      | true => exact absurd hh hb
+    exact Or.inr (by rwa [isZeroSpelling_cons_zeros hbf] at h)
+
+/-- Dropping a head from a longer zero-digit run leaves a zero-digit run. -/
+theorem isZeroZeros_tail {b : Nat} {c : UInt8} {cs : List UInt8}
+    (h : isZeroZeros b (c :: cs) = true) (hne : cs ≠ []) : isZeroZeros b cs = true := by
+  obtain ⟨_, hall⟩ := isZeroZeros_cons.1 h
+  rcases cs with _ | ⟨x, xs⟩
+  · exact absurd rfl hne
+  · exact isZeroZeros_cons.2 ⟨hall x (List.mem_cons_self ..),
+      fun y hy => hall y (List.mem_cons_of_mem x hy)⟩
+
+/-- **A zero spelling is absorbed**: `strip` empties it. -/
+theorem strip_nil_all' (b : Nat) :
+    ∀ {ds : List UInt8}, isZeroSpelling b ds = true →
+      ∀ c ∈ ds, isBlank c = true ∨ isZeroDigit b c = true := by
+  intro ds
+  induction ds with
+  | nil => intro _ c hc; simp at hc
+  | cons e t ih =>
+      intro h c hc
+      rcases isZeroSpelling_cons h with ⟨hb, h'⟩ | hz
+      · have ht := ih h'
+        rcases List.mem_cons.1 hc with rfl | hc
+        · exact Or.inl hb
+        · exact ht c hc
+      · have hall := (isZeroZeros_cons.1 hz).2
+        rcases List.mem_cons.1 hc with rfl | hc
+        · exact Or.inr (isZeroZeros_cons.1 hz).1
+        · exact Or.inr (hall c hc)
+
+/-- Every byte of a zero-digit run is the zero digit. -/
+theorem isZeroZeros_all {b : Nat} {zs : List UInt8} (h : isZeroZeros b zs = true) :
+    ∀ c ∈ zs, isZeroDigit b c = true := by
+  rcases zs with _ | ⟨c, cs⟩
+  · intro x hx; simp at hx
+  · obtain ⟨h1, h2⟩ := isZeroZeros_cons.1 h
+    intro x hx
+    rcases List.mem_cons.1 hx with rfl | hx
+    · exact h1
+    · exact h2 x hx
+
+/-- A zero-digit run contains no blank. Immediate from the disjointness of alphabet bytes
+and ASCII 32, which is `byteOfDigit_zero_ne_blank_nat`. -/
+theorem isZeroZeros_blank_free {b : Nat} {zs : List UInt8} (h : isZeroZeros b zs = true) :
+    ∀ c ∈ zs, isBlank c = false := by
+  intro c hc
+  have hdz := isZeroZeros_all h c hc
+  rw [isBlank, decide_eq_false_iff_not, isZeroDigit_eq_true_iff.1 hdz]
+  exact byteOfDigit_zero_ne_blank_nat b
+
+theorem strip_nil_of_spelling (b : Nat) :
+    ∀ {ds : List UInt8}, isZeroSpelling b ds = true → strip b ds = [] := by
+  intro ds
+  induction ds with
+  | nil => intro _; rfl
+  | cons c cs ih =>
+      intro h
+      rw [strip_skip (strip_nil_all' b h c (List.mem_cons_self ..))]
+      by_cases hb : isBlank c = true
+      · exact ih (by rwa [isZeroSpelling_cons_blank hb] at h)
+      · have hbf : isBlank c = false := by
+          cases hh : isBlank c with
+          | false => rfl
+          | true => exact absurd hh hb
+        have hz : isZeroZeros b (c :: cs) = true := (isZeroSpelling_cons_zeros hbf).symm ▸ h
+        cases cs with
+        | nil => rfl
+        | cons x xs =>
+            -- the tail after removing the head is `x :: xs`, whose run shape is `hz`'s
+            -- with the head dropped; the disjointness of blanks and zero digits is the
+            -- reason a zero-digit run is a zero spelling, proved here rather than through
+            -- `isZeroZeros_spelling`, which lives below the lemma that supplies it
+            have hx : isZeroZeros b (x :: xs) = true :=
+              isZeroZeros_cons.2 ⟨(isZeroZeros_cons.1 hz).2 x (List.mem_cons_self ..),
+                fun y hy => (isZeroZeros_cons.1 hz).2 y (List.mem_cons_of_mem x hy)⟩
+            have hxf : isBlank x = false := by
+              rw [isBlank, decide_eq_false_iff_not,
+                isZeroDigit_eq_true_iff.1 (isZeroZeros_cons.1 hx).1]
+              exact byteOfDigit_zero_ne_blank_nat b
+            exact ih (hx ▸ isZeroSpelling_cons_zeros hxf ▸ rfl : isZeroSpelling b (x :: xs) = true)
+
 /-- `trimFor b ds` — the canonical numeral for the lax spelling `ds`, or `none` if `ds`
 names no number.
 
@@ -559,8 +751,7 @@ least one byte having survived (so a digit was actually written). -/
 def trimFor (b : Nat) (ds : List UInt8) : Option (List UInt8) :=
   let t := strip b ds
   if t = [] then
-    (if ds = [] then none
-     else if isDigits b ds then some (ofNat b 0) else none)
+    (if isZeroSpelling b ds then some (ofNat b 0) else none)
   else if isDigits b t then some t else none
 
 /-- `isNumeral b ds` — `ds` is a spelling `trimFor` accepts. On this subtype `trimFor`
@@ -776,26 +967,12 @@ theorem digitTail_head_ne_zero {b : Nat} :
         rw [← h1]
         exact hf
 
-/-- The alphabet's zero byte is never a blank. -/
-theorem byteOfDigit_zero_ne_blank_nat (b : Nat) : (byteOfDigit b 0).toNat ≠ 32 := by
-  rw [byteOfDigit_toNat]
-  unfold byteOfDigitNat
-  by_cases h32 : b = 32
-  · subst h32; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 25)]; omega
-  · rw [ite_eq_right h32]
-    by_cases h64 : b = 64
-    · subst h64; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 25)]; omega
-    · rw [ite_eq_right h64]
-      by_cases h16 : b = 16
-      · subst h16; rw [ite_eq_left rfl, ite_eq_left (by omega : (0:Nat) ≤ 9)]; omega
-      · rw [ite_eq_right h16]; omega
-
-/-- A zero-digit byte is never a blank. -/
 theorem isZeroDigit_not_blank {b : Nat} {c : UInt8} (h : isZeroDigit b c = true) :
     isBlank c = false := by
   have hz : c.toNat = (byteOfDigit b 0).toNat := isZeroDigit_eq_true_iff.1 h
   rw [isBlank, decide_eq_false_iff_not, hz]
   exact byteOfDigit_zero_ne_blank_nat b
+
 
 /-- Every byte `ofNat` emits is not a blank. The load-bearing fact is that ASCII 32 is
 below every alphabet's window: no digit of any radix this layer serves is a space. -/
@@ -994,6 +1171,21 @@ theorem strip_ofNat {b n : Nat} (hr : IsRadix b) (hn : n ≠ 0) :
     strip b (ofNat b n) = ofNat b n :=
   strip_eq_self _ (ofNat_isBlank_false hr) (ofNat_ne_nil hr hn) (ofNat_head_not_zeroD hr hn)
 
+/-- `isZeroDigit` and `digitVal` agree at the zero digit, so the radix's zero byte is a
+zero-digit run of one. The bridge `digitVal_byteOfDigit` is the only alphabet fact needed. -/
+theorem isZeroZeros_ofNat_zero (b : Nat) :
+    isZeroZeros b (ofNat b 0) = true := by
+  rw [ofNat_zero_eq, isZeroZeros_cons]
+  exact ⟨isZeroDigit_ofNat_zero b, by simp⟩
+
+/-- The radix's zero numeral is a zero spelling, so `trimFor` maps it to `ofNat b 0`. -/
+theorem isZeroSpelling_ofNat_zero (b : Nat) : isZeroSpelling b (ofNat b 0) = true := by
+  rw [ofNat_zero_eq]
+  refine (isZeroSpelling_cons_zeros ?_ ).trans (isZeroZeros_ofNat_zero b)
+  show isBlank (byteOfDigit b 0) = false
+  rw [isBlank, decide_eq_false_iff_not]
+  exact byteOfDigit_zero_ne_blank_nat b
+
 /-- **`ofNat` emits canonical spellings**: `trimFor` maps an `ofNat` to itself. -/
 theorem trimFor_ofNat {b n : Nat} (hr : IsRadix b) :
     trimFor b (ofNat b n) = some (ofNat b n) := by
@@ -1009,43 +1201,43 @@ theorem trimFor_ofNat {b n : Nat} (hr : IsRadix b) :
         rw [ofNat_zero_eq] at this
         simpa using this
       exact h
-    rw [ite_eq_left hz, ite_eq_right (ofNat_zero_ne_nil b),
-        ite_eq_left (ofNat_isDigits hr)]
+    rw [ite_eq_left hz, ite_eq_left (isZeroSpelling_ofNat_zero b)]
   · have hs : strip b (ofNat b n) = ofNat b n := strip_ofNat hr hn
     rw [ite_eq_right (by rw [hs]; exact ofNat_ne_nil hr hn), hs,
         ite_eq_left (ofNat_isDigits hr)]
 
-/-- **`trimFor` is idempotent on its image** — the `Codec.Normalizer` law. -/
-theorem trimFor_idem {b : Nat} (hr : IsRadix b) {ds t : List UInt8}
+/-- `trimFor` maps the radix's zero numeral to itself. This is the zero arm of
+`trimFor_idem`'s first branch, stated separately so that idempotence needs no `IsRadix`. -/
+theorem trimFor_ofNat_self_zero (b : Nat) : trimFor b (ofNat b 0) = some (ofNat b 0) := by
+  unfold trimFor
+  rw [ite_eq_left (strip_nil_of_spelling b (isZeroSpelling_ofNat_zero b)),
+      ite_eq_left (isZeroSpelling_ofNat_zero b)]
+
+/-- **`trimFor` is idempotent on its image** — the `Codec.Normalizer` law.
+
+**No `IsRadix` hypothesis.** Both branches settle on `strip`'s own equations — `strip_idem`,
+and `strip`'s recursion for the zero arm — plus the fact that `trimFor`'s answer is already
+canonical, so idempotence is a fact about the normaliser's *shape* rather than about the
+alphabet. The hypothesis was carried while the zero branch tested `isDigits`; the zero-spelling
+fix removed the dependency, and keeping it would be a claim the theorem does not make. -/
+theorem trimFor_idem {b : Nat} {ds t : List UInt8}
     (h : trimFor b ds = some t) : trimFor b t = some t := by
   unfold trimFor at h ⊢
   by_cases hs : strip b ds = []
   · rw [ite_eq_left hs] at h
-    by_cases hd0 : ds = []
-    · rw [ite_eq_left hd0] at h; simp at h
-    · rw [ite_eq_right hd0] at h
-      by_cases hd : isDigits b ds = true
-      · rw [ite_eq_left hd] at h
-        rw [← Option.some.inj h]
-        have hz : strip b (ofNat b 0) = [] := by
-          rw [ofNat_zero_eq]
-          apply strip_skip
-          right
-          have h : isZeroDigit b (byteOfDigit b 0) = true := by
-            have := isZeroDigit_ofNat_zero b
-            rw [ofNat_zero_eq] at this
-            simpa using this
-          exact h
-        rw [ite_eq_left hz, ite_eq_right (ofNat_zero_ne_nil b),
-            ite_eq_left (ofNat_isDigits hr)]
-      · rw [ite_eq_right hd] at h; simp at h
+    -- the branch accepted, so `ds` was a zero spelling and `t = ofNat b 0`
+    by_cases hd : isZeroSpelling b ds = true
+    · rw [ite_eq_left hd] at h
+      rw [← Option.some.inj h]
+      exact trimFor_ofNat_self_zero b
+    · rw [ite_eq_right hd] at h; exact absurd h (by simp)
   · rw [ite_eq_right hs] at h
     by_cases hd : isDigits b (strip b ds) = true
     · rw [ite_eq_left hd] at h
       have hst : strip b (strip b ds) = strip b ds := strip_idem b ds
       rw [← Option.some.inj h, hst, ite_eq_right hs, hd]
       rfl
-    · rw [ite_eq_right hd] at h; simp at h
+    · rw [ite_eq_right hd] at h; exact absurd h (by simp)
 
 
 theorem natVal_snoc (b : Nat) (vs : List Nat) (v : Nat) :
@@ -1237,6 +1429,63 @@ theorem toNat_map_val {b : Nat} (hr : IsRadix b) :
       rw [toNat_cons_some b d ds v hv, toNat_map_val hr ds h2]
       simp [List.map_cons, hv, natVal]
 
+/-- A blank byte reads as **no digit** in every radix. The argument is the one
+`digitVal_some_byteOfDigit` makes available: a byte the fold can read is `byteOfDigit` of the
+value it read, and no alphabet byte is ASCII 32. This is why a blank anywhere makes the whole
+fold reject rather than contributing zero. -/
+theorem digitVal_eq_none_of_blank {b : Nat} (hr : IsRadix b) {c : UInt8}
+    (h : isBlank c = true) : digitVal b c = none := by
+  cases hd : digitVal b c with
+  | none => rfl
+  | some v =>
+      exfalso
+      have hbv : c = byteOfDigit b v := digitVal_some_byteOfDigit hr hd
+      have hlt : v < b := digitVal_lt_of_some hr hd
+      have hne : (byteOfDigit b v).toNat ≠ 32 := byteOfDigit_toNat_ne_32 hr hlt
+      rw [isBlank_eq_true_iff] at h
+      rw [hbv] at h
+      exact hne h
+
+/-- **A blank anywhere makes the fold reject.** `toNat` is not "blanks read as zero": a space
+is outside every alphabet, so it poisons the whole conversion exactly like a wrong-alphabet
+digit does. This is the lemma that separates `"  0"` (accepted, the blanks are *leading
+padding* the normaliser removes) from `"  "` and `"0 "` (rejected). -/
+theorem toNat_none_of_mem_blank {b : Nat} (hr : IsRadix b) :
+    ∀ {ds : List UInt8}, (∃ c ∈ ds, isBlank c = true) → toNat b ds = none := by
+  intro ds
+  induction ds with
+  | nil => intro h; rcases h with ⟨_, hc, _⟩; simp at hc
+  | cons e t ih =>
+      intro h
+      obtain ⟨c, hc, hb⟩ := h
+      have hcase : isBlank e = true ∨ ∃ c' ∈ t, isBlank c' = true := by
+        rcases List.mem_cons.1 hc with he | hc
+        · exact Or.inl (he ▸ hb)
+        · exact Or.inr ⟨c, hc, hb⟩
+      rcases hcase with hb0 | ⟨c', hc', hb'⟩
+      · exact toNat_cons_none b e t (digitVal_eq_none_of_blank hr hb0)
+      · cases hd : digitVal b e with
+        | none => exact toNat_cons_none b e t hd
+        | some v =>
+            rw [toNat_cons_some b e t v hd, ih ⟨c', hc', hb'⟩]
+            rfl
+
+/-- A `strip`-empty list with no blank is a zero spelling: every byte is then a zero digit,
+which is `isZeroZeros` by construction. The converse of `strip_nil_of_spelling` on the
+non-blank inputs, and the reason the zero branch's two arms exhaust the `strip`-empty case. -/
+theorem isZeroSpelling_of_strip_nil_no_blank {b : Nat} {ds : List UInt8}
+    (hne : ds ≠ []) (hs : strip b ds = []) (hb : ¬ ∃ c ∈ ds, isBlank c = true) :
+    isZeroSpelling b ds = true := by
+  have hall : ∀ c ∈ ds, isZeroDigit b c = true := by
+    intro c hc
+    rcases strip_nil_all b hs c hc with h | h
+    · exact absurd ⟨c, hc, h⟩ hb
+    · exact h
+  rcases ds with _ | ⟨c, cs⟩
+  · exact absurd rfl hne
+  · exact isZeroZeros_spelling (isZeroZeros_cons.2
+      ⟨hall c (List.mem_cons_self ..), fun y hy => hall y (List.mem_cons_of_mem c hy)⟩)
+
 theorem toNat_none_of_not_digits {b : Nat} :
     ∀ {ds : List UInt8}, isDigits b ds = false → toNat b ds = none
   | [], h => by
@@ -1389,16 +1638,13 @@ theorem fixed_eq_ofNat {b : Nat} (hr : IsRadix b) {ds : List UInt8} {n : Nat}
   unfold trimFor at hfix
   by_cases hs : strip b ds = []
   · rw [ite_eq_left hs] at hfix
-    by_cases hnil : ds = []
-    · rw [ite_eq_left hnil] at hfix; exact absurd hfix (by simp)
-    · rw [ite_eq_right hnil] at hfix
-      by_cases hdd : isDigits b ds = true
-      · rw [ite_eq_left hdd] at hfix
-        have hz : ds = ofNat b 0 := (Option.some.inj hfix).symm
-        rw [hz] at h
-        rw [toNat_ofNat hr 0] at h
-        rw [hz, ← Option.some.inj h]
-      · rw [ite_eq_right hdd] at hfix; exact absurd hfix (by simp)
+    by_cases hdd : isZeroSpelling b ds = true
+    · rw [ite_eq_left hdd] at hfix
+      have hz : ds = ofNat b 0 := (Option.some.inj hfix).symm
+      rw [hz] at h
+      rw [toNat_ofNat hr 0] at h
+      rw [hz, ← Option.some.inj h]
+    · rw [ite_eq_right hdd] at hfix; exact absurd hfix (by simp)
   · rw [ite_eq_right hs] at hfix
     by_cases hdd : isDigits b (strip b ds) = true
     · rw [ite_eq_left hdd] at hfix
@@ -1462,29 +1708,131 @@ theorem isDigits_strip_false {b : Nat} {ds : List UInt8}
       rw [hst] at hf
       exact absurd hf (by simp)
 
+/-- **A blank-free `strip`-empty list is a zero spelling**, given it is the prefix-cut tail
+of a zero digit. This is the constructive content `exists_blank_of_strip_nil_not_spelling`
+needs: if no blank is present and `strip` emptied the list, every byte is a zero digit, so
+the list is a zero-digit run and hence a zero spelling.
+
+Stated recursively on the list with `strip_nil_all` as the only source of facts, so no step
+needs a decision procedure or `Classical.choice`. -/
+theorem isZeroSpelling_of_blank_free (b : Nat) :
+    ∀ {ds : List UInt8}, ds ≠ [] → strip b ds = [] →
+      (∀ c ∈ ds, isBlank c = false) → isZeroSpelling b ds = true := by
+  intro ds
+  induction ds with
+  | nil => intro hne _ _; exact absurd rfl hne
+  | cons x xs ih =>
+      intro hne hs hbf
+      have hall : ∀ c ∈ x :: xs, isBlank c = true ∨ isZeroDigit b c = true :=
+        fun c hc => strip_nil_all b hs c hc
+      have hbz : isZeroDigit b x = true := by
+        rcases hall x (List.mem_cons_self ..) with hb | hz
+        · exact absurd hb (by rw [hbf x (List.mem_cons_self ..)]; simp)
+        · exact hz
+      have hxf : isBlank x = false := hbf x (List.mem_cons_self ..)
+      rw [isZeroSpelling_cons_zeros hxf, isZeroZeros_cons]
+      refine ⟨hbz, fun y hy => ?_⟩
+      rcases hall y (List.mem_cons_of_mem x hy) with hb | hz
+      · exact absurd hb (by rw [hbf y (List.mem_cons_of_mem x hy)]; simp)
+      · exact hz
+
+/-- `isBlank` as a `Bool` search: a blank exists exactly when `any` finds one. The
+`Bool`-valued form is what lets the constructive argument below decide blank-ness rather
+than assume it, which is the difference between `[propext, Quot.sound]` and a
+`Classical.choice` leak. -/
+theorem exists_blank_iff (ds : List UInt8) :
+    (∃ c ∈ ds, isBlank c = true) ↔ ds.any isBlank = true := by
+  induction ds with
+  | nil => simp
+  | cons x xs ih =>
+      rw [List.any_cons, Bool.or_eq_true]
+      exact ⟨fun ⟨c, hc, hb⟩ => by
+               rcases List.mem_cons.1 hc with rfl | hc
+               · exact Or.inl hb
+               · exact Or.inr (ih.1 ⟨c, hc, hb⟩),
+             fun h => by
+               rcases h with h | h
+               · exact ⟨x, List.mem_cons_self .., h⟩
+               · obtain ⟨c, hc, hb⟩ := ih.2 h
+                 exact ⟨c, List.mem_cons_of_mem x hc, hb⟩⟩
+
+/-- No blank exists iff `any isBlank` reports `false`. -/
+theorem blank_free_of_not_any (ds : List UInt8) (h : ds.any isBlank = false) :
+    ∀ c ∈ ds, isBlank c = false := by
+  intro c hc
+  cases hb : isBlank c with
+  | false => rfl
+  | true => exact absurd ((exists_blank_iff ds).1 ⟨c, hc, hb⟩) (by rw [h]; simp)
+
+/-- **A `strip`-empty non-empty list with no blank is a zero spelling.** `strip_nil_all`
+gives blank-or-zero-digit per byte; with no blank every byte is a zero digit, and a
+non-empty zero-digit run is a zero spelling by construction. -/
+theorem isZeroSpelling_of_strip_nil_blank_free (b : Nat) :
+    ∀ {ds : List UInt8}, ds ≠ [] → strip b ds = [] →
+      (∀ c ∈ ds, isBlank c = false) → isZeroSpelling b ds = true := by
+  intro ds
+  induction ds with
+  | nil => intro hne _ _; exact absurd rfl hne
+  | cons x xs ih =>
+      intro _ hs hbf
+      have hall : ∀ c ∈ x :: xs, isBlank c = true ∨ isZeroDigit b c = true :=
+        fun c hc => strip_nil_all b hs c hc
+      have hx : isZeroDigit b x = true := by
+        rcases hall x (List.mem_cons_self ..) with hb | hz
+        · exact absurd hb (by rw [hbf x (List.mem_cons_self ..)]; simp)
+        · exact hz
+      rw [isZeroSpelling_cons_zeros (hbf x (List.mem_cons_self ..)), isZeroZeros_cons]
+      exact ⟨hx, fun y hy => by
+        rcases hall y (List.mem_cons_of_mem x hy) with hb | hz
+        · exact absurd hb (by rw [hbf y (List.mem_cons_of_mem x hy)]; simp)
+        · exact hz⟩
+
+/-- **A `strip`-empty non-empty list that is not a zero spelling contains a blank.**
+
+Constructive and `Bool`-directed: `strip_nil_all` gives blank-or-zero-digit per byte, and
+`isZeroSpelling_of_strip_nil_blank_free` turns "no blank" into a zero spelling. So either a
+blank is found — the conclusion — or the list is a zero spelling, which `hns` refutes. The
+`any isBlank` search is what keeps the case split decidable, and therefore keeps
+`Classical.choice` out: `Classical.byContradiction` closes this in one line and leaks it
+(measured on this lemma). -/
+theorem exists_blank_of_strip_nil_not_spelling (b : Nat) :
+    ∀ {ds : List UInt8}, ds ≠ [] → strip b ds = [] → ¬ isZeroSpelling b ds = true →
+      ∃ c ∈ ds, isBlank c = true := by
+  intro ds
+  induction ds with
+  | nil => intro hne _ _; exact absurd rfl hne
+  | cons x xs ih =>
+      intro hne hs hns
+      cases hany : (x :: xs).any isBlank with
+      | true => exact (exists_blank_iff _).2 hany
+      | false =>
+          exact absurd (isZeroSpelling_of_strip_nil_blank_free b (by simp) hs
+            (blank_free_of_not_any _ hany)) hns
+
 /-- `trimFor` rejecting a non-empty-all-blank input means the fold rejects it too.
 
 The empty input is excluded on purpose: `trimFor b [] = none` (it names no number) while
 `toNat b [] = some 0` (a by-product of the fold's base case). That asymmetry is D4's point,
 and it is why the statement carries `ds ≠ []`. -/
-theorem trimFor_none_toNat_none {b : Nat} {ds : List UInt8} (hnel : ds ≠ [])
-    (h : trimFor b ds = none) : toNat b ds = none := by
-  unfold trimFor at h
+theorem trimFor_none_toNat_none {b : Nat} (hr : IsRadix b) {ds : List UInt8}
+    (hnel : ds ≠ []) (h : trimFor b ds = none) : toNat b ds = none := by
+  simp only [trimFor] at h
   by_cases hs : strip b ds = []
   · rw [ite_eq_left hs] at h
-    by_cases hnil : ds = []
-    · exact absurd hnil hnel
-    · rw [ite_eq_right hnil] at h
-      by_cases hd : isDigits b ds = true
-      · rw [ite_eq_left hd] at h; exact absurd h (by simp)
-      · have hf : isDigits b ds = false := by
-          cases hh : isDigits b ds <;> simp_all
-        exact toNat_none_of_not_digits hf
+    by_cases hd : isZeroSpelling b ds = true
+    · rw [ite_eq_left hd] at h; exact absurd h (by simp)
+    · -- `strip` emptied `ds`, so every byte is a blank or a zero digit; a list that is
+      -- not a zero spelling therefore contains a **blank**, and a blank is in no alphabet
+      have hblank : ∃ c ∈ ds, isBlank c = true :=
+        exists_blank_of_strip_nil_not_spelling b hnel hs hd
+      exact toNat_none_of_mem_blank hr hblank
   · rw [ite_eq_right hs] at h
     by_cases hd : isDigits b (strip b ds) = true
     · rw [ite_eq_left hd] at h; exact absurd h (by simp)
     · have hf : isDigits b (strip b ds) = false := by
-        cases hh : isDigits b (strip b ds) <;> simp_all
+        cases hh : isDigits b (strip b ds) with
+        | false => rfl
+        | true => exact absurd hh hd
       -- `strip` only removes blanks and zero digits, both of which are handled; a
       -- non-digit surviving `strip` is a non-digit of `ds`, so the fold rejects `ds` too
       exact toNat_none_of_not_digits (isDigits_strip_false hf)
@@ -1514,7 +1862,7 @@ theorem normF_idem (b : Nat) (hr : IsRadix b) (ds : List UInt8) :
   | none =>
       have h1 : normF b ds = ofNat b 0 := by rw [normF_def, h]; rfl
       rw [h1, normF_of_trim (trimFor_ofNat hr)]
-  | some t => rw [normF_of_trim h, normF_of_trim (trimFor_idem hr h)]
+  | some t => rw [normF_of_trim h, normF_of_trim (trimFor_idem h)]
 
 /-- Every fixed point of `normF` is a numeral `trimFor` accepts. -/
 theorem fixed_is_numeral {b : Nat} (hr : IsRadix b) {ds : List UInt8}
