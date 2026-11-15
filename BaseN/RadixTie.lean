@@ -944,7 +944,152 @@ theorem toNat_b64_unapply_three (b0 b1 b2 : UInt8) :
   rw [Option.some.injEq]
   omega
 
+/-- **The base-64 tie, `→`, at the block's own encoding vector.**
+
+Read as: the block's `apply` on the characters it itself writes for `bs` returns `bs`, and
+the generic fold on those same characters returns `beVal bs`. So the two agree on every
+input the block accepts *canonically* — which, because `b64BlockApply` re-encodes and
+compares, is every input it accepts at all (`b64BlockIso_law`).
+
+**No domain hypothesis**, unlike bases 8 and 10: four base-64 characters reach
+`2^24 - 1 = 16777215`, exactly a whole 3-byte block, so the codomain cannot be
+overflowed. -/
+theorem b64BlockApply_of_toNat (b0 b1 b2 : UInt8) :
+    toNat 64 [BaseN.Base64.toByte (BaseN.Base64.valToB64 (b0.toNat / 4)),
+              BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
+              BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)),
+              BaseN.Base64.toByte (BaseN.Base64.valToB64 (b2.toNat % 64))]
+        = some (beVal [b0, b1, b2])
+    ∧ BaseN.Base64.b64BlockApply
+        [BaseN.Base64.toByte (BaseN.Base64.valToB64 (b0.toNat / 4)),
+         BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
+         BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)),
+         BaseN.Base64.toByte (BaseN.Base64.valToB64 (b2.toNat % 64))]
+        = some [b0, b1, b2] := by
+  refine ⟨toNat_b64_unapply_three b0 b1 b2, ?_⟩
+  exact (BaseN.Base64.b64BlockIso_law _ _).2 rfl
+
+/-- **The base-64 tie, `←`, on the pad-free block.** A 4-character base-64 block is pad-free
+exactly when it encodes three bytes; the 1- and 2-byte blocks carry `=`, which is outside the
+fold's alphabet, so those are outside its domain and this statement does not claim otherwise.
+That restriction is an *arity* fact, not a canonicity guard — the same shape as
+`toNat 32 [77,89,61,…] = none` while the block accepts it. -/
+theorem toNat_of_b64BlockApply_three (cs : List UInt8) (b0 b1 b2 : UInt8)
+    (h : BaseN.Base64.b64BlockApply cs = some [b0, b1, b2]) :
+    toNat 64 cs = some (beVal [b0, b1, b2]) := by
+  have hun : BaseN.Base64.b64BlockUnapply [b0, b1, b2] = some cs :=
+    (BaseN.Base64.b64BlockIso_law cs [b0, b1, b2]).1 h
+  simp only [BaseN.Base64.b64BlockUnapply, Option.some.injEq] at hun
+  rw [← hun]
+  exact toNat_b64_unapply_three b0 b1 b2
+
+/-- The base-32 block's own encoding of five bytes, read by the generic fold. Same bridge
+as base 64's, one block wider: eight characters reaching `2^40 - 1`, exactly a 5-byte block,
+so no domain hypothesis is needed. -/
+theorem toNat_b32_unapply_five (b0 b1 b2 b3 b4 : UInt8) :
+    toNat 32 [BaseN.Base32.toByte (BaseN.Base32.valToB32 (b0.toNat / 8)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b0.toNat % 8) * 4 + b1.toNat / 64)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b1.toNat / 2) % 32)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b2.toNat % 16) * 2 + b3.toNat / 128)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat / 4) % 32)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat % 4) * 8 + b4.toNat / 32)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 (b4.toNat % 32))]
+      = some (beVal [b0, b1, b2, b3, b4]) := by
+  have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+  have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+  have hb2 : b2.toNat < 256 := UInt8.toNat_lt b2
+  have hb3 : b3.toNat < 256 := UInt8.toNat_lt b3
+  have hb4 : b4.toNat < 256 := UInt8.toNat_lt b4
+  have c0 : BaseN.Base32.toByte (BaseN.Base32.valToB32 (b0.toNat / 8))
+      = byteOfDigit 32 (b0.toNat / 8) := by rw [valToB32_eq_byteOfDigitNat]; rfl
+  have c1 : BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b0.toNat % 8) * 4 + b1.toNat / 64))
+      = byteOfDigit 32 ((b0.toNat % 8) * 4 + b1.toNat / 64) := by
+    rw [valToB32_eq_byteOfDigitNat]; rfl
+  have c2 : BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b1.toNat / 2) % 32))
+      = byteOfDigit 32 ((b1.toNat / 2) % 32) := by rw [valToB32_eq_byteOfDigitNat]; rfl
+  have c3 : BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16))
+      = byteOfDigit 32 ((b1.toNat % 2) * 16 + b2.toNat / 16) := by
+    rw [valToB32_eq_byteOfDigitNat]; rfl
+  have c4 : BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b2.toNat % 16) * 2 + b3.toNat / 128))
+      = byteOfDigit 32 ((b2.toNat % 16) * 2 + b3.toNat / 128) := by
+    rw [valToB32_eq_byteOfDigitNat]; rfl
+  have c5 : BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat / 4) % 32))
+      = byteOfDigit 32 ((b3.toNat / 4) % 32) := by rw [valToB32_eq_byteOfDigitNat]; rfl
+  have c6 : BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat % 4) * 8 + b4.toNat / 32))
+      = byteOfDigit 32 ((b3.toNat % 4) * 8 + b4.toNat / 32) := by
+    rw [valToB32_eq_byteOfDigitNat]; rfl
+  have c7 : BaseN.Base32.toByte (BaseN.Base32.valToB32 (b4.toNat % 32))
+      = byteOfDigit 32 (b4.toNat % 32) := by rw [valToB32_eq_byteOfDigitNat]; rfl
+  rw [c0, c1, c2, c3, c4, c5, c6, c7]
+  rw [← show (List.map (byteOfDigit 32) [b0.toNat / 8,
+        (b0.toNat % 8) * 4 + b1.toNat / 64,
+        (b1.toNat / 2) % 32,
+        (b1.toNat % 2) * 16 + b2.toNat / 16,
+        (b2.toNat % 16) * 2 + b3.toNat / 128,
+        (b3.toNat / 4) % 32,
+        (b3.toNat % 4) * 8 + b4.toNat / 32,
+        b4.toNat % 32])
+      = [byteOfDigit 32 (b0.toNat / 8), byteOfDigit 32 ((b0.toNat % 8) * 4 + b1.toNat / 64),
+         byteOfDigit 32 ((b1.toNat / 2) % 32),
+         byteOfDigit 32 ((b1.toNat % 2) * 16 + b2.toNat / 16),
+         byteOfDigit 32 ((b2.toNat % 16) * 2 + b3.toNat / 128),
+         byteOfDigit 32 ((b3.toNat / 4) % 32),
+         byteOfDigit 32 ((b3.toNat % 4) * 8 + b4.toNat / 32),
+         byteOfDigit 32 (b4.toNat % 32)] from rfl]
+  rw [toNat_map_byteOfDigit (IsRadix.b32) _ (fun d hd => by
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hd
+    rcases hd with hd | hd | hd | hd | hd | hd | hd | hd <;> subst hd <;> omega)]
+  rw [show beVal [b0, b1, b2, b3, b4] = b0.toNat * 4294967296 + b1.toNat * 16777216
+      + b2.toNat * 65536 + b3.toNat * 256 + b4.toNat from beVal_five b0 b1 b2 b3 b4]
+  simp only [natVal, List.length_cons, List.length_nil, Nat.pow_zero, Nat.pow_succ,
+    Nat.mul_one, Nat.add_zero]
+  rw [Option.some.injEq]
+  omega
+
+/-- **The base-32 tie, `→`, at the block's own encoding vector.** Eight characters reach
+`2^40 - 1`, exactly a whole 5-byte block, so there is no domain hypothesis — the strong form
+of the paper's law, as for bases 2, 4 and 16. `b32BlockApply`'s re-encode-and-compare guard
+is what makes the `←` direction hold without a range bound. -/
+theorem b32BlockApply_of_toNat (b0 b1 b2 b3 b4 : UInt8) :
+    toNat 32 [BaseN.Base32.toByte (BaseN.Base32.valToB32 (b0.toNat / 8)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b0.toNat % 8) * 4 + b1.toNat / 64)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b1.toNat / 2) % 32)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b2.toNat % 16) * 2 + b3.toNat / 128)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat / 4) % 32)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat % 4) * 8 + b4.toNat / 32)),
+              BaseN.Base32.toByte (BaseN.Base32.valToB32 (b4.toNat % 32))]
+        = some (beVal [b0, b1, b2, b3, b4])
+    ∧ BaseN.Base32.b32BlockApply
+        [BaseN.Base32.toByte (BaseN.Base32.valToB32 (b0.toNat / 8)),
+         BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b0.toNat % 8) * 4 + b1.toNat / 64)),
+         BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b1.toNat / 2) % 32)),
+         BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b1.toNat % 2) * 16 + b2.toNat / 16)),
+         BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b2.toNat % 16) * 2 + b3.toNat / 128)),
+         BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat / 4) % 32)),
+         BaseN.Base32.toByte (BaseN.Base32.valToB32 ((b3.toNat % 4) * 8 + b4.toNat / 32)),
+         BaseN.Base32.toByte (BaseN.Base32.valToB32 (b4.toNat % 32))]
+        = some [b0, b1, b2, b3, b4] := by
+  refine ⟨toNat_b32_unapply_five b0 b1 b2 b3 b4, ?_⟩
+  exact (BaseN.Base32.b32BlockIso_law _ _).2 rfl
+
+/-- **The base-32 tie, `←`, on the pad-free block.** Eight base-32 characters are pad-free
+exactly when they encode five bytes; shorter blocks carry `=`, outside the fold's alphabet,
+so this statement is over the full 5-byte block only — an arity fact, not a canonicity guard. -/
+theorem toNat_of_b32BlockApply_five (cs : List UInt8) (b0 b1 b2 b3 b4 : UInt8)
+    (h : BaseN.Base32.b32BlockApply cs = some [b0, b1, b2, b3, b4]) :
+    toNat 32 cs = some (beVal [b0, b1, b2, b3, b4]) := by
+  have hun : BaseN.Base32.b32BlockUnapply [b0, b1, b2, b3, b4] = some cs :=
+    (BaseN.Base32.b32BlockIso_law cs [b0, b1, b2, b3, b4]).1 h
+  simp only [BaseN.Base32.b32BlockUnapply, Option.some.injEq] at hun
+  rw [← hun]
+  exact toNat_b32_unapply_five b0 b1 b2 b3 b4
+
 end BaseN.RadixTie
+
+
+
 
 
 
