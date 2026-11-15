@@ -7,6 +7,64 @@ the OpenSpec ledger in the sibling `lean-codec` repo
 (`openspec/changes/lean-basen/`) records the task-level detail, and `AGENTS.md`
 records the conventions.
 
+## 2026-11-15 — case folding is one pre-pass, not a tier
+
+`Base16` carried a **24-theorem case-folding tier** — 27% of the file — so that `6f` and
+`6F` both decoded. It was built on a **misquoted RFC**: the header said "RFC 4648 §8
+requires a decoder to accept both cases". §8 says the opposite —
+
+> "Base 16 encoding does not require case insensitivity; however, Base 16 decoders
+> **MAY** accept lowercase letters."
+
+`MAY`, not `MUST`. Lowercase acceptance is an optional convenience and the strict
+uppercase-only decoder is conformant on its own. (`codec` corrected this same misquote
+in `codec-audit-round-eight` M-1; `basen` never got the fix, which is why the tier
+outlived its own justification.)
+
+The tier was also a **parallel implementation** of `Codec/Normal.lean`, and did not use
+the `Normal` `Iso` it constructed: `decodeHexFold` went through `hexRun`, and
+`hexBlockIsoF` had no caller outside the tier's own lemmas.
+
+**What replaces it is one shared pre-pass.** `BaseN.Common.upperByte`/`upperBytes` — a
+total idempotent `UInt8 → UInt8` map lifted pointwise, with a `Normalizer` instance from
+its idempotence — composed **outside** each base's strict decoder:
+
+```lean
+decodeHexFold s := Run.decodeFull hexRun (upperBytes s)   -- base 16
+decodeB32Fold s := decodeFullB32 (upperBytes s)           -- base 32
+```
+
+It lives in `basen`, not `codec`: it is a concrete alphabet operation, and `codec` ships
+no concrete format by design. What `codec` supplies is the _mechanism_
+(`Normalizer`/`decodeNormal`), which these use rather than re-derive.
+
+**Base 32 gained the decoder, purely additively.** Its alphabet has no lowercase symbols
+either (`b32ToVal` has no `97`–`122` branch), so `"my======"` was rejected while
+`"MY======"` decoded — measured. `strict_rejects_lowercase` pins that the strict decoder
+still rejects it, so the widening cannot have quietly become its behaviour.
+
+**Base 64 is excluded, and the exclusion is asserted.** Its alphabet uses all 64 symbols
+including 26 lowercase letters, so case is _data_: `"TWFu"` decodes to `[77, 97, 110]`
+("Man") while `"twfu"` decodes to `[183, 7, 238]` — a different, equally well-formed
+value. Uppercasing there is silent corruption, not normalisation. `Bench.b64Lower_decodes`
+pins both, so a later "helpful" extension breaks the build.
+
+**Mutation-tested, per base, because the failure mode is silent corruption:**
+
+| mutation                             | caught at                        |
+| ------------------------------------ | -------------------------------- |
+| `upperByte` becomes the identity     | `Common`'s own arithmetic lemmas |
+| the fold's offset `-32` → `-31`      | `Common:765`                     |
+| `decodeHexFold` without the pre-pass | `Base16:689`, `:711`             |
+| `decodeB32Fold` without the pre-pass | `Base32:3998`, `:4009`, `:4054`  |
+
+Every law is `[propext, Quot.sound]`-only or axiom-free, and pinned by a `#guard_msgs`
+block: the gate fails the build on any un-pinned public theorem.
+
+**Net: −24 theorems** (gate `722 = 670 + 52` → `698 = 646 + 52`), −29 pins for the
+deleted tier, +19 for the pre-pass and the two decoders, and `hexBlockIsoF` off the
+definition allowlist (`17` → `16`).
+
 ## 2026-11-15 — the numeral layer, and every block iso tied to it
 
 `basen` decoded text to `List UInt8` and **never to a number**. This adds the one missing

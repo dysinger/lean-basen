@@ -17,15 +17,15 @@ and adding Base2/4/10.
 
 ## Status
 
-| Base   | RFC     | Alph. / padding                    | Status    |
-| ------ | ------- | ---------------------------------- | --------- |
-| Base2  | —       | `0`/`1`, 8 chars/byte, MSB-first   | ✅ proven |
-| Base4  | —       | `0-3`, 4 chars/byte                | ✅ proven |
-| Base8  | —       | `0-7`, 3 digits/byte               | ✅ proven |
-| Base10 | —       | `0-9`, 3 digits/byte, no sign      | ✅ proven |
-| Base16 | 4648 §8 | `0-9A-F` (case-insensitive decode) | ✅ proven |
-| Base32 | 4648 §6 | `A-Z2-7`, `=` padding              | ✅ proven |
-| Base64 | 4648 §4 | `A-Za-z0-9+/`, `=` padding         | ✅ proven |
+| Base   | RFC     | Alph. / padding                            | Status    |
+| ------ | ------- | ------------------------------------------ | --------- |
+| Base2  | —       | `0`/`1`, 8 chars/byte, MSB-first           | ✅ proven |
+| Base4  | —       | `0-3`, 4 chars/byte                        | ✅ proven |
+| Base8  | —       | `0-7`, 3 digits/byte                       | ✅ proven |
+| Base10 | —       | `0-9`, 3 digits/byte, no sign              | ✅ proven |
+| Base16 | 4648 §8 | `0-9A-F`, lowercase accepted on decode     | ✅ proven |
+| Base32 | 4648 §6 | `A-Z2-7`, `=` padding, lowercase on decode | ✅ proven |
+| Base64 | 4648 §4 | `A-Za-z0-9+/`, `=` padding                 | ✅ proven |
 
 **Scope: these are digit encodings, not numeric ones — and that is why there is no
 leading-zero question here.** Every base in this package is a `Codec (List UInt8)`:
@@ -47,27 +47,36 @@ a contradictory pair. The two sound answers, both already used here, are:
 - **strict** — reject the non-canonical spelling in the decoder, so `dec` accepts
   exactly `enc`'s image and the law is true (this is `[D12]`/`[D13]`'s choice);
 - **lenient** — keep the tolerance in a separately proved layer composed **outside**
-  the `Iso`, which is exactly what base16's `decodeHexFold` does with the case fold
-  below. Lax input is absorbed by the `Normal` layer, never by weakening `Iso.law`.
+  the `Iso`, which is exactly what `decodeHexFold` (base16) and `decodeB32Fold`
+  (base32) do with the case pre-pass below. Lax input is absorbed by the `Normal`
+  layer, never by weakening `Iso.law`.
 
-**Which decoder owns which law — base16 is the one row where it differs.** For six
-of the seven bases there is exactly one decoder, so "proven" is unambiguous. Base16
-has two: the strict `decodeFull hexElem hexConsumesByte` and the RFC 4648 §8
-case-insensitive `decodeHexFold` (the strict decode composed with the case fold,
-`foldList`, applied **outside** the `Iso`). The ownership is:
+**Which decoder owns which law — base16 and base32 are the two rows where it differs.**
+For the other five bases there is exactly one decoder, so "proven" is unambiguous.
+Base16 has two: the strict `decodeFull hexElem hexConsumesByte` and the tolerant
+`decodeHexFold`. Base32 likewise has `decodeFullB32` and `decodeB32Fold`. In both, the
+tolerant one is the strict one composed with the shared case pre-pass
+(`BaseN.Common.upperBytes`) applied **outside** the `Iso`. The ownership is:
 
 - **the strict decoder owns** `roundtrip`, `decodeFull_canonical`,
   `decodeFull_B16_char`, `decode_encode_inverse` and `encode_injective` — every one of
-  them is stated over `hexElem`, which rejects lowercase;
-- **`decodeHexFold` owns** the two-case laws (`decodeHexBlockFold_case_insensitive`,
-  `decodeHexFold_lowercase_eq`, `decodeHexFold_both_cases`) **and**
-  `decodeHexFold_roundtrip`, which is the one that ties the case-insensitive reading
-  back to `encodeHex` — so §8 is met by a decoder that is a decoder of this package's
-  format, not merely a case-folding function.
+  them is stated over the strict alphabet, which rejects lowercase;
+- **the tolerant decoder owns** `decodeHexFold_lowercase_eq` / `decodeB32Fold_lowercase_eq`
+  and `decodeHexFold_roundtrip`, which is the one that ties the tolerant reading back to
+  `encodeHex` — so the reading is a decoder of this package's format, not merely a
+  case-folding function.
 
-The row's "case-insensitive decode" claim is therefore about `decodeHexFold` only,
-and the roundtrip/canonicality/converse/injectivity columns about `hexElem` only. A
-reader comparing the RFC against the table now knows which theorem backs each cell.
+**Lowercase acceptance is a convenience, not a conformance obligation.** RFC 4648 §8
+says base 16 "does not require case insensitivity; however, Base 16 decoders **MAY**
+accept lowercase letters" — `MAY`, not `MUST`. The strict uppercase-only decoder is
+conformant on its own. An earlier revision of this file and of `Base16.lean` claimed
+§8 _required_ both cases, and a 24-theorem case-folding tier was built to satisfy the
+obligation; `basen-uppercase-prepass` removed it. `codec` corrected the same misquote
+in `codec-audit-round-eight` M-1.
+
+**Base64 has no case pre-pass and must not get one**, because its alphabet uses all 64
+symbols including 26 lowercase letters — there, case is _data_. See `BaseN/Base64.lean`'s
+header and `Bench.b64Lower_decodes`, which asserts the difference.
 
 The `BaseN` module **re-exports the seven per-base modules and nothing else**.
 There is deliberately **no** `Base` inductive and **no** `BaseN.roundtrip`
