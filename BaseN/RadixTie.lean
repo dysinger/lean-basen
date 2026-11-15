@@ -882,7 +882,71 @@ theorem beVal_five (v0 v1 v2 v3 v4 : UInt8) :
       + v2.toNat * 65536 + v3.toNat * 256 + v4.toNat := by
   simp [beVal]; omega
 
+/-- `valToB64` and `byteOfDigitNat 64` are the same alphabet — both are the RFC 4648
+table. No bound hypothesis is needed: both are total `Nat → Nat` chains, so this is an
+identity of the two definitions rather than a fact about a range. -/
+theorem valToB64_eq_byteOfDigitNat (v : Nat) :
+    BaseN.Base64.valToB64 v = byteOfDigitNat 64 v := by
+  unfold BaseN.Base64.valToB64 byteOfDigitNat
+  simp only [show ¬ (64 = 32) from by decide]
+  repeat (split <;> (try rfl) <;> omega)
+
+/-- `valToB32` and `byteOfDigitNat 32` are the same alphabet. -/
+theorem valToB32_eq_byteOfDigitNat (v : Nat) :
+    BaseN.Base32.valToB32 v = byteOfDigitNat 32 v := by
+  unfold BaseN.Base32.valToB32 byteOfDigitNat
+  repeat (split <;> (try rfl) <;> omega)
+
+/-- The base-64 block's own encoding of three bytes, read by the **generic fold**: the
+chars `unapply` writes are exactly `byteOfDigit 64` of the block's digit values, so the fold
+lands on `beVal` of the bytes. This is the bridge the `_L` tie needs, and it is why
+`valToB64_eq_byteOfDigitNat` was proved first. -/
+theorem toNat_b64_unapply_three (b0 b1 b2 : UInt8) :
+    toNat 64 [BaseN.Base64.toByte (BaseN.Base64.valToB64 (b0.toNat / 4)),
+              BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16)),
+              BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64)),
+              BaseN.Base64.toByte (BaseN.Base64.valToB64 (b2.toNat % 64))]
+      = some (beVal [b0, b1, b2]) := by
+  have c0 : BaseN.Base64.toByte (BaseN.Base64.valToB64 (b0.toNat / 4))
+      = byteOfDigit 64 (b0.toNat / 4) := by
+    rw [valToB64_eq_byteOfDigitNat]; rfl
+  have c1 : BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b0.toNat % 4) * 16 + b1.toNat / 16))
+      = byteOfDigit 64 ((b0.toNat % 4) * 16 + b1.toNat / 16) := by
+    rw [valToB64_eq_byteOfDigitNat]; rfl
+  have c2 : BaseN.Base64.toByte (BaseN.Base64.valToB64 ((b1.toNat % 16) * 4 + b2.toNat / 64))
+      = byteOfDigit 64 ((b1.toNat % 16) * 4 + b2.toNat / 64) := by
+    rw [valToB64_eq_byteOfDigitNat]; rfl
+  have c3 : BaseN.Base64.toByte (BaseN.Base64.valToB64 (b2.toNat % 64))
+      = byteOfDigit 64 (b2.toNat % 64) := by
+    rw [valToB64_eq_byteOfDigitNat]; rfl
+  rw [c0, c1, c2, c3]
+  rw [← show (List.map (byteOfDigit 64) [b0.toNat / 4,
+        (b0.toNat % 4) * 16 + b1.toNat / 16,
+        (b1.toNat % 16) * 4 + b2.toNat / 64,
+        b2.toNat % 64])
+      = [byteOfDigit 64 (b0.toNat / 4), byteOfDigit 64 ((b0.toNat % 4) * 16 + b1.toNat / 16),
+         byteOfDigit 64 ((b1.toNat % 16) * 4 + b2.toNat / 64),
+         byteOfDigit 64 (b2.toNat % 64)] from rfl]
+  have hb0 : b0.toNat < 256 := UInt8.toNat_lt b0
+  have hb1 : b1.toNat < 256 := UInt8.toNat_lt b1
+  have hb2 : b2.toNat < 256 := UInt8.toNat_lt b2
+  rw [toNat_map_byteOfDigit (IsRadix.b64) _ (fun d hd => by
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hd
+    rcases hd with hd | hd | hd | hd <;> subst hd
+    · omega
+    · omega
+    · omega
+    · omega)]
+  rw [show beVal [b0, b1, b2] = b0.toNat * 65536 + b1.toNat * 256 + b2.toNat from
+    beVal_three b0 b1 b2]
+  simp only [natVal, List.length_cons, List.length_nil, Nat.pow_zero, Nat.pow_succ,
+    Nat.mul_one, Nat.add_zero]
+  rw [Option.some.injEq]
+  omega
+
 end BaseN.RadixTie
+
+
 
 
 
